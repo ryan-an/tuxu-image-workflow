@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.npm-cache/
+build-server/
+build-test/
+data/
+.env
+.env.*
+!.env.example
+
+# Local regression screenshots, exports, and backups
+/*.png
+/*.xlsx
+/*.zip
+/backup-check.json
+*.log

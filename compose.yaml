@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    environment:
+      DATABASE_PATH: /app/data/workspace.sqlite
+      ASSET_DIRECTORY: /app/data/assets
+      CREDENTIAL_SECRET: ${CREDENTIAL_SECRET:?Run npm run setup first}
+      APP_PASSWORD: ${APP_PASSWORD:?Run npm run setup first}
+    ports:
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - workspace:/app/data
+    restart: unless-stopped
+volumes:
+  workspace:

@@ -1,0 +1,22 @@
+const {chromium}=require('C:/Users/root/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const ExcelJS=require('exceljs');const JSZip=require('jszip');const fs=require('node:fs/promises');const assert=require('node:assert/strict');
+(async()=>{
+ const b=await chromium.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe'}),p=await b.newPage({acceptDownloads:true,viewport:{width:1440,height:1000}});const errors=[];p.on('pageerror',e=>errors.push(e.message));
+ await p.route('**/api/workflow/settings',async r=>{const input=r.request().method()==='POST'?r.request().postDataJSON():{};const {apiKey,...safe}=input;return r.fulfill({json:{baseUrl:'https://grsai.dakka.com.cn',imageModel:'nano-banana-2',promptModel:'gemini-3.1-pro',aspectRatio:'1:1',imageSize:'1K',gptSize:'1024x1024',quality:'auto',mode:'demo',...safe,hasKey:!!apiKey}});});
+ await p.goto('http://127.0.0.1:5173/');await p.waitForFunction(()=>window.workflow);
+ await p.click('#key-button');await p.locator('#key-form [name="apiKey"]').fill('test-secret-not-saved');await p.locator('#key-form button[type=submit]').click();await p.waitForFunction(()=>document.querySelector('#key-button').textContent==='密钥已配置');assert.ok(!(await p.evaluate(()=>JSON.stringify(workflow.state))).includes('test-secret-not-saved'));
+ await p.click('#mode-button');await p.locator('#image-model').selectOption('gpt-image-2.5-flare');assert.equal(await p.locator('#gpt-options').isVisible(),true);assert.equal(await p.locator('#nano-options').isVisible(),false);assert.equal(await p.locator('[name="quality"]').inputValue(),'medium');
+ await p.locator('[name="apiKey"]').fill('test-secret-not-saved');await p.locator('#settings-form button[type=submit]').click();await p.waitForFunction(()=>workflow.state.settings.imageModel==='gpt-image-2.5-flare');
+ assert.ok(!(await p.evaluate(()=>JSON.stringify(workflow.state))).includes('test-secret-not-saved'));
+ const firstTask=await p.evaluate(()=>workflow.state.products[0].tasks[0].id);
+ for (const checkbox of await p.locator(`[data-action="select-version"][data-task="${firstTask}"]`).all()) await checkbox.check();
+ let waiting=p.waitForEvent('download');await p.locator('[data-action="download-selected"]').click();const zipDownload=await waiting;await zipDownload.saveAs('selected-check.zip');
+ const zip=await JSZip.loadAsync(await fs.readFile('selected-check.zip'));const imageFiles=Object.keys(zip.files).filter(name=>!zip.files[name].dir);assert.equal(imageFiles.length,1);assert.ok(imageFiles.some(name=>name.endsWith('V1.png')));
+ await p.locator('[data-action="view"][data-view="sheet"]').click();await p.waitForFunction(()=>workflow.bridge.workbook);
+ await p.evaluate(()=>{const s=workflow.bridge.workbook.getSheetBySheetId('preview');s.getRange('O2').setValue(42);s.getRange('O3').setFormula('=O2*2');});
+ waiting=p.waitForEvent('download');await p.locator('[data-action="export-excel"]').click();const excel=await waiting;await excel.saveAs('workflow-check.xlsx');
+ const wb=new ExcelJS.Workbook();await wb.xlsx.readFile('workflow-check.xlsx');assert.deepEqual(wb.worksheets.map(s=>s.name),['工作流预览','外部粘贴']);const sheet=wb.getWorksheet('工作流预览');assert.equal(sheet.getImages().length,23);assert.equal(sheet.getCell('E3').value.includes('尺寸图'),true);assert.equal(sheet.getCell('O3').value.formula,'O2*2');assert.deepEqual([2,3,4].map(r=>sheet.getCell(r,3).value),['示例图','提示词','结果图']);
+ waiting=p.waitForEvent('download');await p.locator('[data-action="backup"]').click();const backup=await waiting;await backup.saveAs('backup-check.json');const saved=JSON.parse(await fs.readFile('backup-check.json','utf8'));assert.equal(saved.products.length,30);assert.equal(saved.products[0].tasks[0].selectedIds.length,1);assert.ok(!JSON.stringify(saved).includes('test-secret-not-saved'));
+ await p.locator('#restore-input').setInputFiles('backup-check.json');await p.waitForFunction(()=>window.workflow&&workflow.state.paused===true);assert.equal(await p.evaluate(()=>workflow.state.products[0].tasks[0].selectedIds.length),2);
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({gptOptions:true,noKeyInBackup:true,zipImages:1,excelImages:23,threeRows:true,formulaPreserved:true,backupRestore:true,errors}));await b.close();
+})().catch(e=>{console.error(e);process.exit(1);});

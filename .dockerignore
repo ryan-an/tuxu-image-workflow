@@ -1,0 +1,11 @@
+node_modules
+dist
+build-server
+build-test
+data
+.env
+.npm-cache
+*.png
+*.xlsx
+*.zip
+*-check.json

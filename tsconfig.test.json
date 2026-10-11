@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "build-test",
+    "rootDir": ".",
+    "sourceMap": true
+  },
+  "include": ["server/production/**/*.ts", "shared/**/*.js"]
+}

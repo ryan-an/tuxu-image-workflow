@@ -1,0 +1,197 @@
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
+import { resolve, join } from "node:path";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+import { request as httpsRequest } from "node:https";
+import type { IncomingMessage } from "node:http";
+import type { Database } from "./types.js";
+import { AppError } from "./types.js";
+export const ASSET_PATH = /^\/api\/assets\/([a-f0-9]{64})$/;
+const MAX_IMAGE = 40 * 1024 * 1024;
+export class Assets {
+  private root: string;
+  constructor(
+    private db: Database,
+    root: string,
+  ) {
+    this.root = resolve(root);
+  }
+  async put(bytes: Buffer, mime: string) {
+    mime = mime.split(";")[0].toLowerCase();
+    const valid =
+      (mime === "image/png" &&
+        bytes
+          .subarray(0, 8)
+          .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) ||
+      (mime === "image/jpeg" &&
+        bytes[0] === 255 &&
+        bytes[1] === 216 &&
+        bytes[2] === 255) ||
+      (mime === "image/webp" &&
+        bytes.toString("ascii", 0, 4) === "RIFF" &&
+        bytes.toString("ascii", 8, 12) === "WEBP") ||
+      (mime === "image/gif" &&
+        /^GIF8[79]a$/.test(bytes.toString("ascii", 0, 6)));
+    if (!valid || bytes.length > MAX_IMAGE)
+      throw new AppError("图片格式无效或超过 40MB");
+    const id = createHash("sha256").update(mime).update(bytes).digest("hex");
+    await mkdir(this.root, { recursive: true });
+    const temporary = join(this.root, `${id}.${randomUUID()}.tmp`);
+    try {
+      await writeFile(temporary, bytes, { flag: "wx" });
+      await rename(temporary, join(this.root, id));
+    } finally {
+      await unlink(temporary).catch(() => {});
+    }
+    await this.db.query(
+      "INSERT INTO assets(id,mime,bytes) VALUES($1,$2,$3) ON CONFLICT(id) DO NOTHING",
+      [id, mime, bytes.length],
+    );
+    return `/api/assets/${id}`;
+  }
+  async get(id: string) {
+    if (!/^[a-f0-9]{64}$/.test(id)) throw new AppError("图片不存在", 404);
+    const row = (await this.db.query("SELECT * FROM assets WHERE id=$1", [id]))
+      .rows[0];
+    if (!row) throw new AppError("图片不存在", 404);
+    return { bytes: await readFile(join(this.root, id)), mime: row.mime };
+  }
+  async normalize(value: any): Promise<any> {
+    if (typeof value === "string" && value.startsWith("data:image/")) {
+      const parsed =
+        /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/.exec(
+          value,
+        );
+      if (!parsed) throw new AppError("不支持的图片编码");
+      return this.put(Buffer.from(parsed[2], "base64"), parsed[1]);
+    }
+    if (Array.isArray(value)) {
+      const result = [];
+      for (const item of value) result.push(await this.normalize(item));
+      return result;
+    }
+    if (value && typeof value === "object") {
+      const result: Record<string, any> = {};
+      for (const [key, item] of Object.entries(value)) {
+        if (["__proto__", "constructor", "prototype"].includes(key))
+          throw new AppError("无效字段");
+        result[key] = await this.normalize(item);
+      }
+      return result;
+    }
+    return value;
+  }
+  async providerSource(source: string) {
+    const match = ASSET_PATH.exec(source);
+    if (match) {
+      const { bytes, mime } = await this.get(match[1]);
+      return `data:${mime};base64,${bytes.toString("base64")}`;
+    }
+    if (source.startsWith("data:image/")) return source;
+    if (/^https:\/\//.test(source)) return source;
+    throw new AppError("无效的素材地址");
+  }
+  async download(source: string, signal: AbortSignal) {
+    if (source.startsWith("data:image/")) return this.normalize(source);
+    const { bytes, mime } = await downloadImage(source, signal);
+    return this.put(bytes, mime);
+  }
+}
+function privateAddress(address: string): boolean {
+  if (isIP(address) === 4) {
+    const [a, b] = address.split(".").map(Number);
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      a >= 224 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127)
+    );
+  }
+  const lower = address.toLowerCase();
+  return (
+    lower === "::" ||
+    lower === "::1" ||
+    /^f[cd]/.test(lower) ||
+    /^fe[89ab]/.test(lower) ||
+    lower.startsWith("::ffff:") ||
+    lower.startsWith("ff")
+  );
+}
+export async function downloadImage(
+  source: string,
+  signal: AbortSignal,
+  allowedHosts?: string[],
+) {
+  let url = new URL(source);
+  for (let hop = 0; hop < 4; hop++) {
+    if (
+      url.protocol !== "https:" ||
+      url.port ||
+      url.username ||
+      url.password ||
+      (allowedHosts && !allowedHosts.includes(url.hostname))
+    )
+      throw new AppError("不允许的图片地址");
+    const addresses = await lookup(url.hostname.replace(/^\[|\]$/g, ""), {
+      all: true,
+    });
+    if (!addresses.length || addresses.some((a) => privateAddress(a.address)))
+      throw new AppError("不允许访问内部网络");
+    // Pin the validated DNS addresses to the connection; resolving twice would
+    // leave a DNS rebinding window between validation and download.
+    const response = await new Promise<IncomingMessage>((resolve, reject) => {
+      const req = httpsRequest(
+        url,
+        {
+          signal,
+          lookup: (_hostname, options, callback) => {
+            if (options.all) callback(null, addresses);
+            else callback(null, addresses[0].address, addresses[0].family);
+          },
+        },
+        resolve,
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    const status = response.statusCode || 502;
+    if ([301, 302, 303, 307, 308].includes(status)) {
+      const location = response.headers.location;
+      response.destroy();
+      if (!location) throw new AppError("图片重定向无效");
+      url = new URL(location, url);
+      continue;
+    }
+    if (status < 200 || status >= 300) {
+      response.destroy();
+      throw new AppError(`图片下载失败 (${status})`, 502);
+    }
+    if (Number(response.headers["content-length"]) > MAX_IMAGE) {
+      response.destroy();
+      throw new AppError("图片过大");
+    }
+    const mime = response.headers["content-type"] || "";
+    if (!mime.startsWith("image/")) {
+      response.destroy();
+      throw new AppError("结果不是图片");
+    }
+    const chunks: Buffer[] = [];
+    let size = 0;
+    try {
+      for await (const value of response) {
+        size += value.length;
+        if (size > MAX_IMAGE) throw new AppError("图片过大");
+        chunks.push(Buffer.from(value));
+      }
+    } finally {
+      response.destroy();
+    }
+    return { bytes: Buffer.concat(chunks), mime };
+  }
+  throw new AppError("图片重定向次数过多");
+}
