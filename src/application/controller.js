@@ -1,3 +1,4 @@
+import { productPage } from "../view-models/product-page.js";
 import { createCommands } from "./commands.js";
 import { createFormCommands } from "./form-commands.js";
 import { createMedia } from "./media.js";
@@ -10,7 +11,7 @@ import { loadWorkspace } from "./bootstrap.js";
 import { bindBrowserEvents } from "./browser-events.js";
 import { WorkspaceClient } from "../services/workspace-client.js";
 import { RemoteQueue } from "../services/remote-queue.js";
-import { SheetBridge, parseSheet } from "../sheet-bridge.js";
+import { SheetBridge, parseSheet } from "../integrations/sheet-bridge.js";
 
 /** @returns {import("../ui/types.ts").ApplicationController} */
 export function createApplicationController() {
@@ -32,6 +33,7 @@ export function createApplicationController() {
   }
   function render() {
     if (ready && !disposed) {
+      bridge?.setProducts(productPage(state, ui).products);
       context.prepareThumbnails();
       publish();
     }
@@ -89,7 +91,6 @@ export function createApplicationController() {
         productId: isNew ? undefined : currentProduct()?.id,
       }),
     settings: () => showModal({ type: "settings" }),
-    keySettings: () => showModal({ type: "key" }),
     viewVersion: (task, version) =>
       showModal({
         type: "version",
@@ -99,9 +100,21 @@ export function createApplicationController() {
       }),
     queuePairs: async (pairs, kind) => {
       if (!pairs.length) return notify("当前没有可执行的产品图片位置");
-      if (state.settings.mode === "live" && !ui.hasKey) {
+      const promptOnly = ["prompt", "prompt-set"].includes(kind);
+      const needsPrompt =
+        promptOnly ||
+        kind === "full-workflow" ||
+        (kind === "workflow" && pairs.some(({ task }) => !task.prompt.trim()));
+      if (
+        state.settings.mode === "live" &&
+        ((!promptOnly && !ui.hasKey) || (needsPrompt && !ui.hasPromptKey))
+      ) {
         context.settings();
-        return notify("请先填写 Grsai 密钥，再执行真实生成");
+        return notify(
+          needsPrompt && !ui.hasPromptKey
+            ? "请先填写豆包 API Key"
+            : "请先填写 Grsai 生图 API Key",
+        );
       }
       const count = await queue.enqueue(pairs, kind);
       notify(
@@ -127,18 +140,31 @@ export function createApplicationController() {
     if (disposed) return;
     state = loaded.state;
     ui.hasKey = loaded.hasKey;
-    bridge = new SheetBridge(state, context.saveSoon, notify);
+    ui.hasPromptKey = loaded.hasPromptKey;
     if (loaded.production) {
       repository = new WorkspaceClient(state, {
         render,
         sync: context.syncTask,
+        syncBatch: async (work) => {
+          await bridge.batch(work);
+          context.saveSoon();
+        },
         notify,
       });
+    }
+    bridge = new SheetBridge(
+      state,
+      context.saveSoon,
+      notify,
+      store.setSheetConflicts,
+    );
+    bridge.setProducts(productPage(state, ui).products);
+    if (loaded.production) {
       const errors = await bridge.reconcile();
       if (errors.length) notify("结果已保留，表格回填失败：" + errors[0]);
       queue = new RemoteQueue(state, repository, notify);
     } else {
-      const { GenerationQueue } = await import("../queue.js");
+      const { GenerationQueue } = await import("../demo/queue.js");
       queue = new GenerationQueue(state, {
         change,
         sync: context.syncTask,
@@ -179,13 +205,30 @@ export function createApplicationController() {
       }
     },
     dispatch: safe(context.action),
+    flush: persistence.persist,
+    saveTaskPromptAndGenerate: context.saveTaskPromptAndGenerate,
     submit: safe(context.submit),
     changeField: safe(context.onChange),
     uploadFiles: context.uploadFiles,
     restoreBackup: context.restoreBackup,
-    setSearch: store.setSearch,
+    setSearch: (value) => {
+      ui.search = value;
+      ui.productPage = 1;
+      render();
+    },
+    setProductPage: (value) => {
+      ui.productPage = value;
+      const page = productPage(state, ui);
+      if (
+        page.products.length &&
+        !page.products.some((p) => p.id === state.activeProductId)
+      )
+        state.activeProductId = page.products[0].id;
+      render();
+    },
     closeModal,
     updateParser: context.updateParser,
+    resolveSheetConflict: safe(context.resolveSheetConflict),
     dispose: () => {
       disposed = true;
       repository?.stop();

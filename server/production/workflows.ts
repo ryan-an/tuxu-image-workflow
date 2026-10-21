@@ -1,8 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { editable, applyEdits, equal } from "../../shared/workspace-edits.js";
 import { ROLES, newProduct, savePrompt } from "../../shared/model.js";
-import { productPhotos } from "../../shared/prompt-suite.js";
+import {
+  productPhotos,
+  productRequirements,
+} from "../../shared/prompt-suite.js";
 import { baseUrl, MODELS } from "../../shared/provider-config.js";
+import { migratePromptSettings } from "../../shared/doubao.js";
 import { Repository, WORKSPACE } from "./repository.js";
 import { Credentials } from "./credentials.js";
 import { Assets } from "./assets.js";
@@ -19,6 +23,7 @@ const active = (j: Job) =>
 const configuration = [
   "baseUrl",
   "imageModel",
+  "promptProvider",
   "promptModel",
   "aspectRatio",
   "imageSize",
@@ -36,6 +41,10 @@ export function validateProduct(product: Product) {
     typeof product.name !== "string" ||
     !product.name.trim() ||
     typeof product.facts !== "string" ||
+    (product.promptRequirements != null &&
+      (typeof product.promptRequirements !== "string" ||
+        !product.promptRequirements.trim() ||
+        product.promptRequirements.length > 100000)) ||
     !Array.isArray(product.tasks) ||
     product.tasks.length !== 10 ||
     new Set(product.tasks.map((t) => t.id)).size !== 10 ||
@@ -43,6 +52,28 @@ export function validateProduct(product: Product) {
   )
     throw new AppError("产品资料或图片位置不完整");
   for (const t of product.tasks) {
+    const reasons: string[] = [];
+    const versions = Array.isArray(t.versions) ? t.versions : [];
+    const selected = Array.isArray(t.selectedIds) ? t.selectedIds : [];
+    if (!Array.isArray(t.versions)) reasons.push("invalid_history");
+    if (!Array.isArray(t.selectedIds) || selected.length > 1)
+      reasons.push("invalid_selection");
+    if (selected.some((id) => !versions.some((version) => version?.id === id)))
+      reasons.push("selected_not_in_history");
+    if (
+      t.primaryId !== null &&
+      !versions.some((version) => version?.id === t.primaryId)
+    )
+      reasons.push("primary_not_in_history");
+    if (
+      versions.some(
+        (version) =>
+          !version ||
+          typeof version.source !== "string" ||
+          !/^\/api\/assets\/[a-f0-9]{64}$/.test(version.source),
+      )
+    )
+      reasons.push("invalid_history_image");
     if (
       typeof t.id !== "string" ||
       !/^[A-Za-z0-9_-]{1,100}$/.test(t.id) ||
@@ -65,7 +96,15 @@ export function validateProduct(product: Product) {
       t.selectedIds.some((id) => !t.versions.some((v) => v.id === id)) ||
       (t.primaryId !== null && !t.versions.some((v) => v.id === t.primaryId))
     )
-      throw new AppError("图片位置、历史或选图关系无效");
+      throw new AppError(`图片位置、历史或选图关系无效（${t.role}）`, 400, {
+        event: "product.validation.failed",
+        productId: product.id,
+        taskId: t.id,
+        role: t.role,
+        reasons: reasons.length ? reasons : ["invalid_task_fields"],
+        versionCount: versions.length,
+        selectedCount: selected.length,
+      });
   }
   if (
     typeof product.photo !== "string" ||
@@ -84,18 +123,32 @@ export class Workflows {
   async settings() {
     const row = (
       await this.repo.db.query(
-        "SELECT document,credential FROM workspace WHERE id=$1",
+        "SELECT document,credential,prompt_credential FROM workspace WHERE id=$1",
         [WORKSPACE],
       )
     ).rows[0];
-    return { ...row.document.settings, mode: "live", hasKey: !!row.credential };
+    return {
+      ...row.document.settings,
+      mode: "live",
+      hasKey: !!row.credential,
+      hasPromptKey: !!row.prompt_credential,
+    };
   }
   async updateSettings(input: Record<string, any>) {
     return this.repo.db.transaction(async (tx) => {
       const row = await this.repo.lock(tx),
         state = await this.repo.view(tx);
       for (const key of Object.keys(input))
-        if (![...configuration, "apiKey", "clearKey", "mode"].includes(key))
+        if (
+          ![
+            ...configuration,
+            "apiKey",
+            "clearKey",
+            "promptApiKey",
+            "clearPromptKey",
+            "mode",
+          ].includes(key)
+        )
           throw new AppError("无效设置字段");
       if (input.mode && input.mode !== "live")
         throw new AppError("生产服务仅支持真实生成");
@@ -108,35 +161,68 @@ export class Workflows {
       baseUrl(state.settings.baseUrl);
       if (
         !MODELS.includes(state.settings.imageModel) ||
+        state.settings.promptProvider !== "doubao" ||
         !state.settings.promptModel?.trim()
       )
         throw new AppError("无效模型");
-      let credential = row.credential;
-      if (input.apiKey) {
-        if (typeof input.apiKey !== "string" || input.apiKey.length > 4096)
+      const updateKey = (
+        current: string | null,
+        value: unknown,
+        clear: unknown,
+      ) => {
+        if (
+          value !== undefined &&
+          (typeof value !== "string" || value.length > 4096)
+        )
           throw new AppError("无效密钥");
-        credential = this.credentials.encrypt(
-          input.apiKey.trim().replace(/^Bearer\s+/i, ""),
+        const key =
+          typeof value === "string"
+            ? value
+                .trim()
+                .replace(/^Bearer\s+/i, "")
+                .trim()
+            : "";
+        return clear ? null : key ? this.credentials.encrypt(key) : current;
+      };
+      const credential = updateKey(
+          row.credential,
+          input.apiKey,
+          input.clearKey,
+        ),
+        promptCredential = updateKey(
+          row.prompt_credential,
+          input.promptApiKey,
+          input.clearPromptKey,
         );
-      }
-      if (input.clearKey) credential = null;
       state.settings.mode = "live";
       await this.repo.saveWorkspace(tx, state);
-      await tx.query("UPDATE workspace SET credential=$2 WHERE id=$1", [
-        WORKSPACE,
-        credential,
-      ]);
-      return { ...state.settings, hasKey: !!credential };
+      await tx.query(
+        "UPDATE workspace SET credential=$2,prompt_credential=$3 WHERE id=$1",
+        [WORKSPACE, credential, promptCredential],
+      );
+      return {
+        ...state.settings,
+        hasKey: !!credential,
+        hasPromptKey: !!promptCredential,
+      };
     });
   }
-  async key() {
+  async key(provider: "image" | "doubao" = "image") {
     const row = (
-      await this.repo.db.query("SELECT credential FROM workspace WHERE id=$1", [
-        WORKSPACE,
-      ])
+      await this.repo.db.query(
+        "SELECT credential,prompt_credential FROM workspace WHERE id=$1",
+        [WORKSPACE],
+      )
     ).rows[0];
-    if (!row.credential) throw new AppError("请先配置平台密钥");
-    return this.credentials.decrypt(row.credential);
+    const credential =
+      provider === "doubao" ? row.prompt_credential : row.credential;
+    if (!credential)
+      throw new AppError(
+        provider === "doubao"
+          ? "请先配置豆包 API Key"
+          : "请先配置 Grsai 生图 API Key",
+      );
+    return this.credentials.decrypt(credential);
   }
   async edit(raw: any[]) {
     const edits = await this.assets.normalize(raw);
@@ -159,6 +245,7 @@ export class Workflows {
                 "code",
                 "name",
                 "facts",
+                "promptRequirements",
                 "photo",
                 "photos",
                 "photoThumbnail",
@@ -166,9 +253,13 @@ export class Workflows {
             (path[0] === "products" &&
               path.length === 5 &&
               path[2] === "tasks" &&
-              ["references", "prompt", "primaryId", "selectedIds"].includes(
-                path[4],
-              )));
+              [
+                "references",
+                "prompt",
+                "primaryId",
+                "selectedIds",
+                "imports",
+              ].includes(path[4])));
         if (!allowed) throw new AppError("该字段不能通过编辑接口修改");
       }
       try {
@@ -197,18 +288,21 @@ export class Workflows {
           "code",
           "name",
           "facts",
+          "promptRequirements",
           "photo",
           "photos",
           "photoThumbnail",
         ])
           (product as any)[key] = e[key];
         if (!existing)
-          product.tasks = Object.values(e.tasks).map((t: any) => ({
-            ...t,
-            revision: 0,
-            promptHistory: [],
-            versions: [],
-          }));
+          product.tasks = Object.values(e.tasks).map(
+            ({ imports, ...t }: any) => ({
+              ...t,
+              revision: 0,
+              promptHistory: [],
+              versions: [],
+            }),
+          );
         else
           for (const task of product.tasks) {
             const input = e.tasks[task.id];
@@ -220,6 +314,40 @@ export class Workflows {
             task.primaryId = input.primaryId;
             task.selectedIds = input.selectedIds;
           }
+        for (const task of product.tasks) {
+          const imports = e.tasks[task.id].imports || [];
+          if (!Array.isArray(imports)) throw new AppError("导入结果格式无效");
+          for (const version of imports) {
+            if (
+              !version ||
+              typeof version.id !== "string" ||
+              !/^[A-Za-z0-9_-]{1,100}$/.test(version.id) ||
+              typeof version.source !== "string" ||
+              !/^\/api\/assets\/[a-f0-9]{64}$/.test(version.source) ||
+              typeof version.prompt !== "string" ||
+              version.prompt.length > 100000 ||
+              version.origin !== "imported"
+            )
+              throw new AppError("导入结果格式无效");
+            const existingVersion = task.versions.find(
+              (item) => item.id === version.id,
+            );
+            if (existingVersion) {
+              if (
+                existingVersion.source !== version.source ||
+                existingVersion.prompt !== version.prompt ||
+                existingVersion.origin !== "imported"
+              )
+                throw new AppError("不能覆盖已有结果历史");
+            } else
+              task.versions.push({
+                ...version,
+                origin: "imported",
+                number: task.versions.length + 1,
+                createdAt: Date.now(),
+              });
+          }
+        }
         validateProduct(product);
         products.push(product);
       }
@@ -264,18 +392,22 @@ export class Workflows {
     kind: string,
   ) {
     if (
-      !["prompt", "prompt-set", "image", "workflow"].includes(kind) ||
+      !["prompt", "prompt-set", "image", "workflow", "full-workflow"].includes(
+        kind,
+      ) ||
       !pairs.length ||
       pairs.length > 3000
     )
       throw new AppError("无效任务请求");
     return this.command(id, { pairs, kind }, async (tx, state) => {
       const row = (
-        await tx.query("SELECT credential FROM workspace WHERE id=$1", [
-          WORKSPACE,
-        ])
+        await tx.query(
+          "SELECT credential,prompt_credential FROM workspace WHERE id=$1",
+          [WORKSPACE],
+        )
       ).rows[0];
-      if (!row.credential) throw new AppError("请先配置平台密钥");
+      if (!["prompt", "prompt-set"].includes(kind) && !row.credential)
+        throw new AppError("请先配置 Grsai 生图 API Key");
       const groups = new Map<
         string,
         { product: Product; tasks: Product["tasks"] }
@@ -294,13 +426,30 @@ export class Workflows {
       for (const { product, tasks } of groups.values()) {
         const photos = productPhotos(product);
         if (!photos.length) throw new AppError(`${product.name}：缺少实拍图`);
-        let set = state.jobs.find(
-          (j) =>
-            j.productId === product.id && j.kind === "prompt-set" && active(j),
-        );
         const needsSet =
           ["prompt", "prompt-set"].includes(kind) ||
+          kind === "full-workflow" ||
           (kind === "workflow" && tasks.some((t) => !t.prompt.trim()));
+        const analysisTasks = tasks;
+        const activeSets = state.jobs.filter(
+          (j) =>
+            j.productId === product.id &&
+            j.kind === "prompt-set" &&
+            ["queued", "running"].includes(j.status),
+        );
+        let set = needsSet
+          ? activeSets.find((j) =>
+              analysisTasks.every((t) => j.taskIds?.includes(t.id)),
+            )
+          : undefined;
+        if (
+          needsSet &&
+          !set &&
+          activeSets.some((j) =>
+            analysisTasks.some((t) => j.taskIds?.includes(t.id)),
+          )
+        )
+          throw new AppError("所选卡片已有分析任务，请等待完成后重试", 409);
         const fresh = (jobKind: Job["kind"], fields: any): Job => ({
           id: randomUUID(),
           productId: product.id,
@@ -315,9 +464,14 @@ export class Workflows {
           ...fields,
         });
         if (needsSet && !set) {
-          if (product.tasks.some((t) => !t.references.length))
-            throw new AppError(`${product.name}：需要完整10张对标图`);
+          if (!row.prompt_credential)
+            throw new AppError("请先配置豆包 API Key");
+          if (analysisTasks.some((t) => !t.references.length))
+            throw new AppError(`${product.name}：请补齐所选卡片的对标图`);
           const snapshot = structuredClone(product);
+          snapshot.tasks = snapshot.tasks.filter((t) =>
+            analysisTasks.some((target) => target.id === t.id),
+          );
           snapshot.promptSets = [];
           snapshot.tasks.forEach((t) => {
             t.versions = [];
@@ -326,13 +480,16 @@ export class Workflows {
             t.primaryId = null;
           });
           set = fresh("prompt-set", {
-            role: "整套 10 张提示词",
-            taskIds: tasks.map((t) => t.id),
+            role:
+              analysisTasks.length === 10
+                ? "整套 10 张提示词"
+                : `${analysisTasks.map((t) => t.role).join("、")}提示词`,
+            taskIds: analysisTasks.map((t) => t.id),
             productSnapshot: snapshot,
             revisions: Object.fromEntries(
-              product.tasks.map((t) => [t.id, t.revision]),
+              analysisTasks.map((t) => [t.id, t.revision]),
             ),
-            common: state.common,
+            common: productRequirements(product, state.common),
           });
           await this.repo.insertJob(tx, set);
           state.jobs.push(set);
@@ -348,7 +505,7 @@ export class Workflows {
             taskId: task.id,
             role: task.role,
             prompt: task.prompt,
-            dependsOn: set?.id,
+            dependsOn: needsSet ? set?.id : undefined,
             referenceImages: task.realPhotoIndices?.length
               ? task.realPhotoIndices.map((i) => photos[i]).filter(Boolean)
               : photos,
@@ -370,6 +527,37 @@ export class Workflows {
           state.paused = !!input.paused;
           await this.repo.saveWorkspace(tx, state);
           return { ok: true };
+        }
+        if (
+          id === "queue" &&
+          ["cancel-pending", "cancel-product"].includes(action)
+        ) {
+          if (
+            action === "cancel-product" &&
+            !state.products.some((p) => p.id === input.productId)
+          )
+            throw new AppError("产品不存在", 404);
+          const targets = state.jobs.filter(
+            (job) =>
+              active(job) &&
+              (action === "cancel-product"
+                ? job.productId === input.productId
+                : job.status === "queued" && !job.remoteId),
+          );
+          for (const job of targets) {
+            job.status = "cancelled";
+            job.finishedAt = Date.now();
+            job.error =
+              job.remoteId || job.stage !== "pending"
+                ? "已停止本地执行；平台任务可能仍在运行"
+                : "已取消，尚未提交平台";
+            // Keep in-flight claims so late submission IDs can still be recorded.
+            await tx.query(
+              "UPDATE jobs SET status='cancelled',payload=$2 WHERE id=$1",
+              [job.id, job],
+            );
+          }
+          return { ok: true, cancelledIds: targets.map((job) => job.id) };
         }
         const job = state.jobs.find((j) => j.id === id);
         if (!job) throw new AppError("任务不存在", 404);
@@ -420,19 +608,35 @@ export class Workflows {
                 active(j) &&
                 j.productId === job.productId &&
                 (job.kind === "prompt-set"
-                  ? j.kind === "prompt-set"
+                  ? j.kind === "prompt-set" &&
+                    j.taskIds?.some((taskId) => job.taskIds?.includes(taskId))
                   : j.taskId === job.taskId),
             )
           )
             throw new AppError("已有相同位置的执行任务", 409);
           job.status = "queued";
           job.error = "";
+          delete job.validationError;
+          delete job.promptWarnings;
+          delete job.analysisResponse;
+          delete job.promptDrafts;
+          delete job.receivedChars;
           job.failures = 0;
+          delete job.finishedAt;
           await this.repo.saveJob(tx, job);
           if (job.kind === "prompt-set")
             for (const child of state.jobs.filter(
               (j) => j.dependsOn === id && j.status === "failed",
             )) {
+              if (
+                state.jobs.some(
+                  (other) =>
+                    other.id !== child.id &&
+                    other.taskId === child.taskId &&
+                    active(other),
+                )
+              )
+                continue;
               child.status = "queued";
               child.error = "";
               await this.repo.saveJob(tx, child);
@@ -441,6 +645,16 @@ export class Workflows {
         return { ok: true };
       },
     );
+    if ("cancelledIds" in result) {
+      for (const jobId of result.cancelledIds as string[]) {
+        this.analysisEvents.emit("cancel", jobId);
+        this.analysisEvents.publish({
+          id: jobId,
+          finished: true,
+          status: "cancelled",
+        });
+      }
+    }
     if (action === "cancel") {
       // Abort only after the cancellation is committed; the worker's catch must
       // observe cancelled status rather than turn a user cancellation into failure.
@@ -487,6 +701,10 @@ export class Workflows {
       for (const key of configuration)
         if (typeof imported.settings?.[key] === "string")
           state.settings[key] = imported.settings[key];
+      state.settings = migratePromptSettings({
+        ...state.settings,
+        promptProvider: imported.settings?.promptProvider,
+      });
       baseUrl(state.settings.baseUrl);
       state.settings.mode = "live";
       for (const old of imported.jobs) {
@@ -505,9 +723,19 @@ export class Workflows {
         );
         const job = {
           ...old,
-          config: Object.fromEntries(
-            configuration.map((k) => [k, old.config?.[k] ?? state.settings[k]]),
-          ),
+          config: {
+            ...Object.fromEntries(
+              configuration.map((k) => [
+                k,
+                old.config?.[k] ?? state.settings[k],
+              ]),
+            ),
+            promptProvider:
+              old.config?.promptProvider ??
+              (old.config?.promptModel
+                ? "grsai"
+                : state.settings.promptProvider),
+          },
           mode: "live",
           owner: undefined,
           status: wasActive ? "cancelled" : old.status,

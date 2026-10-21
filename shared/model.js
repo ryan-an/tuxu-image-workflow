@@ -1,3 +1,5 @@
+import { latestJobs, executionStatus } from "./job-status.js";
+
 export const ROLES = [
   "尺寸图",
   "卖点图",
@@ -31,6 +33,7 @@ export function newProduct(code, name = "", facts = "") {
     code,
     name: name || code,
     facts,
+    promptRequirements: null,
     photo: "",
     photoThumbnail: null,
     photos: [],
@@ -40,6 +43,9 @@ export function newProduct(code, name = "", facts = "") {
 }
 export function chosen(task) {
   return task.versions.find((version) => version.id === task.primaryId);
+}
+export function hasSelectedVersion(task) {
+  return task.versions.some((version) => task.selectedIds.includes(version.id));
 }
 export function selectVersion(task, versionId, checked) {
   if (!task.versions.some((v) => v.id === versionId)) return;
@@ -64,8 +70,9 @@ export function addVersion(task, source, prompt, origin = "generated") {
     number: task.versions.length + 1,
   };
   task.versions.push(version);
-  // A retry never replaces the user's selected version.
-  if (!task.primaryId) setPrimary(task, version.id);
+  if (["generated", "demo"].includes(origin))
+    selectVersion(task, version.id, true);
+  else if (!task.primaryId) setPrimary(task, version.id);
   return version;
 }
 export function savePrompt(task, prompt) {
@@ -92,18 +99,25 @@ export function findTask(state, productId, taskId) {
   const product = state.products.find((p) => p.id === productId);
   return { product, task: product?.tasks.find((t) => t.id === taskId) };
 }
-export function taskStatus(task, jobs = []) {
-  const job = jobs.find(
-    (j) =>
-      (j.taskId === task.id || j.taskIds?.includes(task.id)) &&
-      ["queued", "running"].includes(j.status),
+export function taskStatusInfo(task, jobs = [], paused = false) {
+  const execution = executionStatus(
+    latestJobs(jobs).filter(
+      (job) => job.taskId === task.id || job.taskIds?.includes(task.id),
+    ),
+    paused,
   );
-  if (job) return job.status === "running" ? "执行中" : "排队中";
-  if (chosen(task)) return "已选结果";
-  if (task.versions.length) return "待选结果";
-  if (task.prompt) return "待生图";
-  return "待提示词";
+  if (execution) return execution;
+  if (hasSelectedVersion(task))
+    return { label: "已选结果", tone: "done", busy: false };
+  if (task.versions.length)
+    return { label: "待选图", tone: "ready", busy: false };
+  return {
+    label: task.prompt ? "待生图" : "待提示词",
+    tone: "waiting",
+    busy: false,
+  };
 }
+export const taskStatus = (task, jobs = []) => taskStatusInfo(task, jobs).label;
 export function validBackup(value) {
   if (
     value?.schema !== 2 ||
@@ -120,6 +134,10 @@ export function validBackup(value) {
       typeof p.code !== "string" ||
       codes.has(p.code) ||
       typeof p.name !== "string" ||
+      (p.promptRequirements != null &&
+        (typeof p.promptRequirements !== "string" ||
+          !p.promptRequirements.trim() ||
+          p.promptRequirements.length > 100000)) ||
       !Array.isArray(p.tasks) ||
       p.tasks.length !== ROLES.length
     )

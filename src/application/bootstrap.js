@@ -1,9 +1,14 @@
-import { loadSnapshot } from "../storage.js";
-import { APP_KEY } from "../model.js";
+import { loadSnapshot } from "../integrations/storage.js";
+import { APP_KEY } from "../../shared/model.js";
 import { api } from "../services/workspace-client.js";
 
-import { migrateAutoSizeDefaults } from "../generation-settings.js";
-import { DEFAULT_COMMON, FIXED_PRODUCT_REQUIREMENTS } from "../prompt-suite.js";
+import { migrateAutoSizeDefaults } from "../../shared/generation-settings.js";
+import {
+  DEFAULT_COMMON,
+  FIXED_PRODUCT_REQUIREMENTS,
+  migrateDefaultCommon,
+} from "../../shared/prompt-suite.js";
+import { migratePromptSettings } from "../../shared/doubao.js";
 
 export async function loadWorkspace() {
   let state;
@@ -25,7 +30,7 @@ export async function loadWorkspace() {
   } else {
     state = await loadSnapshot(APP_KEY);
     if (!state?.schema) {
-      const { initialState } = await import("../demo-images.js");
+      const { initialState } = await import("../demo/demo-images.js");
       state = initialState(await loadSnapshot("image-workflow-univer-demo-v1"));
     }
   }
@@ -54,6 +59,7 @@ export async function loadWorkspace() {
     );
     state.promptWorkflowVersion = 2;
   }
+  state.common = migrateDefaultCommon(state.common);
   const unfinished = state.jobs.filter((j) =>
     ["running", "queued"].includes(j.status),
   );
@@ -63,10 +69,13 @@ export async function loadWorkspace() {
   }
   const server = await api("/api/workflow/settings");
   const hasKey = server.hasKey;
-  if (hasKey) {
-    delete server.hasKey;
+  const hasPromptKey = server.hasPromptKey;
+  delete server.hasKey;
+  delete server.hasPromptKey;
+  if (production || hasKey || hasPromptKey) {
     state.settings = { ...state.settings, ...server };
   }
+  state.settings = migratePromptSettings(state.settings);
 
-  return { state, hasKey, unfinished, production };
+  return { state, hasKey, hasPromptKey, unfinished, production };
 }

@@ -1,5 +1,5 @@
-import { saveSnapshot } from "../storage.js";
-import { APP_KEY, validBackup } from "../model.js";
+import { saveSnapshot } from "../integrations/storage.js";
+import { APP_KEY, validBackup } from "../../shared/model.js";
 import { api } from "../services/workspace-client.js";
 
 export function createFiles(context) {
@@ -55,7 +55,7 @@ export function createFiles(context) {
     setExporting(true);
     notify("正在导出 Excel，包含表格图片…");
     try {
-      const { exportExcel } = await import("../export-excel.js"),
+      const { exportExcel } = await import("../integrations/export-excel.js"),
         { buffer, imageCount } = await exportExcel(bridge.snapshot());
       downloadBlob(
         new Blob([buffer], {

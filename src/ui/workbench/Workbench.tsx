@@ -1,48 +1,39 @@
-import { chosen } from "../../model.js";
-import { productPhotos } from "../../prompt-suite.js";
+import { hasSelectedVersion } from "../../../shared/model.js";
+import {
+  productPhotos,
+  productRequirements,
+} from "../../../shared/prompt-suite.js";
 import { ActionButton, useApplication } from "../context.tsx";
 import { currentProduct, productStats, selectedCount } from "../selectors";
 import { TaskCard } from "./TaskCard.tsx";
+import { SuitePromptButton } from "./SuitePromptButton.tsx";
+import { WorkspaceTitle } from "./WorkspaceTitle.tsx";
+import "./requirements.css";
+import { Badge } from "../design-system/Badge";
 
 export function Workbench() {
   const { state, ui } = useApplication(),
     product = currentProduct(state);
   if (!product)
     return <div className="empty-page">从表格解析产品，或添加第一个产品。</div>;
-  const interruptedAnalysis = state.jobs.find(
-      (j) =>
-        j.productId === product.id &&
-        j.kind === "prompt-set" &&
-        j.status === "interrupted",
-    ),
-    activeAnalysis = state.jobs.find(
-      (j) =>
-        j.productId === product.id &&
-        j.kind === "prompt-set" &&
-        ["queued", "running"].includes(j.status),
-    ),
-    analysisBusy = state.jobs.some(
-      (j) =>
-        j.productId === product.id &&
-        j.kind === "prompt-set" &&
-        ["queued", "running"].includes(j.status),
-    ),
-    stats = productStats(product),
+  const stats = productStats(product),
+    photoCount = productPhotos(product).length,
+    requirements = productRequirements(product, state.common),
     tasks = product.tasks.filter(
       (t) =>
         ui.filter === "all" ||
         (ui.filter === "missing"
-          ? !chosen(t)
+          ? !hasSelectedVersion(t)
           : ui.filter === "selected"
-            ? !!chosen(t)
+            ? hasSelectedVersion(t)
             : t.versions.length > 1),
     );
   return (
     <>
       <div className="page-heading">
-        <div>
+        <div className="workspace-heading-text">
           <span className="eyebrow">PRODUCT WORKSPACE</span>
-          <h1>{product.name}</h1>
+          <WorkspaceTitle key={product.id} name={product.name} />
           <p>
             {product.code} <span>·</span> {stats.done} 个位置已选结果，
             {stats.versions} 个历史版本
@@ -50,46 +41,111 @@ export function Workbench() {
         </div>
         <ActionButton action="edit-product">编辑产品</ActionButton>
       </div>
-      <div className="product-info">
-        <ActionButton className="product-photo" action="upload-photo">
-          {product.photo ? (
-            <img src={product.photo} alt="产品实拍" />
-          ) : (
-            "＋实拍"
-          )}
-        </ActionButton>
-        <div>
-          <strong>产品资料</strong>
-          <p>{product.facts || "补充规格、材质、颜色等，帮助生成准确图片"}</p>
-        </div>
-        <ActionButton className="text-button" action="manage-photos">
-          实拍图 {productPhotos(product).length} 张
-        </ActionButton>
-        <ActionButton className="text-button" action="common-prompt">
-          整套共用要求
-        </ActionButton>
-        <ActionButton
-          className="subtle-primary"
-          action={interruptedAnalysis ? "reconcile-job" : "generate-prompt"}
-          data={interruptedAnalysis ? { id: interruptedAnalysis.id } : {}}
-          disabled={analysisBusy}
-          title={
-            analysisBusy ? "整套分析正在排队或执行，请等待结果" : undefined
-          }
-        >
-          {interruptedAnalysis
-            ? "分析中断，核对后重试"
-            : "生成整套 10 张提示词"}
-        </ActionButton>
-        {activeAnalysis && (
-          <ActionButton
-            className="text-button queue-stop"
-            action="cancel-job"
-            data={{ id: activeAnalysis.id }}
+      <div className="product-context">
+        <div className="product-setup">
+          <section className="product-info" aria-label="产品资料">
+            <ActionButton
+              className="product-photo"
+              action="upload-photo"
+              aria-label={photoCount ? "查看产品实拍图" : "上传产品实拍图"}
+            >
+              {product.photo ? (
+                <img src={product.photo} alt="产品实拍" />
+              ) : (
+                "＋实拍"
+              )}
+            </ActionButton>
+            <div className="product-details">
+              <strong>产品资料</strong>
+              <p title={product.facts || undefined}>
+                {product.facts || "补充规格、材质、颜色等产品信息"}
+              </p>
+            </div>
+            <ActionButton
+              className="product-photos-button"
+              action="manage-photos"
+              aria-label={`实拍图 ${photoCount} 张`}
+              title="查看、上传或管理产品实拍图"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <rect
+                  x="5"
+                  y="3"
+                  width="16"
+                  height="16"
+                  rx="2"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M17 23H5a4 4 0 0 1-4-4V7M5 15l4-4 5 5 3-3 4 4"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <circle cx="16" cy="8" r="1.5" fill="currentColor" />
+              </svg>
+              <span>实拍图</span>
+              <b>{photoCount} 张</b>
+            </ActionButton>
+          </section>
+          <section
+            className="product-requirements"
+            aria-labelledby="product-requirements-title"
           >
-            {activeAnalysis.status === "running" ? "终止分析" : "取消分析"}
-          </ActionButton>
-        )}
+            <div className="requirements-summary">
+              <div className="requirements-summary-heading">
+                <svg
+                  className="requirements-icon"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Z"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M14 3v5h5M9 12h6M9 16h6"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <h2 id="product-requirements-title">整套提示词要求</h2>
+                <Badge
+                  tone={requirements === state.common ? "brand" : "info"}
+                  className={`requirements-badge ${requirements !== state.common ? "customized" : ""}`}
+                >
+                  {requirements === state.common
+                    ? "默认要求"
+                    : "本产品已自定义"}
+                </Badge>
+              </div>
+              <p>仅当前产品 · 修改后下次生成时生效</p>
+            </div>
+            <div className="requirements-actions">
+              <ActionButton
+                className="requirements-edit"
+                action="common-prompt"
+              >
+                编辑要求
+              </ActionButton>
+              <SuitePromptButton key={product.id} primary />
+            </div>
+          </section>
+        </div>
       </div>
       <div className="task-toolbar">
         <div className="segmented">
@@ -134,16 +190,12 @@ export function BatchBar() {
     <footer id="batch-bar" hidden={ui.view !== "workbench"}>
       <div id="batch-label">
         <strong>当前产品 · 已勾选 {count} 张下载图片</strong>
-        <span>生成操作处理本套全部 10 个位置</span>
+        <span>勾选图片后下载，生成操作在顶部切换</span>
       </div>
       <div>
-        <ActionButton action="batch-prompt">生成整套提示词</ActionButton>
-        <ActionButton action="batch-images">生成本套 10 张图片</ActionButton>
-        <ActionButton className="primary" action="batch-workflow">
-          执行本套流程
-        </ActionButton>
         <ActionButton
           id="download-current"
+          className="result-action-button"
           action="download-selected"
           disabled={!count}
         >

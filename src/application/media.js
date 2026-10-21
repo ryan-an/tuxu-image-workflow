@@ -1,8 +1,8 @@
-import { findTask } from "../model.js";
+import { findTask } from "../../shared/model.js";
 
-import { mediaSources } from "../media-upload.js";
+import { mediaSources } from "../integrations/media-upload.js";
 
-import { productPhotos } from "../prompt-suite.js";
+import { productPhotos } from "../../shared/prompt-suite.js";
 
 const $ = (selector) => document.querySelector(selector);
 export function createMedia(context) {

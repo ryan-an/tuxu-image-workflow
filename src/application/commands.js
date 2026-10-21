@@ -1,12 +1,15 @@
-import { selectVersion, savePrompt } from "../model.js";
+import { selectVersion, savePrompt } from "../../shared/model.js";
 import { api } from "../services/workspace-client.js";
 
 import { portableBackup } from "../services/backup.js";
 
-import { clipboardImageFiles } from "../media-upload.js";
-import { retryableQueueJobs } from "../queue-view.js";
+import { clipboardImageFiles } from "../integrations/media-upload.js";
+import {
+  remainingQueuePairs,
+  retryableQueueJobs,
+} from "../view-models/queue-view.js";
 
-import { productPhotos } from "../prompt-suite.js";
+import { productPhotos } from "../../shared/prompt-suite.js";
 
 const $ = (selector) => document.querySelector(selector);
 export function createCommands(context) {
@@ -27,11 +30,12 @@ export function createCommands(context) {
       showModal,
       closeModal,
       setHasKey,
+      setHasPromptKey,
+      setAssistant,
       setFilter,
       editPrompt,
       editProduct,
       settings,
-      keySettings,
       viewVersion,
       syncTask,
       updateMetadata,
@@ -51,6 +55,19 @@ export function createCommands(context) {
       t = p?.tasks.find((t) => t.id === data.task);
     if (a === "select-version") return;
     switch (a) {
+      case "ask-doubao":
+        setAssistant({ open: true, productId: p?.id, taskId: data.task });
+        break;
+      case "open-assistant":
+        setAssistant({
+          ...ui.assistant,
+          productId: ui.assistant.productId || p?.id,
+          open: true,
+        });
+        break;
+      case "close-assistant":
+        setAssistant({ ...ui.assistant, open: false });
+        break;
       case "view":
         await switchView(data.view);
         break;
@@ -81,27 +98,32 @@ export function createCommands(context) {
       case "settings":
         settings();
         break;
-      case "key-settings":
-        keySettings();
-        break;
-      case "clear-key": {
+      case "clear-key":
+      case "clear-prompt-key": {
         const r = await fetch("/api/workflow/settings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clearKey: true }),
+          body: JSON.stringify(
+            a === "clear-prompt-key"
+              ? { clearPromptKey: true }
+              : { clearKey: true },
+          ),
         });
         if (!r.ok) throw new Error("清除密钥失败");
-        setHasKey(false);
-        closeModal();
+        const result = await r.json();
+        setHasKey(result.hasKey);
+        setHasPromptKey(result.hasPromptKey);
         render();
-        notify("密钥已清除");
+        notify(
+          a === "clear-prompt-key" ? "豆包密钥已清除" : "Grsai 生图密钥已清除",
+        );
         break;
       }
       case "close-modal":
         closeModal();
         break;
       case "common-prompt":
-        showModal({ type: "common" });
+        if (p) showModal({ type: "common", productId: p.id });
         break;
       case "upload-reference":
       case "manage-references":
@@ -132,7 +154,7 @@ export function createCommands(context) {
       }
       case "generate-prompt":
         await queuePairs(
-          p.tasks.map((task) => ({ product: p, task })),
+          (t ? [t] : p.tasks).map((task) => ({ product: p, task })),
           "prompt",
         );
         break;
@@ -153,7 +175,7 @@ export function createCommands(context) {
         await queuePairs(currentPairs(), "image");
         break;
       case "batch-workflow":
-        await queuePairs(currentPairs(), "workflow");
+        await queuePairs(currentPairs(), "full-workflow");
         break;
       case "pause-queue":
         await queue.pause(!state.paused);
@@ -162,34 +184,32 @@ export function createCommands(context) {
         await queue.resumeInterrupted();
         break;
       case "cancel-pending":
-        for (const j of state.jobs.filter((j) => j.status === "queued"))
-          await queue.cancel(j.id);
+        await queue.cancelPending();
         break;
       case "generate-remaining": {
-        const pairs = state.products.flatMap((product) =>
-          product.tasks
-            .filter((task) => !task.versions.length)
-            .map((task) => ({ product, task })),
-        );
+        const pairs = remainingQueuePairs(state);
         await queuePairs(pairs, "workflow");
         break;
       }
-      case "retry-failed": {
-        const failures = retryableQueueJobs(state);
+      case "retry-failed":
+      case "retry-product-failed": {
+        const failures = retryableQueueJobs(state).filter(
+          (job) => a !== "retry-product-failed" || job.productId === data.id,
+        );
+        let recovered = 0;
+        const errors = [];
         for (const job of failures) {
-          if (repository) {
+          try {
             await queue.retry(job.id);
-            continue;
+            recovered++;
+          } catch (error) {
+            errors.push(error.message);
           }
-          if (job.remoteId) {
-            job.status = "queued";
-            job.error = "";
-          } else await queue.retry(job.id);
         }
         change();
-        queue.pump();
+        await queue.pump();
         notify(
-          `已恢复 ${failures.length} 个失败任务${state.paused ? "，队列仍暂停" : ""}`,
+          `已恢复 ${recovered} 个失败任务${state.paused ? "，队列仍暂停" : ""}${errors.length ? `；${errors.length} 个未恢复：${errors[0]}` : ""}`,
         );
         break;
       }
@@ -199,13 +219,20 @@ export function createCommands(context) {
       case "cancel-job":
         await queue.cancel(data.id);
         break;
+      case "cancel-product-analysis": {
+        const ids = state.jobs
+          .filter(
+            (job) =>
+              job.productId === data.id &&
+              job.kind === "prompt-set" &&
+              ["queued", "running"].includes(job.status),
+          )
+          .map((job) => job.id);
+        for (const id of ids) await queue.cancel(id);
+        break;
+      }
       case "cancel-product-jobs":
-        for (const job of state.jobs.filter(
-          (job) =>
-            job.productId === data.id &&
-            ["queued", "running"].includes(job.status),
-        ))
-          await queue.cancel(job.id);
+        await queue.cancelProduct(data.id);
         break;
       case "retry-job":
         await queue.retry(data.id);
@@ -215,9 +242,7 @@ export function createCommands(context) {
           await queue.retry(data.id);
           break;
         }
-        const j = state.jobs.find((j) => j.id === data.id);
-        j.status = "queued";
-        queue.pause(false);
+        await queue.retry(data.id);
         break;
       }
       case "reconcile-job":
@@ -270,7 +295,7 @@ export function createCommands(context) {
         $("#restore-input").click();
         break;
       case "parse-sheet":
-        openParser();
+        await openParser();
         break;
       case "confirm-parse":
         await confirmParse();

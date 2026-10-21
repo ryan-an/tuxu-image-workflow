@@ -20,7 +20,7 @@ export async function setupLocal() {
     DATABASE_PATH: "./data/workspace.sqlite",
     ASSET_DIRECTORY: "./data/assets",
     CREDENTIAL_SECRET: randomBytes(32).toString("hex"),
-    APP_PASSWORD: `tuxu-${randomBytes(9).toString("hex")}`,
+    APP_PASSWORD: "admin",
     HOST: "127.0.0.1",
     PORT: "3001",
     NODE_ENV: "production",
@@ -46,7 +46,7 @@ export async function setupLocal() {
   const configured = parseEnv(await readFile(filename, "utf8"));
   if (
     !/^[a-f0-9]{64}$/i.test(configured.CREDENTIAL_SECRET || "") ||
-    (configured.APP_PASSWORD || "").length < 16
+    !configured.APP_PASSWORD
   )
     throw new Error(".env 中的加密主密钥或登录密码无效，请检查配置");
   console.log("SQLite 本地配置已就绪，无需安装数据库服务。");

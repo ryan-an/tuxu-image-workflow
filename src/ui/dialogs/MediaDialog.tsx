@@ -1,5 +1,5 @@
 import type { Product, ImageTask } from "../types";
-import { productPhotos } from "../../prompt-suite.js";
+import { productPhotos } from "../../../shared/prompt-suite.js";
 import { ActionButton, useApplication } from "../context.tsx";
 
 export function MediaDialog({
@@ -20,34 +20,24 @@ export function MediaDialog({
           : "添加当前产品的不同实拍视角，供整套分析和生图使用。"}
         默认追加图片，已有图片保留。
       </p>
-      <div
+      <ActionButton
         id="media-dropzone"
         className="media-dropzone"
-        tabIndex={0}
-        aria-label="图片拖拽与粘贴区域"
+        action="choose-image-files"
+        aria-label="选择图片，可多选，也可拖拽或粘贴"
+        aria-describedby="media-upload-hint media-feedback"
       >
-        <span className="media-drop-icon">＋</span>
-        <strong>拖拽图片到这里</strong>
-        <span>
-          或在此窗口按 <kbd>Ctrl</kbd> + <kbd>V</kbd> 粘贴图片
+        <span className="media-drop-icon" aria-hidden="true">
+          ＋
         </span>
-        <small>支持截图、复制的图片、石墨图片单元格，可连续添加</small>
-      </div>
-      <div className="media-upload-actions">
-        <ActionButton className="primary" action="choose-image-files">
-          选择图片文件
-        </ActionButton>
-        <ActionButton action="paste-media">读取剪贴板</ActionButton>
-        {!!sources.length && (
-          <ActionButton
-            className="text-button"
-            action="choose-image-files"
-            data={{ replace: "true" }}
-          >
-            替换全部…
-          </ActionButton>
-        )}
-      </div>
+        <strong>点击选择图片，或拖拽到这里</strong>
+        <span>
+          也可在此窗口按 <kbd>Ctrl</kbd> + <kbd>V</kbd> 粘贴图片
+        </span>
+        <small id="media-upload-hint">
+          支持截图、复制的图片、石墨图片单元格，可连续添加
+        </small>
+      </ActionButton>
       <p
         id="media-feedback"
         className={`media-feedback ${ui.mediaError ? "error-text" : ""}`}
@@ -81,7 +71,9 @@ export function MediaDialog({
           </div>
         ))}
         {!sources.length && (
-          <p className="empty-small">还没有图片，粘贴或拖入第一张吧。</p>
+          <p className="empty-small">
+            还没有图片，点击上方区域、粘贴或拖入第一张吧。
+          </p>
         )}
       </div>
       <div className="media-modal-footer">

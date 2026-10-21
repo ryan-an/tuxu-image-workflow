@@ -1,0 +1,409 @@
+.product-context {
+  container-type: inline-size;
+  margin-bottom: 18px;
+}
+.product-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+}
+.product-setup .product-info,
+.product-setup .product-requirements {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 15px 16px;
+  min-width: 0;
+}
+.product-setup .product-info {
+  border: 0;
+  border-radius: 10px 0 0 10px;
+}
+.product-setup .product-requirements {
+  border-left: 1px solid var(--line);
+  border-radius: 0 10px 10px 0;
+  background: #fbfbff;
+}
+.product-details {
+  flex: 1;
+  min-width: 0;
+}
+.product-setup .product-photo {
+  width: 44px;
+  height: 44px;
+}
+.product-setup .product-details strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: #566079;
+}
+.product-setup .product-details p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #8a90a3;
+}
+.product-photos-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid #d4d7f4;
+  border-radius: 7px;
+  background: #f0f1ff;
+  color: #545bc5;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.product-photos-button b {
+  padding-left: 7px;
+  border-left: 1px solid #d4d7f4;
+  font-size: 11px;
+  font-weight: 500;
+}
+.product-photos-button:hover {
+  border-color: #aeb3ec;
+  background: #e8eaff;
+}
+.requirements-summary {
+  flex: 1;
+  min-width: 0;
+}
+.requirements-summary-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.requirements-icon {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.requirements-summary-heading h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #3f436c;
+}
+.requirements-summary p {
+  margin: 7px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #737991;
+}
+.requirements-actions,
+.requirements-dialog-actions,
+.requirements-dialog-actions > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.requirements-actions {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+}
+.suite-action-control {
+  display: inline-flex;
+  align-items: stretch;
+  position: relative;
+}
+.requirements-actions .suite-action-control > button {
+  border-radius: 7px 0 0 7px;
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.suite-action-menu {
+  position: static;
+  display: flex;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.suite-action-menu > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-height: 34px;
+  cursor: pointer;
+  list-style: none;
+  color: white;
+  background: var(--accent);
+  border-left: 1px solid #ffffff38;
+  border-radius: 0 7px 7px 0;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+.suite-action-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.suite-action-menu > summary:hover,
+.suite-action-menu[open] > summary {
+  background: var(--color-brand-hover);
+}
+.suite-action-menu > summary:focus-visible {
+  outline: 2px solid #a7a9ef;
+  outline-offset: 3px;
+}
+.suite-action-options {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 284px;
+  max-width: calc(100vw - 48px);
+  padding: 5px;
+  border: 1px solid #e4e3f1;
+  border-radius: 10px;
+  background: white;
+  box-shadow: 0 10px 30px #39376520;
+}
+.requirements-actions .suite-action-options button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  white-space: normal;
+}
+.suite-action-options button span {
+  font-weight: 600;
+}
+.suite-action-options button small {
+  font-size: 10px;
+  line-height: 1.6;
+  color: #9697aa;
+}
+.requirements-actions .suite-action-options button:hover,
+.requirements-actions .suite-action-options button.is-selected {
+  background: #f2f1fc;
+  color: var(--accent);
+}
+.requirements-actions .suite-action-options button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: transparent;
+}
+.requirements-actions button {
+  border: 1px solid #dce0ed;
+  border-radius: 7px;
+  background: white;
+  color: #59627c;
+  font-size: 12px;
+  padding: 9px 11px;
+  white-space: nowrap;
+}
+.requirements-actions .requirements-edit {
+  border-color: #c9ccef;
+  background: white;
+  color: var(--accent);
+  font-weight: 600;
+}
+.requirements-actions .requirements-edit:hover {
+  border-color: var(--accent);
+  background: #f7f7ff;
+}
+dialog.requirements-modal {
+  width: 960px;
+  max-width: min(960px, 94vw);
+  max-height: 92dvh;
+  padding: 28px;
+}
+.requirements-dialog-heading {
+  padding-right: 24px;
+}
+.requirements-product {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #737991;
+  overflow-wrap: anywhere;
+}
+.requirements-dialog-heading h2 {
+  margin-bottom: 8px;
+}
+.requirements-dialog-heading p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #7b8296;
+}
+.requirements-scope {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 18px 0;
+  padding: 11px 13px;
+  background: #f5f5fe;
+  border-radius: 7px;
+  color: #686e88;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.requirements-editor-heading,
+.requirements-editor-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  color: #8a90a3;
+  font-size: 11px;
+}
+.requirements-editor-heading label {
+  color: #505a73;
+  font-size: 12px;
+  font-weight: 600;
+}
+#common-form textarea {
+  height: clamp(220px, 43dvh, 520px);
+  min-height: 160px;
+  padding: 15px 17px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.9;
+  color: #424d65;
+  background: #fff;
+  scrollbar-width: thin;
+}
+.requirements-editor-meta {
+  margin-top: 9px;
+}
+.requirements-effect {
+  margin: 15px 0 18px;
+  color: #7b8296;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.requirements-dialog-actions {
+  justify-content: space-between;
+  padding-top: 17px;
+  border-top: 1px solid var(--line);
+}
+.requirements-dialog-actions button {
+  padding: 10px 14px;
+}
+dialog .requirements-dialog-actions .requirements-reset {
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: #727b96;
+  font-size: 12px;
+}
+.requirements-dialog-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+#common-form[aria-busy="true"] .requirements-dialog-actions {
+  pointer-events: none;
+  opacity: 0.6;
+}
+@container (max-width: 840px) {
+  .product-setup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .product-setup .product-info {
+    border-radius: 10px 10px 0 0;
+  }
+  .product-setup .product-requirements {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0 0 10px 10px;
+  }
+}
+@container (max-width: 430px) {
+  .product-setup .product-info,
+  .product-setup .product-requirements {
+    padding: 12px;
+    gap: 10px;
+  }
+  .product-setup .product-photo {
+    width: 36px;
+    height: 40px;
+  }
+  .product-photos-button {
+    gap: 5px;
+    padding: 9px 8px;
+    font-size: 11px;
+  }
+  .product-photos-button b {
+    padding-left: 5px;
+  }
+  .product-setup .product-requirements {
+    flex-wrap: wrap;
+  }
+  .requirements-summary {
+    flex-basis: 100%;
+  }
+  .requirements-summary p {
+    display: none;
+  }
+  .requirements-actions {
+    position: relative;
+    max-width: none;
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .suite-action-control {
+    position: static;
+  }
+  .suite-action-options {
+    left: 0;
+    right: auto;
+  }
+}
+@media (max-width: 650px) {
+  .requirements-summary-heading {
+    gap: 7px;
+  }
+  .requirements-summary-heading h2 {
+    font-size: 12px;
+  }
+  .requirements-actions {
+    gap: 8px;
+  }
+  .requirements-actions button {
+    padding: 9px 12px;
+    font-size: 12px;
+  }
+  dialog.requirements-modal {
+    padding: 22px 16px 18px;
+  }
+  .requirements-scope {
+    align-items: flex-start;
+    font-size: 11px;
+  }
+  #common-form textarea {
+    padding: 12px;
+    font-size: 12px;
+    height: 36dvh;
+  }
+  .requirements-dialog-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .requirements-dialog-actions > div:last-child {
+    justify-content: flex-end;
+  }
+}

@@ -1,12 +1,13 @@
 import Fastify, { LogController } from "fastify";
 import staticFiles from "@fastify/static";
-import { timingSafeEqual } from "node:crypto";
-import { resolve } from "node:path";
+import { extname, resolve } from "node:path";
 import { Repository } from "./repository.js";
 import { Assets, downloadImage } from "./assets.js";
 import { Credentials } from "./credentials.js";
 import { Workflows } from "./workflows.js";
 import { AppError, type Database } from "./types.js";
+import { registerAuthentication } from "./authentication.js";
+import { registerAssistant } from "./assistant.js";
 export interface AppOptions {
   db: Database;
   assetDirectory: string;
@@ -16,8 +17,7 @@ export interface AppOptions {
   logger?: boolean;
 }
 export async function createApp(options: AppOptions) {
-  if (options.password.length < 16)
-    throw new Error("APP_PASSWORD 至少需要 16 个字符");
+  if (!options.password) throw new Error("APP_PASSWORD 不能为空");
   const repo = new Repository(options.db);
   await repo.initialize();
   const assets = new Assets(options.db, options.assetDirectory);
@@ -32,41 +32,24 @@ export async function createApp(options: AppOptions) {
     logController: new LogController({ disableRequestLogging: true }),
     requestTimeout: 30000,
   });
-  const expected = Buffer.from(`admin:${options.password}`);
-  app.addHook("onRequest", async (request, reply) => {
-    if (request.url === "/health") return;
-    const header = request.headers.authorization || "";
-    const provided = header.startsWith("Basic ")
-      ? Buffer.from(header.slice(6), "base64")
-      : Buffer.alloc(0);
-    if (
-      provided.length !== expected.length ||
-      !timingSafeEqual(provided, expected)
-    ) {
-      reply.header("WWW-Authenticate", 'Basic realm="Tuxu", charset="UTF-8"');
-      return reply.code(401).send({ error: "需要登录" });
-    }
-    if (!["GET", "HEAD"].includes(request.method)) {
-      const origin = request.headers.origin;
-      if (origin && new URL(origin).host !== request.headers.host)
-        throw new AppError("不允许跨站修改", 403);
-      if (request.headers["sec-fetch-site"] === "cross-site")
-        throw new AppError("不允许跨站修改", 403);
-    }
-    reply.header("Cache-Control", "no-store");
-    reply.header("X-Content-Type-Options", "nosniff");
-  });
+  const auth = registerAuthentication(app, options.password);
+  await registerAssistant(app, workflows);
   app.setErrorHandler((error, request, reply) => {
     // Never log request bodies, credentials or upstream response payloads.
     const status = (error as any).statusCode || 500;
     const detail = error instanceof Error ? error : new Error("服务处理失败");
+    if (error instanceof AppError && error.diagnostic)
+      app.log.warn(
+        { requestId: request.id, ...error.diagnostic },
+        "product validation failed",
+      );
     if (status >= 500)
       app.log.error(
         { requestId: request.id, errorType: detail.name },
         "request failed",
       );
     const message = status < 500 ? detail.message : "服务处理失败，请稍后重试";
-    reply.code(status).send({ error: message });
+    reply.code(status).send({ error: message, requestId: request.id });
   });
   app.get("/health", async () => {
     await options.db.query("SELECT 1");
@@ -77,7 +60,7 @@ export async function createApp(options: AppOptions) {
   app.addHook("preClose", async () => {
     for (const stream of streams) stream.end();
   });
-  app.get("/api/analysis/events", async (_request, reply) => {
+  app.get("/api/analysis/events", async (request, reply) => {
     reply.hijack();
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -87,6 +70,7 @@ export async function createApp(options: AppOptions) {
     reply.raw.write(": connected\n\n");
     streams.add(reply.raw);
     const send = (event: any) => {
+      if (!auth.authenticated(request)) return reply.raw.end();
       if (
         !reply.raw.destroyed &&
         !reply.raw.write(`data: ${JSON.stringify(event)}\n\n`)
@@ -96,6 +80,7 @@ export async function createApp(options: AppOptions) {
     workflows.analysisEvents.on("progress", send);
     for (const event of workflows.analysisEvents.latest.values()) send(event);
     const heartbeat = setInterval(() => {
+      if (!auth.authenticated(request)) return reply.raw.end();
       if (!reply.raw.destroyed) reply.raw.write(": heartbeat\n\n");
     }, 15000);
     reply.raw.once("close", () => {
@@ -116,15 +101,20 @@ export async function createApp(options: AppOptions) {
               "baseUrl",
               "imageModel",
               "promptModel",
+              "promptProvider",
               "aspectRatio",
               "imageSize",
               "gptSize",
               "quality",
               "mode",
               "apiKey",
+              "promptApiKey",
             ]
               .map((k) => [k, { type: "string", maxLength: 4096 }])
-              .concat([["clearKey", { type: "boolean" }]] as any),
+              .concat([
+                ["clearKey", { type: "boolean" }],
+                ["clearPromptKey", { type: "boolean" }],
+              ] as any),
           ),
         },
       },
@@ -134,8 +124,29 @@ export async function createApp(options: AppOptions) {
   app.get("/api/workspace", () =>
     repo.db.transaction(async (tx) => {
       await repo.lock(tx);
-      return repo.view(tx);
+      return { ...(await repo.view(tx)), syncCursor: await repo.cursor(tx) };
     }),
+  );
+  app.get<{ Querystring: { since: number } }>(
+    "/api/workspace/changes",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["since"],
+          additionalProperties: false,
+          properties: {
+            since: {
+              type: "integer",
+              minimum: 0,
+              maximum: Number.MAX_SAFE_INTEGER,
+            },
+          },
+        },
+      },
+    },
+    (request) =>
+      repo.db.transaction((tx) => repo.changes(tx, request.query.since)),
   );
   app.patch(
     "/api/workspace",
@@ -191,6 +202,56 @@ export async function createApp(options: AppOptions) {
       return workflows.importWorkspace(body.commandId, body.workspace);
     },
   );
+  app.get(
+    "/api/jobs/history",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            page: { type: "integer", minimum: 1, maximum: 1000000, default: 1 },
+            pageSize: {
+              type: "integer",
+              minimum: 1,
+              maximum: 100,
+              default: 50,
+            },
+            status: {
+              type: "string",
+              enum: [
+                "all",
+                "active",
+                "attention",
+                "queued",
+                "running",
+                "failed",
+                "interrupted",
+                "completed",
+                "cancelled",
+              ],
+              default: "all",
+            },
+            search: { type: "string", maxLength: 500, default: "" },
+          },
+        },
+      },
+    },
+    (request) => {
+      const query = request.query as {
+        page: number;
+        pageSize: number;
+        status: string;
+        search: string;
+      };
+      return workflows.repo.history(
+        query.page,
+        query.pageSize,
+        query.status,
+        query.search,
+      );
+    },
+  );
   app.post(
     "/api/jobs",
     {
@@ -203,7 +264,13 @@ export async function createApp(options: AppOptions) {
             commandId: { type: "string", minLength: 1, maxLength: 100 },
             kind: {
               type: "string",
-              enum: ["prompt", "prompt-set", "image", "workflow"],
+              enum: [
+                "prompt",
+                "prompt-set",
+                "image",
+                "workflow",
+                "full-workflow",
+              ],
             },
             pairs: {
               type: "array",
@@ -240,9 +307,17 @@ export async function createApp(options: AppOptions) {
             commandId: { type: "string", minLength: 1, maxLength: 100 },
             action: {
               type: "string",
-              enum: ["pause", "cancel", "retry", "reconcile"],
+              enum: [
+                "pause",
+                "cancel",
+                "retry",
+                "reconcile",
+                "cancel-pending",
+                "cancel-product",
+              ],
             },
             paused: { type: "boolean" },
+            productId: { type: "string", maxLength: 100 },
             remoteId: { type: "string", maxLength: 200 },
             confirmNotAccepted: { type: "boolean" },
           },
@@ -283,6 +358,13 @@ export async function createApp(options: AppOptions) {
       .type(asset.mime)
       .send(asset.bytes);
   });
+  app.get("/api/assets/:id/thumbnail", async (request, reply) => {
+    const asset = await assets.thumbnail((request.params as any).id);
+    return reply
+      .header("Cache-Control", "private, max-age=31536000, immutable")
+      .type(asset.mime)
+      .send(asset.bytes);
+  });
   app.post(
     "/api/shimo-image",
     {
@@ -312,13 +394,27 @@ export async function createApp(options: AppOptions) {
   if (options.staticDirectory) {
     await app.register(staticFiles, {
       root: resolve(options.staticDirectory),
-      wildcard: false,
+      // Resolve from disk on each request so builds made while the server is
+      // running can introduce new content-hashed modules without a restart.
+      wildcard: true,
+      setHeaders(reply, filename) {
+        if (extname(filename) === ".html")
+          reply.header("Cache-Control", "no-store");
+      },
     });
-    app.setNotFoundHandler((request, reply) =>
-      request.url.startsWith("/api/")
-        ? reply.code(404).send({ error: "接口不存在" })
-        : reply.sendFile("index.html"),
-    );
+    app.setNotFoundHandler((request, reply) => {
+      const pathname = request.url.split("?")[0];
+      reply.header("Cache-Control", "no-store");
+      if (pathname.startsWith("/api/"))
+        return reply.code(404).send({ error: "接口不存在" });
+      if (
+        !["GET", "HEAD"].includes(request.method) ||
+        pathname.startsWith("/assets/") ||
+        extname(pathname)
+      )
+        return reply.code(404).send({ error: "静态资源不存在，请刷新页面" });
+      return reply.sendFile("index.html");
+    });
   }
   return { app, workflows };
 }

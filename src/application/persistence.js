@@ -1,5 +1,5 @@
-import { APP_KEY } from "../model.js";
-import { saveSnapshot } from "../storage.js";
+import { APP_KEY } from "../../shared/model.js";
+import { saveSnapshot } from "../integrations/storage.js";
 
 export function createPersistence(context) {
   let saveTimer,
@@ -32,7 +32,7 @@ export function createPersistence(context) {
         await saveChain;
       }
       setSaveStatus(
-        dirty ? "保存中…" : repository ? "已保存到服务端" : "已保存到本机",
+        dirty ? "保存中…" : repository ? "已保存数据" : "已保存到本机",
       );
     } catch (error) {
       dirty = true;

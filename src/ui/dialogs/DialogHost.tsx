@@ -4,15 +4,15 @@ import { ActionButton, useApplication } from "../context.tsx";
 import {
   PromptDialog,
   ProductDialog,
-  CommonDialog,
   VersionDialog,
   ReconcileDialog,
   PasteDialog,
   PromptHistory,
 } from "./EditorDialogs.tsx";
 import { MediaDialog } from "./MediaDialog.tsx";
-import { SettingsDialog, KeyDialog } from "./SettingsDialog.tsx";
+import { SettingsDialog } from "./SettingsDialog.tsx";
 import { ParseDialog } from "../sheet/ParseDialog.tsx";
+import { RequirementsDialog } from "./RequirementsDialog.tsx";
 
 function DialogContent({ modal }: { modal: Modal }) {
   const { state, ui } = useApplication();
@@ -26,7 +26,7 @@ function DialogContent({ modal }: { modal: Modal }) {
     case "product":
       return <ProductDialog product={product} isNew={modal.isNew} />;
     case "common":
-      return <CommonDialog />;
+      return product ? <RequirementsDialog product={product} /> : null;
     case "version": {
       const version = task?.versions.find((v) => v.id === modal.versionId);
       return task && version ? (
@@ -37,8 +37,6 @@ function DialogContent({ modal }: { modal: Modal }) {
       return product ? <MediaDialog product={product} task={task} /> : null;
     case "settings":
       return <SettingsDialog />;
-    case "key":
-      return <KeyDialog />;
     case "parser":
       return <ParseDialog context={ui.parser!} />;
     case "reconcile":
@@ -66,7 +64,7 @@ export function DialogHost() {
       dialog.showModal();
       dialog
         .querySelector<HTMLElement>(
-          "#prompt-form textarea, #product-form input, #key-form input, #media-dropzone, #paste-content",
+          "#prompt-form textarea, #product-form input, #common-form textarea, #settings-form input[type=password], #media-dropzone, #paste-content",
         )
         ?.focus();
     }
@@ -75,6 +73,10 @@ export function DialogHost() {
   return (
     <dialog
       id="modal"
+      className={ui.modal?.type === "common" ? "requirements-modal" : undefined}
+      aria-labelledby={
+        ui.modal?.type === "common" ? "requirements-dialog-title" : undefined
+      }
       ref={ref}
       onCancel={(e) => {
         e.preventDefault();
@@ -91,7 +93,7 @@ export function DialogHost() {
             ×
           </ActionButton>
           <DialogContent modal={ui.modal} />
-          {ui.formError && !["settings", "key"].includes(ui.modal.type) && (
+          {ui.formError && ui.modal.type !== "settings" && (
             <p className="error-text" role="alert">
               {ui.formError}
             </p>

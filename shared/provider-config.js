@@ -1,4 +1,5 @@
 import { AUTO_SIZE_DEFAULTS } from "./generation-settings.js";
+import { DOUBAO_DEFAULT_MODEL } from "./doubao.js";
 export const MODELS = [
   "nano-banana",
   "nano-banana-fast",
@@ -21,7 +22,8 @@ export const DEFAULT_CONFIG = {
   mode: "demo",
   baseUrl: "https://grsai.dakka.com.cn",
   imageModel: "nano-banana-2",
-  promptModel: "gemini-3.1-pro",
+  promptProvider: "doubao",
+  promptModel: DOUBAO_DEFAULT_MODEL,
   ...AUTO_SIZE_DEFAULTS,
   quality: "auto",
 };

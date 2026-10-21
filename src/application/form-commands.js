@@ -1,5 +1,29 @@
-import { newProduct, savePrompt, findTask } from "../model.js";
+import { newProduct, savePrompt, findTask } from "../../shared/model.js";
 export function createFormCommands(context) {
+  async function saveTaskPromptAndGenerate(productId, taskId, prompt) {
+    if (!prompt.trim()) throw new Error("请先填写提示词");
+    const { product, task } = findTask(context.state, productId, taskId);
+    if (!task) throw new Error("该图片位置已不存在");
+    if (task.prompt !== prompt) savePrompt(task, prompt);
+    context.change();
+    try {
+      await context.syncTask(product, task, "prompt");
+    } finally {
+      await context.persist();
+    }
+    try {
+      const pair = findTask(context.state, productId, taskId);
+      if (!pair.task) throw new Error("该图片位置已不存在");
+      const count = await context.queue.enqueue([pair], "image");
+      if (!count) throw new Error("已有生图任务，请等待完成后重试");
+      context.notify(
+        "提示词已保存，图片已加入生成队列" +
+          (context.state.paused ? "，队列已暂停" : ""),
+      );
+    } catch (error) {
+      throw new Error(`提示词已保存，未能启动生成：${error.message}`);
+    }
+  }
   async function submit(event) {
     const {
       state,
@@ -11,12 +35,13 @@ export function createFormCommands(context) {
       closeModal,
       setFormError,
       setHasKey,
+      setHasPromptKey,
       syncTask,
       updateMetadata,
     } = context;
     if (
       !event.target.matches(
-        "#settings-form,#product-form,#common-form,#key-form,#prompt-form,#reconcile-form",
+        "#settings-form,#product-form,#common-form,#prompt-form,#reconcile-form",
       )
     )
       return;
@@ -32,37 +57,17 @@ export function createFormCommands(context) {
       return;
     }
     if (form.id === "prompt-form") {
-      const { product, task } = findTask(
-        state,
+      await saveTaskPromptAndGenerate(
         form.dataset.product,
         form.dataset.task,
+        values.prompt,
       );
-      if (!task) throw new Error("该图片位置已不存在");
-      if (task.prompt !== values.prompt) savePrompt(task, values.prompt);
-      change();
       closeModal();
-      await syncTask(product, task, "prompt");
-      notify("提示词已保存");
-    } else if (form.id === "key-form") {
-      const r = await fetch("/api/workflow/settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ apiKey: values.apiKey }),
-        }),
-        data = await r.json();
-      if (!r.ok) {
-        setFormError(data.error);
-        return;
-      }
-      setHasKey(data.hasKey);
-      closeModal();
-      render();
-      notify("密钥已配置，尚未启动生成任务");
     } else if (form.id === "settings-form") {
       if (values.promptModel === "__custom") {
         values.promptModel = values.customPromptModel?.trim();
         if (!values.promptModel) {
-          setFormError("请填写平台模型名称");
+          setFormError("请填写豆包 Model ID 或 Endpoint ID");
           return;
         }
       }
@@ -78,7 +83,9 @@ export function createFormCommands(context) {
         return;
       }
       setHasKey(data.hasKey);
+      setHasPromptKey(data.hasPromptKey);
       delete data.hasKey;
+      delete data.hasPromptKey;
       state.settings = data;
       closeModal();
       change();
@@ -107,11 +114,19 @@ export function createFormCommands(context) {
       }
       closeModal();
       change();
-    } else {
-      state.common = values.common;
-      closeModal();
+    } else if (form.id === "common-form") {
+      const product = state.products.find((p) => p.id === form.dataset.product);
+      if (!product) throw new Error("该产品已不存在");
+      if (!values.common.trim()) throw new Error("请填写整套提示词生成要求");
+      if (values.common.length > 100000)
+        throw new Error("生成要求不能超过 100000 字");
+      product.promptRequirements =
+        values.common === state.common ? null : values.common;
       change();
+      await context.persist();
+      closeModal();
+      notify("当前产品的生成要求已保存，下次生成提示词时生效");
     }
   }
-  return { submit };
+  return { submit, saveTaskPromptAndGenerate };
 }

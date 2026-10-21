@@ -29,6 +29,7 @@ export interface Product {
   code: string;
   name: string;
   facts: string;
+  promptRequirements?: string | null;
   photo: string;
   photos: string[];
   tasks: ImageTask[];
@@ -38,6 +39,7 @@ export interface GenerationSettings {
   baseUrl: string;
   imageModel: string;
   promptModel: string;
+  promptProvider: "doubao";
   aspectRatio: string;
   imageSize: string;
   gptSize: string;
@@ -61,9 +63,12 @@ export interface Job {
   mode: string;
   stage?: string;
   remoteId?: string;
+  dependsOn?: string;
   progress?: number;
   promptDrafts?: Record<string, string>;
   receivedChars?: number;
+  promptWarnings?: { code: string; role: string; message: string }[];
+  validationError?: { code: string; role?: string };
   createdAt: number;
   config?: GenerationSettings;
   error?: string;
@@ -79,6 +84,7 @@ export interface Workspace {
   paused: boolean;
 }
 export interface ParsedProduct {
+  photos: string[];
   code: string;
   name: string;
   tasks: { references: string[]; prompt: string; result: string }[];
@@ -95,10 +101,12 @@ export interface ParserContext {
     nameColumn: number;
     typeColumn: number;
     photoColumn: number;
+    photoColumns?: number[];
     roles: number[];
   };
   layout: string;
   candidates: ParsedProduct[];
+  issues?: string[];
 }
 export type ColumnField =
   | "codeColumn"
@@ -113,7 +121,6 @@ export interface Modal {
     | "version"
     | "media"
     | "settings"
-    | "key"
     | "parser"
     | "reconcile"
     | "paste"
@@ -128,13 +135,17 @@ export interface Modal {
 export interface UIState {
   view: string;
   search: string;
+  productPage: number;
   filter: string;
   modal: Modal | null;
   toast: string;
   saveStatus: string;
   hasKey: boolean;
+  hasPromptKey: boolean;
+  assistant: { open: boolean; productId?: string; taskId?: string };
   parser: ParserContext | null;
   exporting: boolean;
+  sheetConflicts: { key: string; message: string }[];
   formError: string;
   mediaFeedback: string;
   mediaError: boolean;
@@ -152,6 +163,12 @@ export interface ApplicationController {
   subscribe(listener: () => void): () => void;
   getSnapshot(): ApplicationSnapshot;
   start(): Promise<void>;
+  flush(): Promise<void>;
+  saveTaskPromptAndGenerate(
+    productId: string,
+    taskId: string,
+    prompt: string,
+  ): Promise<void>;
   dispatch(
     action: string,
     data?: Record<string, string | number | undefined>,
@@ -163,6 +180,8 @@ export interface ApplicationController {
   uploadFiles(event: ChangeEvent<HTMLInputElement>): void;
   restoreBackup(event: ChangeEvent<HTMLInputElement>): Promise<void>;
   setSearch(value: string): void;
+  setProductPage(value: number): void;
+  resolveSheetConflict(key: string, prefer: "local" | "remote"): Promise<void>;
   closeModal(): void;
   updateParser(
     field: ColumnField | "layout" | "headerRow" | undefined,

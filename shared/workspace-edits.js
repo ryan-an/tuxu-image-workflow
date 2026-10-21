@@ -13,6 +13,7 @@ export function editable(workspace) {
           code: p.code,
           name: p.name,
           facts: p.facts,
+          promptRequirements: p.promptRequirements ?? null,
           photo: p.photo || "",
           photos: p.photos || [],
           photoThumbnail: p.photoThumbnail ?? null,
@@ -26,6 +27,9 @@ export function editable(workspace) {
                 prompt: t.prompt,
                 primaryId: t.primaryId,
                 selectedIds: t.selectedIds,
+                imports: t.versions.filter(
+                  (version) => version.origin === "imported",
+                ),
               },
             ]),
           ),
@@ -87,7 +91,20 @@ export function mergeView(state, remote, pending = []) {
     return {
       ...p,
       ...fields,
-      tasks: p.tasks.map((t) => ({ ...t, ...tasks[t.id] })),
+      tasks: p.tasks.map((t) => {
+        const { imports = [], ...fields } = tasks[t.id];
+        return {
+          ...t,
+          ...fields,
+          versions: [
+            ...t.versions,
+            ...imports.filter(
+              (version) =>
+                !t.versions.some((existing) => existing.id === version.id),
+            ),
+          ],
+        };
+      }),
     };
   });
   for (const [id, p] of Object.entries(projection.products)) {
@@ -96,11 +113,11 @@ export function mergeView(state, remote, pending = []) {
       products.push({
         ...p,
         promptSets: [],
-        tasks: Object.values(p.tasks).map((t) => ({
+        tasks: Object.values(p.tasks).map(({ imports = [], ...t }) => ({
           ...t,
           revision: 0,
           promptHistory: [],
-          versions: [],
+          versions: imports,
         })),
       });
   }

@@ -27,6 +27,12 @@ export class RemoteQueue {
   cancel(id) {
     return this.control(id, "cancel");
   }
+  cancelPending() {
+    return this.control("queue", "cancel-pending");
+  }
+  cancelProduct(productId) {
+    return this.control("queue", "cancel-product", { productId });
+  }
   retry(id) {
     return this.control(id, "retry");
   }

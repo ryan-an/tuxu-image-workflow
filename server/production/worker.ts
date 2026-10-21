@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { productPhotos } from "../../shared/prompt-suite.js";
-import { savePrompt } from "../../shared/model.js";
+import { savePrompt, selectVersion } from "../../shared/model.js";
 import { ProviderError, type Provider } from "./provider.js";
 import type { Workflows } from "./workflows.js";
 import type { Job } from "./types.js";
@@ -42,26 +42,39 @@ export class Worker {
     ]);
     let key = "";
     try {
-      key = await this.workflows.key();
+      key = await this.workflows.key(
+        job.kind === "prompt-set" && job.config.promptProvider === "doubao"
+          ? "doubao"
+          : "image",
+      );
       if (job.kind === "prompt-set") {
         if (!(await this.workflows.repo.markStage(job, "analyzing")))
           return true;
         let lastProgress = 0;
+        const targets = job.productSnapshot!.tasks.filter(
+          (t) => !job.taskIds || job.taskIds.includes(t.id),
+        );
+        const snapshot = { ...job.productSnapshot!, tasks: targets };
         const result = await this.provider.analyze(
-          job.productSnapshot!,
+          snapshot,
           job.common!,
           job.config,
           key,
           signal,
-          async (text) => {
-            if (Date.now() - lastProgress < 300) return;
+          async (text, final) => {
+            if (!final && Date.now() - lastProgress < 300) return;
             lastProgress = Date.now();
-            const drafts = streamedPrompts(text);
+            const drafts = Object.fromEntries(
+              Object.entries(streamedPrompts(text)).filter(([role]) =>
+                targets.some((t) => t.role === role),
+              ),
+            );
             if (
               await this.workflows.repo.saveAnalysisProgress(
                 job,
                 drafts,
                 text.length,
+                final ? text : undefined,
               )
             )
               this.workflows.analysisEvents.publish({
@@ -73,9 +86,10 @@ export class Worker {
         );
         if (
           !Array.isArray(result.prompts) ||
-          result.prompts.length !== 10 ||
-          new Set(result.prompts.map((p: any) => p.role)).size !== 10 ||
-          job.productSnapshot!.tasks.some(
+          result.prompts.length !== targets.length ||
+          new Set(result.prompts.map((p: any) => p.role)).size !==
+            targets.length ||
+          targets.some(
             (t) =>
               !result.prompts.some(
                 (p: any) =>
@@ -85,7 +99,11 @@ export class Worker {
               ),
           )
         )
-          throw new ProviderError("整套分析结果缺失，已阻止生图", false, true);
+          throw new ProviderError(
+            "所选卡片分析结果缺失，已阻止生图",
+            false,
+            true,
+          );
         await this.workflows.repo.updateClaim(
           job,
           async (tx, state, current) => {
@@ -99,7 +117,9 @@ export class Worker {
             };
             if (!product.promptSets.some((s) => s.id === job.id))
               product.promptSets.push(set);
-            for (const task of product.tasks) {
+            for (const task of product.tasks.filter((t) =>
+              targets.some((target) => target.id === t.id),
+            )) {
               const item = result.prompts.find(
                 (p: any) => p.role === task.role,
               );
@@ -115,12 +135,25 @@ export class Worker {
                 });
             }
             current.prompts = result.prompts;
+            delete current.promptWarnings;
+            current.error = "";
+            delete current.validationError;
             current.status = "completed";
             current.stage = "completed";
             current.finishedAt = Date.now();
             await this.workflows.repo.saveProduct(tx, product);
           },
         );
+        const saved = (await this.workflows.repo.view()).jobs.find(
+          (item) => item.id === job.id,
+        );
+        if (saved?.status === "completed")
+          this.log({
+            event: "prompt.completed",
+            jobId: job.id,
+            promptCount: result.prompts.length,
+            elapsedMs: Date.now() - stageStarted,
+          });
       } else if (!job.remoteId) {
         let prompt = job.prompt!,
           photos = job.referenceImages!;
@@ -197,7 +230,7 @@ export class Worker {
                   number: task.versions.length + 1,
                 };
                 task.versions.push(version);
-                if (!task.primaryId) task.primaryId = version.id;
+                selectVersion(task, version.id, true);
               }
               current.status = "completed";
               current.stage = "completed";
@@ -230,6 +263,9 @@ export class Worker {
           receivedChars:
             this.workflows.analysisEvents.latest.get(job.id)?.receivedChars ||
             0,
+          validation:
+            error instanceof ProviderError ? error.validation : undefined,
+          upstream: error instanceof ProviderError ? error.upstream : undefined,
         });
       // If this write fails, the lease remains and the next worker recovers it.
       await this.workflows.repo.updateClaim(
@@ -238,6 +274,8 @@ export class Worker {
           if (current.status === "cancelled") return;
           const message = error instanceof Error ? error.message : "执行失败";
           current.error = key ? message.replaceAll(key, "[已隐藏]") : message;
+          current.validationError =
+            error instanceof ProviderError ? error.validation : undefined;
           if (transportCode) current.error += ` (${transportCode})`;
           current.failures = (current.failures || 0) + 1;
           if (

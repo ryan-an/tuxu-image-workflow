@@ -6,5 +6,5 @@
     "rootDir": ".",
     "sourceMap": true
   },
-  "exclude": ["**/*.test.ts", "**/test-support.ts"]
+  "exclude": ["tests", "build-test", "build-server", "dist", "node_modules"]
 }

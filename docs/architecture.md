@@ -2,6 +2,35 @@
 
 前端页面和弹窗已迁移到 React / TypeScript 组件，应用控制器负责连接状态、业务操作与接口。业务适配层保留 JavaScript，沿用已有数据与表格契约。后端保持现有模块化单体，不继续增加服务或存储层次；真实平台联调仍需在目标环境验证。
 
+## 目录结构与依赖方向
+
+```text
+src/
+  app.tsx            React 入口
+  ui/                页面、组件、弹窗与样式
+  application/       用例协调、界面状态与生命周期
+  services/          HTTP、工作区同步与远端队列客户端
+  integrations/      Univer、剪贴板、文件导出与本机存储适配
+  view-models/       产品分页、缩略图与队列展示数据
+  demo/              旧原型、演示数据与浏览器队列
+shared/              前后端共用的产品、提示词和平台配置规则
+server/
+  production/        生产 API、业务用例、Worker、持久化与平台适配
+  demo/              仅演示模式使用的 Vite 接口插件
+tests/
+  unit/              单元测试
+  integration/       API、数据库、Worker 及兼容集成测试
+  e2e/               真实浏览器回归
+  support/           测试夹具和模拟平台
+  legacy/            旧原型手工验证脚本
+scripts/             启动、构建、测试运行器与诊断工具
+docs/                架构和使用文档
+```
+
+前端由 UI 经应用控制器调用服务与适配器，通用规则直接引用 `shared/`，不再经 `src/` 的转发文件。`view-models/` 负责展示数据计算，不发起平台请求。演示实现集中在 `demo/`，应用只在演示模式动态加载浏览器队列。生产服务继续使用现有模块化单体边界。
+
+所有测试与夹具只能放在 `tests/`，不得反向被业务模块引用；生产构建排除该目录，测试构建输出到 `build-test/tests/`。新增文件与运行方式见 [测试目录约定](../tests/README.md)。
+
 ## 运行结构
 
 采用模块化单体。API、Worker 共用领域模块和 SQLite，在同一个 Node.js 进程运行。Vite 仅负责前端开发与构建；生产 HTTP 服务由 Fastify 提供。
@@ -12,33 +41,37 @@
 
 整套分析的增量文本通过同源、登录保护的 SSE 推送至浏览器。后端解析已收到的 JSON 字符串，按图片角色生成只读预览，节流持久化到任务记录；刷新可恢复草稿。进度写入不释放任务租约，不修改正式提示词。只有完整响应通过整套契约校验后，才保存正式提示词及历史。完成或断线后仍以工作区接口同步最终状态。
 
+完整分析响应在结构解析前强制保存最终草稿和原始文本，绕过进度节流，避免最后一段丢失。服务端只检查 JSON、角色数量和必要字段结构，不检查提示词的词数、语言、尺寸、数量或品牌内容，也不生成内容提醒。结构解析失败保存规则代码和卡片角色，页面直接显示原因；完成日志记录提示词数量，失败日志记录解析类型、位置及上游错误元数据，不记录提示词正文或密钥。
+
+豆包咨询 `POST /api/assistant/chat` 在请求体指定 `stream: true` 后直接返回 SSE，先发送 `start`，再逐个转发上游 `response.output_text.delta` 为 `delta`；最终文本校正使用 `snapshot`，保存完成发送 `done`，错误发送 `error`。响应头立即刷新，关闭代理缓冲并发送保活注释；写入服从 socket 背压。HTTP 响应开始后的错误通过终止事件传递，开始前的验证错误保留 JSON 与 HTTP 状态。未指定流式的旧客户端仍接收 JSON。部分回复约每 400ms 保存一次，停止或断线时立即保存内存中的最新内容；轮次条件防止旧流覆盖重试。前端用 Fetch 流解码 UTF-8/SSE，按对话和消息 ID 更新，再由 React Markdown 与 GFM 渲染，跳过原始 HTML 并过滤危险链接。
+
 ## 模块分工
 
-| 模块                             | 职责                                            | 禁止依赖               |
-| -------------------------------- | ----------------------------------------------- | ---------------------- |
-| `shared/model.js`                | 产品位置、提示词历史、选图规则                  | DOM、平台 HTTP         |
-| `shared/prompt-suite.js`         | 整套提示词契约、构造与校验                      | DOM、数据库            |
-| `shared/workspace-edits.js`      | 可编辑字段投影、差异、冲突前置条件              | 平台调用               |
-| `server/production/app.ts`       | HTTP Schema、登录、请求错误转换、静态资源       | 任务派发逻辑           |
-| `workflows.ts`                   | 编辑、迁移、执行命令、配置与核对操作            | DOM、直接平台调用      |
-| `repository.ts`                  | 数据访问、事务、任务领取与租约                  | 平台 HTTP、表格同步    |
-| `worker.ts`                      | 分阶段执行、依赖、恢复、结果提交                | DOM、Univer            |
-| `provider.ts`                    | 平台参数和协议、响应与错误转换                  | 页面状态、修改产品记录 |
-| `assets.ts`                      | 图片文件、内容去重、安全下载、平台素材编码      | 工作流调度             |
-| `credentials.ts`                 | AES-256-GCM 凭据加解密                          | 浏览器状态             |
-| `src/services`                   | API 客户端、后台队列控制、便携备份              | 付费平台接口           |
-| `src/ui`                         | 有类型的 React 页面、图片卡片、队列、表单和弹窗 | API 请求、任务执行     |
-| `src/application/state-store.js` | 界面状态、订阅快照、弹窗和通知                  | 数据库、平台请求       |
-| `src/application/commands.js`    | 用户操作协调                                    | HTML 拼接、DOM 渲染    |
-| `src/application/persistence.js` | 自动保存、失败状态和兼容本机保存                | 页面布局               |
-| `src/application/media.js`       | 上传目标冻结、串行追加、图片管理                | 队列执行               |
-| `src/application/sheet.js`       | 表格导入映射、产品元数据和结果投影              | 平台请求               |
-| `src/application/files.js`       | 图片 ZIP、Excel、备份恢复                       | 页面布局               |
-| `src/sheet-bridge.js`            | Univer 懒加载、粘贴解析、表格投影               | 任务执行               |
-| `src/app.tsx`                    | 创建 React 根节点并启动应用                     | 业务规则、生产任务调度 |
-| `src/application/controller.js`  | 装配服务、启动与资源释放                        | HTML 模板、平台协议    |
+| 模块                               | 职责                                            | 禁止依赖               |
+| ---------------------------------- | ----------------------------------------------- | ---------------------- |
+| `shared/model.js`                  | 产品位置、提示词历史、选图规则                  | DOM、平台 HTTP         |
+| `shared/prompt-suite.js`           | 整套提示词契约、构造与校验                      | DOM、数据库            |
+| `shared/workspace-edits.js`        | 可编辑字段投影、差异、冲突前置条件              | 平台调用               |
+| `server/production/app.ts`         | HTTP Schema、登录、请求错误转换、静态资源       | 任务派发逻辑           |
+| `workflows.ts`                     | 编辑、迁移、执行命令、配置与核对操作            | DOM、直接平台调用      |
+| `repository.ts`                    | 数据访问、事务、任务领取与租约                  | 平台 HTTP、表格同步    |
+| `worker.ts`                        | 分阶段执行、依赖、恢复、结果提交                | DOM、Univer            |
+| `provider.ts`                      | 平台参数和协议、响应与错误转换                  | 页面状态、修改产品记录 |
+| `assets.ts`                        | 图片文件、内容去重、安全下载、平台素材编码      | 工作流调度             |
+| `credentials.ts`                   | AES-256-GCM 凭据加解密                          | 浏览器状态             |
+| `src/services`                     | API 客户端、后台队列控制、便携备份              | 付费平台接口           |
+| `src/ui`                           | 有类型的 React 页面、图片卡片、队列、表单和弹窗 | API 请求、任务执行     |
+| `src/application/state-store.js`   | 界面状态、订阅快照、弹窗和通知                  | 数据库、平台请求       |
+| `src/application/commands.js`      | 用户操作协调                                    | HTML 拼接、DOM 渲染    |
+| `src/application/persistence.js`   | 自动保存、失败状态和兼容本机保存                | 页面布局               |
+| `src/application/media.js`         | 上传目标冻结、串行追加、图片管理                | 队列执行               |
+| `src/application/sheet.js`         | 表格导入映射、产品元数据和结果投影              | 平台请求               |
+| `src/application/files.js`         | 图片 ZIP、Excel、备份恢复                       | 页面布局               |
+| `src/integrations/sheet-bridge.js` | Univer 懒加载、粘贴解析、表格投影               | 任务执行               |
+| `src/app.tsx`                      | 创建 React 根节点并启动应用                     | 业务规则、生产任务调度 |
+| `src/application/controller.js`    | 装配服务、启动与资源释放                        | HTML 模板、平台协议    |
 
-演示启动必须显式使用 `npm run dev:demo`。`src/queue.js`、`demo-images.js`、`server/grsai.js` 仅保留兼容验证，生产运行不使用浏览器执行队列或 Vite API 插件。
+演示启动必须显式使用 `npm run dev:demo`。`src/demo/queue.js`、`src/demo/demo-images.js`、`server/demo/grsai.js` 仅保留兼容验证，生产运行不使用浏览器执行队列或 Vite API 插件。
 
 ## 持久化模型
 
@@ -48,6 +81,8 @@
 - `job_attempts`：领取执行记录、阶段、结果与错误。
 - `commands`：有指纹的操作 ID，重复相同命令返回原结果；相同 ID 配不同内容会拒绝。
 - `assets`：素材哈希、MIME、字节数；文件放在独立持久目录，数据库与工作区只存素材地址。
+- `assistant_conversations`：按产品、卡片区分的豆包对话，保存标题及当前选中的历史对话。
+- `assistant_turns`：用户问题、模型回复、模型名称和完成/失败/中断状态；消息 ID 防止重复提交，执行轮次防止旧请求覆盖重试结果。重启时保留未完成的问题并标记中断，等待手动处理。
 - `schema_migrations`：迁移版本及校验和；已执行文件不可修改，只能追加迁移。
 
 产品采用 JSON 文本 聚合是这一阶段的有意取舍，避免同时重写全部旧业务规则。图片二进制已移出 JSON 文本；任务、尝试和幂等命令是独立表。若历史规模扩大，应通过新迁移将提示词和图片版本拆为明细表，而非继续扩大聚合。
@@ -79,7 +114,7 @@ SQLite 使用 WAL、FULL 同步和外键约束。数据库操作串行执行，�
 
 ## 访问与部署边界
 
-第一阶段支持一个共享工作区，使用 `admin` 与环境变量密码的 HTTP Basic 登录，写请求限制为同源。它不是多租户权限系统。外网访问需要 HTTPS 反向代理；Compose 默认只绑定本机端口。
+第一阶段支持一个共享工作区，前端 `/login` 页面使用 `admin` 与环境变量密码登录。服务端创建 12 小时的内存会话，通过 HttpOnly、SameSite=Strict Cookie 验证 API、素材和 SSE；退出或服务重启后会话失效。静态页面公开，工作区在验证会话后才加载，失效时返回登录页，写请求限制为同源。它不是多租户权限系统。外网访问需要 HTTPS 反向代理；Compose 默认只绑定本机端口。
 
 密钥不返回浏览器，不进入备份和请求日志。加密主密钥从环境变量提供，必须独立备份；丢失后无法解密原平台密钥。素材与数据库必须一起备份。
 

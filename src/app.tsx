@@ -1,18 +1,16 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { Application, ApplicationErrorBoundary } from "./ui/Application.tsx";
-import { createApplicationController } from "./application/controller.js";
+import { ApplicationErrorBoundary } from "./ui/Application.tsx";
+import { AuthRouter } from "./ui/auth/AuthRouter";
 import "./workflow.css";
-const controller = createApplicationController();
+import "./ui/design-system/tokens.css";
 const root = createRoot(document.getElementById("root")!);
 root.render(
   <ApplicationErrorBoundary>
-    <Application controller={controller} />
+    <AuthRouter />
   </ApplicationErrorBoundary>,
 );
-void controller.start();
 if (import.meta.hot)
   import.meta.hot.dispose(() => {
-    controller.dispose();
     root.unmount();
   });

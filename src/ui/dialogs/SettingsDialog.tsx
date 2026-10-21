@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { MODELS } from "../../../shared/provider-config.js";
-import { PROMPT_MODELS } from "../../service-models.js";
+import { PROMPT_MODELS } from "../../../shared/service-models.js";
 import { ActionButton, ApplicationForm, useApplication } from "../context.tsx";
+import "./settings.css";
+import { Badge } from "../design-system/Badge";
 
 const imageModels = [
   "nano-banana-2",
@@ -14,43 +16,87 @@ function Options({ values }: { values: string[] }) {
     </option>
   ));
 }
-export function KeyDialog() {
-  const { ui, isRemote } = useApplication();
+function ApiKeyField({
+  name,
+  title,
+  purpose,
+  configured,
+  placeholder,
+}: {
+  name: string;
+  title: string;
+  purpose: string;
+  configured: boolean;
+  placeholder: string;
+}) {
+  const [filled, setFilled] = useState(false);
+  const status = filled ? "pending" : configured ? "configured" : "missing";
+  const id = `provider-key-${name}`;
   return (
-    <>
-      <h2>Grsai 密钥</h2>
-      <p className="modal-subtitle">
-        {ui.hasKey ? "已配置密钥，可以替换。" : "填写后可以使用真实生成。"}
-        {isRemote
-          ? "密钥由服务端加密保存，重启后仍可使用。"
-          : "重启本地服务后需要重新填写密钥。"}
-      </p>
-      <ApplicationForm id="key-form">
-        <label>
-          API 密钥
-          <input
-            type="password"
-            autoFocus
-            name="apiKey"
-            autoComplete="off"
-            required
-            placeholder="sk-…"
-          />
-        </label>
-        <div className="key-form-actions">
-          <button className="primary" type="submit">
-            保存密钥
-          </button>
-          <ActionButton action="clear-key">清除现有密钥</ActionButton>
-          <span id="key-error" className="error-text">
-            {ui.formError}
+    <div className="api-key-field" data-state={status}>
+      <div className="api-key-heading">
+        <label htmlFor={id}>{title}</label>
+        <Badge
+          className="api-key-status"
+          role="status"
+          tone={filled ? "warning" : configured ? "success" : "danger"}
+        >
+          <span className="api-key-status-icon" aria-hidden="true">
+            {status === "configured" ? "✓" : status === "pending" ? "•" : "!"}
           </span>
-        </div>
-      </ApplicationForm>
-      <p className="field-note">
-        保存密钥不会启动生成任务。密钥不写入表格、工作流备份或浏览器保存。
+          {filled ? "待保存" : configured ? "已配置" : "未配置"}
+        </Badge>
+      </div>
+      <input
+        id={id}
+        type="password"
+        name={name}
+        autoComplete="off"
+        aria-describedby={`${id}-note`}
+        placeholder={configured ? "已配置，留空保留" : placeholder}
+        onChange={(event) => setFilled(Boolean(event.target.value.trim()))}
+      />
+      <p id={`${id}-note`} className="api-key-note">
+        {purpose} ·{" "}
+        {filled
+          ? configured
+            ? "保存后替换现有密钥"
+            : "保存后生效"
+          : configured
+            ? "留空保留现有密钥"
+            : "填写密钥后保存"}
       </p>
-    </>
+      {configured && (
+        <ActionButton
+          className="api-key-clear"
+          action={name === "promptApiKey" ? "clear-prompt-key" : "clear-key"}
+          aria-label={name === "promptApiKey" ? "清除豆包密钥" : "清除生图密钥"}
+        >
+          清除密钥
+        </ActionButton>
+      )}
+    </div>
+  );
+}
+function ProviderKeys() {
+  const { ui } = useApplication();
+  return (
+    <div className="form-grid provider-keys">
+      <ApiKeyField
+        name="promptApiKey"
+        title="豆包对话 API Key"
+        purpose="对话与提示词分析"
+        configured={ui.hasPromptKey}
+        placeholder="填写火山方舟 API Key"
+      />
+      <ApiKeyField
+        name="apiKey"
+        title="Grsai 生图 API Key"
+        purpose="图片生成"
+        configured={ui.hasKey}
+        placeholder="填写 Grsai API Key"
+      />
+    </div>
   );
 }
 export function SettingsDialog() {
@@ -63,14 +109,54 @@ export function SettingsDialog() {
     custom = promptModel === "__custom";
   return (
     <>
-      <h2>生成服务设置</h2>
+      <h2>对话与生图设置</h2>
       <p className="modal-subtitle">
-        nano-banana 和 GPT 均使用 Grsai。
+        对话与提示词分析使用火山引擎豆包；图片生成使用 Grsai。
         {isRemote
           ? "密钥由服务端加密保存。"
           : "密钥只保留在本次本地服务运行中。"}
       </p>
       <ApplicationForm id="settings-form">
+        <input type="hidden" name="promptProvider" value="doubao" />
+        <ProviderKeys />
+        <label>
+          豆包对话模型
+          <select
+            name="promptModel"
+            id="prompt-model"
+            value={promptModel}
+            onChange={(e) => setPromptModel(e.target.value)}
+          >
+            <Options
+              values={[
+                ...new Set(
+                  [...PROMPT_MODELS, config.promptModel].filter(Boolean),
+                ),
+              ]}
+            />
+            <option value="__custom">其他豆包模型 / Endpoint ID</option>
+          </select>
+        </label>
+        <label id="custom-prompt-model" hidden={!custom}>
+          火山方舟 Model ID / Endpoint ID
+          <input
+            name="customPromptModel"
+            disabled={!custom}
+            placeholder="doubao-… 或 ep-…"
+          />
+        </label>
+        <p className="field-note">
+          豆包服务地址：https://ark.cn-beijing.volces.com/api/v3。 API Key
+          所属账号需先
+          <a
+            href="https://ark.volcengine.com/region:cn-beijing/openManagement"
+            target="_blank"
+            rel="noreferrer"
+          >
+            开通所选模型服务
+          </a>
+          ，仅创建 API Key 不会自动开通模型。
+        </p>
         <div className="form-grid">
           <label>
             运行方式
@@ -78,28 +164,17 @@ export function SettingsDialog() {
               {!isRemote && (
                 <option value="demo">演示模式 · 不调用付费接口</option>
               )}
-              <option value="live">真实生成 · Grsai</option>
+              <option value="live">真实调用 · 豆包 + Grsai</option>
             </select>
           </label>
           <label>
-            服务节点
+            Grsai 生图节点
             <select name="baseUrl" defaultValue={config.baseUrl}>
               <option value="https://grsai.dakka.com.cn">国内节点</option>
               <option value="https://grsaiapi.com">全球节点</option>
             </select>
           </label>
         </div>
-        <label>
-          API 密钥
-          <input
-            type="password"
-            name="apiKey"
-            autoComplete="off"
-            placeholder={
-              ui.hasKey ? "已配置，留空保留现有密钥" : "填写 Grsai API Key"
-            }
-          />
-        </label>
         <div className="form-grid">
           <label>
             生图模型
@@ -116,32 +191,6 @@ export function SettingsDialog() {
             >
               <Options values={imageModels} />
             </select>
-          </label>
-          <label>
-            提示词分析模型
-            <select
-              name="promptModel"
-              id="prompt-model"
-              value={promptModel}
-              onChange={(e) => setPromptModel(e.target.value)}
-            >
-              <Options
-                values={[
-                  ...new Set(
-                    [...PROMPT_MODELS, config.promptModel].filter(Boolean),
-                  ),
-                ]}
-              />
-              <option value="__custom">其他模型 · 手动填写</option>
-            </select>
-          </label>
-          <label id="custom-prompt-model" hidden={!custom}>
-            平台模型名称
-            <input
-              name="customPromptModel"
-              disabled={!custom}
-              placeholder="填写平台可用的模型名称"
-            />
           </label>
         </div>
         <div id="nano-options" hidden={gpt} className="form-grid">

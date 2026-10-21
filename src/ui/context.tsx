@@ -1,5 +1,6 @@
 import type { ApplicationContextValue } from "./types";
-import type { ButtonHTMLAttributes, FormHTMLAttributes } from "react";
+import type { FormHTMLAttributes } from "react";
+import { Button, type ButtonProps } from "./design-system/Button";
 import { createContext, useContext, useRef, useState } from "react";
 
 export const ApplicationContext = createContext<ApplicationContextValue | null>(
@@ -17,7 +18,7 @@ export function ActionButton({
   data = {},
   children,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
+}: ButtonProps & {
   action: string;
   data?: Record<string, string | number | undefined>;
 }) {
@@ -26,7 +27,7 @@ export function ActionButton({
     Object.entries(data).map(([key, value]) => [`data-${key}`, value]),
   );
   return (
-    <button
+    <Button
       type="button"
       {...props}
       {...attributes}
@@ -34,7 +35,7 @@ export function ActionButton({
       onClick={() => controller.dispatch(action, data)}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 

@@ -1,7 +1,7 @@
-import { findTask } from "../model.js";
+import { findTask } from "../../shared/model.js";
 
-import { readClipboardImages } from "../paste-images.js";
-import { transferImageFiles } from "../media-upload.js";
+import { readClipboardCells } from "../integrations/paste-images.js";
+import { transferImageFiles } from "../integrations/media-upload.js";
 
 const $ = (selector) => document.querySelector(selector);
 export function bindBrowserEvents(context) {
@@ -41,11 +41,12 @@ export function bindBrowserEvents(context) {
         e.target !== document.body
       )
         return;
+      const cells = readClipboardCells(
+        e.clipboardData.getData("text/html"),
+        e.clipboardData.getData("text/plain"),
+      );
       if (
-        !readClipboardImages(
-          e.clipboardData.getData("text/html"),
-          e.clipboardData.getData("text/plain"),
-        ).length &&
+        !cells.some((cell) => cell.urls.length) &&
         !e.clipboardData.files.length
       )
         return;
@@ -53,7 +54,7 @@ export function bindBrowserEvents(context) {
       e.stopImmediatePropagation();
       if (inModal) closeModal();
       void bridge
-        .paste(e.clipboardData)
+        .paste(e.clipboardData, cells)
         .catch((error) => notify(error.message));
     },
     true,

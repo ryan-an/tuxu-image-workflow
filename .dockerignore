@@ -2,6 +2,8 @@ node_modules
 dist
 build-server
 build-test
+tests
+artifacts
 data
 .env
 .npm-cache

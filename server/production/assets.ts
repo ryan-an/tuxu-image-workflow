@@ -5,12 +5,19 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { request as httpsRequest } from "node:https";
 import type { IncomingMessage } from "node:http";
+import sharp from "sharp";
 import type { Database } from "./types.js";
 import { AppError } from "./types.js";
 export const ASSET_PATH = /^\/api\/assets\/([a-f0-9]{64})$/;
 const MAX_IMAGE = 40 * 1024 * 1024;
 export class Assets {
   private root: string;
+  private previewActive = 0;
+  private previewQueue: Array<() => void> = [];
+  private previews = new Map<
+    string,
+    Promise<{ bytes: Buffer; mime: string }>
+  >();
   constructor(
     private db: Database,
     root: string,
@@ -57,18 +64,71 @@ export class Assets {
     if (!row) throw new AppError("图片不存在", 404);
     return { bytes: await readFile(join(this.root, id)), mime: row.mime };
   }
-  async normalize(value: any): Promise<any> {
+  async thumbnail(id: string) {
+    if (!/^[a-f0-9]{64}$/.test(id)) throw new AppError("图片不存在", 404);
+    if (this.previews.has(id)) return this.previews.get(id)!;
+    const work = (async () => {
+      const directory = join(this.root, "thumbnails");
+      const path = join(directory, `${id}.webp`);
+      try {
+        return { bytes: await readFile(path), mime: "image/webp" };
+      } catch (error: any) {
+        if (error.code !== "ENOENT") throw error;
+      }
+      if (this.previewActive >= 3)
+        await new Promise<void>((resolve) => this.previewQueue.push(resolve));
+      else this.previewActive++;
+      let bytes: Buffer;
+      try {
+        const source = await this.get(id);
+        bytes = await sharp(source.bytes, { limitInputPixels: 100_000_000 })
+          .rotate()
+          .resize(320, 320, { fit: "inside", withoutEnlargement: true })
+          .webp({ quality: 70 })
+          .toBuffer();
+      } finally {
+        const next = this.previewQueue.shift();
+        if (next) next();
+        else this.previewActive--;
+      }
+      await mkdir(directory, { recursive: true });
+      const temporary = `${path}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(temporary, bytes);
+        await rename(temporary, path);
+      } finally {
+        await unlink(temporary).catch(() => {});
+      }
+      return { bytes, mime: "image/webp" };
+    })();
+    this.previews.set(id, work);
+    try {
+      return await work;
+    } finally {
+      this.previews.delete(id);
+    }
+  }
+  async normalize(
+    value: any,
+    images = new Map<string, Promise<string>>(),
+  ): Promise<any> {
     if (typeof value === "string" && value.startsWith("data:image/")) {
+      if (images.has(value)) return images.get(value);
       const parsed =
         /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/.exec(
           value,
         );
       if (!parsed) throw new AppError("不支持的图片编码");
-      return this.put(Buffer.from(parsed[2], "base64"), parsed[1]);
+      if (!images.has(value))
+        images.set(
+          value,
+          this.put(Buffer.from(parsed[2], "base64"), parsed[1]),
+        );
+      return images.get(value);
     }
     if (Array.isArray(value)) {
       const result = [];
-      for (const item of value) result.push(await this.normalize(item));
+      for (const item of value) result.push(await this.normalize(item, images));
       return result;
     }
     if (value && typeof value === "object") {
@@ -76,7 +136,7 @@ export class Assets {
       for (const [key, item] of Object.entries(value)) {
         if (["__proto__", "constructor", "prototype"].includes(key))
           throw new AppError("无效字段");
-        result[key] = await this.normalize(item);
+        result[key] = await this.normalize(item, images);
       }
       return result;
     }

@@ -1,0 +1,57 @@
+.workspace-title {
+  position: relative;
+  width: fit-content;
+  max-width: min(100%, 560px);
+}
+.workspace-title h1 {
+  cursor: help;
+  border-radius: 4px;
+}
+.workspace-title h1:focus-visible {
+  outline: 2px solid #8589dc;
+  outline-offset: 4px;
+}
+.workspace-title-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  width: min(420px, calc(100vw - 48px));
+  padding-top: 8px;
+}
+.workspace-title-card {
+  padding: 16px 18px;
+  border: 1px solid #e3e4f2;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #f8f8ff, #fff 65%);
+  box-shadow:
+    0 12px 36px #30345a1f,
+    0 2px 6px #30345a08;
+}
+.workspace-title-caption {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 9px;
+  color: #8586a3;
+  font-size: 11px;
+  font-weight: 500;
+}
+.workspace-title-caption::before {
+  content: "";
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: #7775db;
+}
+.workspace-title .workspace-title-card p {
+  max-height: min(240px, 45vh);
+  overflow-y: auto;
+  margin: 0;
+  color: #414b64;
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+}

@@ -1,0 +1,70 @@
+.api-key-field {
+  --key-color: var(--color-danger);
+  --key-tint: var(--color-danger-soft);
+  --key-border: var(--color-danger-border);
+  min-width: 0;
+  padding: 13px 14px 11px;
+  border: 1px solid #e8eaf1;
+  border-radius: 10px;
+  background: #fafbfe;
+}
+.api-key-field[data-state="configured"] {
+  --key-color: var(--color-success);
+  --key-tint: var(--color-success-soft);
+  --key-border: var(--color-success-border);
+}
+.api-key-field[data-state="pending"] {
+  --key-color: var(--color-warning);
+  --key-tint: var(--color-warning-soft);
+  --key-border: var(--color-warning-border);
+}
+.api-key-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+.provider-keys .api-key-heading label {
+  color: #56617b;
+  font-size: 12px;
+  font-weight: 500;
+}
+.api-key-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 10px;
+  line-height: 1;
+}
+dialog .provider-keys .api-key-field input {
+  margin-top: 0;
+  border-color: var(--key-border);
+  background: #fff;
+}
+dialog .provider-keys .api-key-field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px #575dd812;
+}
+.api-key-note {
+  margin: 7px 0 0;
+  color: #7d879b;
+  font-size: 10px;
+  line-height: 1.7;
+}
+dialog .provider-keys .api-key-clear {
+  margin-top: 4px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: #969eaf;
+  font-size: 10px;
+}
+dialog .provider-keys .api-key-clear:hover {
+  color: var(--color-danger);
+}

@@ -11,5 +11,6 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["server/production/**/*.ts", "shared/**/*.js"]
+  "include": ["server/production/**/*.ts", "shared/**/*.js"],
+  "exclude": ["tests", "build-test", "build-server", "dist", "node_modules"]
 }

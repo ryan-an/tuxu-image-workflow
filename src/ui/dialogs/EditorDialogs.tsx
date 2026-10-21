@@ -1,5 +1,5 @@
 import type { Product, ImageTask, ImageVersion } from "../types";
-import { ActionButton, ApplicationForm, useApplication } from "../context.tsx";
+import { ActionButton, ApplicationForm } from "../context.tsx";
 import { formatTime } from "../selectors";
 import { VersionSelection } from "../workbench/TaskCard.tsx";
 
@@ -37,9 +37,7 @@ export function PromptDialog({
   return (
     <>
       <h2>{task.role} · 提示词</h2>
-      <p className="modal-subtitle">
-        编辑这张图的提示词，保存后用于下一次生成。
-      </p>
+      <p className="modal-subtitle">编辑这张图的提示词，保存后重新生成图片。</p>
       <ApplicationForm
         id="prompt-form"
         data-product={product.id}
@@ -58,7 +56,7 @@ export function PromptDialog({
         </label>
         <div className="prompt-modal-actions">
           <button type="submit" className="primary">
-            保存提示词
+            保存并重新生成
           </button>
           <ActionButton action="close-modal">取消</ActionButton>
           <span>已有图片使用的提示词保留在图片详情中</span>
@@ -113,26 +111,6 @@ export function ProductDialog({
         </label>
         <button className="primary" type="submit">
           保存产品
-        </button>
-      </ApplicationForm>
-    </>
-  );
-}
-export function CommonDialog() {
-  const { state } = useApplication();
-  return (
-    <>
-      <h2>整套提示词生成要求</h2>
-      <p className="modal-subtitle">
-        仅发送给提示词分析模型，不直接发送给生图接口。以下全部可编辑，产品信息读取顶部资料。
-      </p>
-      <ApplicationForm id="common-form">
-        <textarea name="common" rows={20} defaultValue={state.common} />
-        <p className="field-note">
-          修改后用于下一次整套分析。实际生图仅使用各张生成后的提示词和实拍图。
-        </p>
-        <button type="submit" className="primary">
-          保存要求
         </button>
       </ApplicationForm>
     </>

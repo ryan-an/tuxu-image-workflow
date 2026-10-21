@@ -23,6 +23,7 @@ export interface Product {
   code: string;
   name: string;
   facts: string;
+  promptRequirements?: string | null;
   photo: string;
   photos: string[];
   tasks: Position[];
@@ -54,6 +55,16 @@ export interface Job {
   prompts?: any[];
   promptDrafts?: Record<string, string>;
   receivedChars?: number;
+  analysisResponse?: string;
+  promptWarnings?: {
+    code: string;
+    role: string;
+    message: string;
+    actual: number;
+    min: number;
+    max: number;
+  }[];
+  validationError?: { code: string; role?: string };
   progress?: number;
   error: string;
   owner?: string;
@@ -86,6 +97,7 @@ export class AppError extends Error {
   constructor(
     message: string,
     public statusCode = 400,
+    public diagnostic?: Record<string, unknown>,
   ) {
     super(message);
   }

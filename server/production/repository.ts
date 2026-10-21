@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { leaseDuration } from "./execution-limits.js";
 import { DEFAULT_CONFIG } from "../../shared/provider-config.js";
-import { DEFAULT_COMMON } from "../../shared/prompt-suite.js";
+import {
+  DEFAULT_COMMON,
+  migrateDefaultCommon,
+} from "../../shared/prompt-suite.js";
 import type { Database, Queryable, Workspace, Job, Product } from "./types.js";
 export const WORKSPACE = "default";
 export function emptyWorkspace(): Workspace {
@@ -21,12 +24,123 @@ export function emptyWorkspace(): Workspace {
 }
 export class Repository {
   constructor(public db: Database) {}
+  async history(
+    page: number,
+    pageSize: number,
+    status: string,
+    search: string,
+  ) {
+    return this.db.transaction(async (tx) => {
+      const conditions = ["workspace_id=$1"];
+      const values: any[] = [WORKSPACE];
+      const statuses =
+        status === "active"
+          ? ["queued", "running"]
+          : status === "attention"
+            ? ["failed", "interrupted"]
+            : status === "all"
+              ? []
+              : [status];
+      if (statuses.length) {
+        const slots = statuses.map((value) => {
+          values.push(value);
+          return `$${values.length}`;
+        });
+        conditions.push(`status IN (${slots.join(",")})`);
+      }
+      if (search.trim()) {
+        values.push(search.trim());
+        conditions.push(
+          `instr(lower(COALESCE(json_extract(payload,'$.productName'),'') || ' ' || COALESCE(json_extract(payload,'$.role'),'') || ' ' || COALESCE(remote_id,'') || ' ' || COALESCE(json_extract(payload,'$.error'),'')),lower($${values.length})) > 0`,
+        );
+      }
+      const where = conditions.join(" AND ");
+      const total = (
+        await tx.query(
+          `SELECT count(*) AS total FROM jobs WHERE ${where}`,
+          values,
+        )
+      ).rows[0].total as number;
+      const pages = Math.max(1, Math.ceil(total / pageSize));
+      page = Math.min(page, pages);
+      const rows = await tx.query(
+        `SELECT * FROM jobs WHERE ${where} ORDER BY COALESCE(json_extract(payload,'$.createdAt'),created_at) DESC,id DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+        [...values, pageSize, (page - 1) * pageSize],
+      );
+      return { jobs: rows.rows.map(hydrateJob), total, page, pageSize, pages };
+    });
+  }
+  async cursor(tx: Queryable = this.db) {
+    return (await tx.query("SELECT revision FROM sync_clock WHERE id=1"))
+      .rows[0].revision as number;
+  }
+  async changes(tx: Queryable, since: number) {
+    const cursor = await this.cursor(tx);
+    if (since > cursor) return { reset: true, cursor };
+    if (since === cursor)
+      return {
+        cursor,
+        products: [],
+        jobs: [],
+        deletedProducts: [],
+        deletedJobs: [],
+      };
+    const records = (
+      await tx.query(
+        "SELECT kind,entity_id,deleted FROM sync_entities WHERE revision > $1",
+        [since],
+      )
+    ).rows;
+    const products = (
+      await tx.query(
+        "SELECT p.document FROM products p JOIN sync_entities s ON s.kind='product' AND s.entity_id=p.id WHERE s.revision > $1 AND p.workspace_id=$2 ORDER BY p.code",
+        [since, WORKSPACE],
+      )
+    ).rows.map((p) => p.document);
+    const jobs = (
+      await tx.query(
+        "SELECT j.* FROM jobs j JOIN sync_entities s ON s.kind='job' AND s.entity_id=j.id WHERE s.revision > $1 AND j.workspace_id=$2 ORDER BY j.created_at,j.id",
+        [since, WORKSPACE],
+      )
+    ).rows.map(hydrateJob);
+    const document = records.some((r) => r.kind === "workspace")
+      ? (
+          await tx.query("SELECT document FROM workspace WHERE id=$1", [
+            WORKSPACE,
+          ])
+        ).rows[0].document
+      : undefined;
+    return {
+      cursor,
+      products,
+      jobs,
+      document,
+      deletedProducts: records
+        .filter((r) => r.kind === "product" && r.deleted)
+        .map((r) => r.entity_id),
+      deletedJobs: records
+        .filter((r) => r.kind === "job" && r.deleted)
+        .map((r) => r.entity_id),
+    };
+  }
   async initialize() {
     const { products, jobs, ...document } = emptyWorkspace();
     await this.db.query(
       "INSERT INTO workspace(id,document) VALUES($1,$2) ON CONFLICT(id) DO NOTHING",
       [WORKSPACE, document],
     );
+    await this.db.transaction(async (tx) => {
+      const row = await this.lock(tx);
+      const common = migrateDefaultCommon(row.document.common);
+      if (common !== row.document.common) {
+        await this.saveWorkspace(tx, {
+          ...row.document,
+          common,
+          products: [],
+          jobs: [],
+        });
+      }
+    });
   }
   async lock(tx: Queryable) {
     return (await tx.query("SELECT * FROM workspace WHERE id=$1", [WORKSPACE]))
@@ -225,6 +339,7 @@ export class Repository {
     job: Job,
     drafts: Record<string, string>,
     receivedChars: number,
+    analysisResponse?: string,
   ) {
     return this.db.transaction(async (tx) => {
       const row = (await tx.query("SELECT * FROM jobs WHERE id=$1", [job.id]))
@@ -238,7 +353,12 @@ export class Repository {
         return false;
       await tx.query("UPDATE jobs SET payload=$2 WHERE id=$1", [
         job.id,
-        { ...row.payload, promptDrafts: drafts, receivedChars },
+        {
+          ...row.payload,
+          promptDrafts: drafts,
+          receivedChars,
+          ...(analysisResponse !== undefined ? { analysisResponse } : {}),
+        },
       ]);
       return true;
     });

@@ -23,11 +23,15 @@ const worker = new Worker(
   new GrsaiProvider(workflows.assets, (event) =>
     app.log.info(event, "platform diagnostic"),
   ),
-  (error) =>
-    app.log.error(
-      error instanceof Error ? { errorType: error.name } : (error as object),
-      "worker stage failed",
-    ),
+  (error) => {
+    if ((error as any)?.event === "prompt.completed") {
+      app.log.info(error as object, "prompt completed");
+    } else
+      app.log.error(
+        error instanceof Error ? { errorType: error.name } : (error as object),
+        "worker stage failed",
+      );
+  },
 );
 await app.listen({
   host: process.env.HOST || "127.0.0.1",

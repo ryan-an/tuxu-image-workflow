@@ -1,5 +1,5 @@
 import type { Workspace, Product } from "./types";
-import { chosen } from "../model.js";
+import { hasSelectedVersion } from "../../shared/model.js";
 export const formatTime = (value: number) =>
   new Date(value).toLocaleString("zh-CN", {
     month: "2-digit",
@@ -25,7 +25,7 @@ export const currentProduct = (state: Workspace) =>
   state.products.find((p) => p.id === state.activeProductId) ||
   state.products[0];
 export const productStats = (product: Product) => ({
-  done: product.tasks.filter(chosen).length,
+  done: product.tasks.filter(hasSelectedVersion).length,
   versions: product.tasks.reduce((n, t) => n + t.versions.length, 0),
 });
 export const selectedCount = (product?: Product) =>
