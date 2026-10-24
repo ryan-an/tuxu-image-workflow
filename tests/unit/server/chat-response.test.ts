@@ -138,7 +138,7 @@ test("Doubao Responses rejects incomplete, failed and truncated output and accep
   assert.equal(response.choices[0].message.content, "OK");
 });
 
-test("Doubao HTTP failures preserve actionable codes without exposing upstream messages or keys", async () => {
+test("Doubao HTTP failures preserve actual messages and actionable codes while redacting keys", async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async () =>
     Response.json(
@@ -161,7 +161,8 @@ test("Doubao HTTP failures preserve actionable codes without exposing upstream m
       (error: any) => {
         assert.ok(error instanceof ProviderError);
         assert.match(error.message, /尚未.*开通/);
-        assert.doesNotMatch(error.message, /hidden-test-key|private upstream/);
+        assert.match(error.message, /private upstream detail \[已隐藏\]/);
+        assert.doesNotMatch(error.message, /hidden-test-key/);
         assert.deepEqual(error.upstream, {
           status: 404,
           code: "ModelNotOpen",
@@ -193,7 +194,7 @@ test("Doubao HTTP failures preserve actionable codes without exposing upstream m
         "hidden-test-key",
         new AbortController().signal,
       ),
-      /不存在或.*无权/,
+      /not json.*HTTP 404/,
     );
   } finally {
     globalThis.fetch = original;

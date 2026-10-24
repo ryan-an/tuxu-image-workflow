@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { uid } from "../../../shared/model.js";
 import {
   assistantApi,
   streamAssistantChat,
@@ -130,7 +131,7 @@ export function useAssistantConversation(
     const question = value.trim();
     const op = {
       controller: new AbortController(),
-      turnId: retry?.id || crypto.randomUUID(),
+      turnId: retry?.id || uid(),
       conversationId: conversation?.id,
       message: question,
     };

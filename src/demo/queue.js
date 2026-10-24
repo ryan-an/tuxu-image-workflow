@@ -65,17 +65,9 @@ export class GenerationQueue {
         groups.get(pair.product.id).tasks.push(pair.task);
     }
     if (this.state.settings.mode === "live")
-      for (const { product, tasks } of groups.values()) {
+      for (const { product } of groups.values()) {
         if (!productPhotos(product).length)
           throw new Error(`${product.name}：请先上传实拍图`);
-        if (
-          (kind === "prompt" ||
-            kind === "prompt-set" ||
-            kind === "full-workflow" ||
-            (kind === "workflow" && tasks.some((t) => !t.prompt))) &&
-          tasks.some((t) => !t.references.length)
-        )
-          throw new Error(`${product.name}：请补齐所选卡片的对标图`);
       }
     for (const { product, tasks } of groups.values()) {
       if (["prompt", "prompt-set"].includes(kind)) {

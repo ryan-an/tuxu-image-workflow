@@ -2,6 +2,7 @@
 // Each publication creates a new snapshot envelope for useSyncExternalStore.
 export function createStateStore() {
   const ui = {
+    downloadSelections: {},
     view: "workbench",
     search: "",
     productPage: 1,
@@ -14,6 +15,7 @@ export function createStateStore() {
     assistant: { open: false },
     parser: null,
     sheetConflicts: [],
+    sheetPeers: [],
     exporting: false,
     formError: "",
     mediaFeedback: "",

@@ -70,8 +70,8 @@ test(
         .click();
       assert.equal(
         await editor.inputValue(),
-        defaults,
-        "cancel must discard the draft",
+        custom,
+        "closing must retain the draft",
       );
       await editor.fill(custom);
       await save.click();
@@ -106,20 +106,16 @@ test(
         .getByRole("button", { name: "编辑要求", exact: true })
         .click();
       await page
-        .getByText(
-          "当前分析任务继续使用启动时的要求；本次修改用于下一次生成提示词。",
-        )
+        .getByText("当前任务继续使用启动时的要求；修改用于下一次生成。")
         .waitFor();
       await editor.fill(`${custom}\n补充：保留更多留白。`);
-      await page
-        .getByRole("button", { name: "恢复默认要求", exact: true })
-        .click();
+      await page.selectOption("#requirement-template", "default");
       assert.equal(await editor.inputValue(), defaults);
       assert.equal(
         (await f.workflows.repo.view()).products[0].promptRequirements,
         custom,
       );
-      await page.getByRole("button", { name: "撤销恢复", exact: true }).click();
+      await page.getByRole("button", { name: "撤销替换", exact: true }).click();
       assert.equal(
         await editor.inputValue(),
         `${custom}\n补充：保留更多留白。`,
@@ -150,9 +146,8 @@ test(
           path: artifactPath("requirements-mobile.png"),
         });
       }
-      await page
-        .getByRole("button", { name: "恢复默认要求", exact: true })
-        .click();
+      await page.selectOption("#requirement-template", "");
+      await page.selectOption("#requirement-template", "default");
       await save.click();
       await page.waitForFunction(
         () => !document.querySelector<HTMLDialogElement>("#modal")?.open,

@@ -1,0 +1,21 @@
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.dialog-actions-note {
+  flex: 1;
+  min-width: 0;
+  margin-right: auto;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+@media (max-width: 650px) {
+  .dialog-actions-note {
+    flex-basis: 100%;
+  }
+}

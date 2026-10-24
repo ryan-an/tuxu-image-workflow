@@ -3,9 +3,117 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { fixture, password } from "../support/production.js";
-import { addVersion } from "../../shared/model.js";
-import { workflowSnapshot } from "../../src/integrations/sheet-bridge.js";
+import { addVersion, newProduct } from "../../shared/model.js";
+import {
+  SheetBridge,
+  workflowSnapshot,
+} from "../../src/integrations/sheet-bridge.js";
 import { editable, differences } from "../../shared/workspace-edits.js";
+
+test(
+  "parser counts real creates and updates, selects the last saved product and excludes unchanged products on reopening",
+  { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 90000 },
+  async () => {
+    const { chromium } = createRequire(import.meta.url)(
+      process.env.PLAYWRIGHT_MODULE!,
+    );
+    const f = await fixture(resolve("dist"));
+    const browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.CHROME_PATH,
+    });
+    try {
+      const original = await f.workflows.repo.view(),
+        next = structuredClone(original);
+      const updated = newProduct("B-UPDATE", "本次更新"),
+        fresh = newProduct("C-NEW", "本次最后保存"),
+        tail = newProduct("D-SYNCED", "末尾已同步");
+      next.products.push(updated as any, tail as any);
+      next.sheetSnapshot = workflowSnapshot({
+        products: [next.products[0], updated, fresh, tail],
+      });
+      // Clipboard-created rows have no workspace product binding until parsed.
+      for (const row of [7, 8, 9])
+        delete next.sheetSnapshot.sheets.preview.rowData[row].custom
+          .workflowProductId;
+      const bridge = new SheetBridge(
+        next,
+        () => {},
+        () => {},
+      );
+      for (const product of next.products)
+        bridge.markProductParsed(product.code);
+      bridge.writeUserCell(5, 4, { v: "本次更新的提示词" });
+      await f.workflows.edit(differences(editable(original), editable(next)));
+      await f.app.listen({ host: "127.0.0.1", port: 0 });
+      const root = `http://127.0.0.1:${(f.app.server.address() as any).port}`;
+      const page = await browser.newPage({
+        viewport: { width: 1440, height: 1000 },
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (error: Error) => errors.push(error.message));
+      await page.goto(root);
+      await page.fill("#login-password", password);
+      await page.click('#login-form button[type="submit"]');
+      await page.locator('[data-action="view"][data-view="sheet"]').click();
+      await page.locator("#sheet-container canvas").first().waitFor();
+      await page.locator('[data-action="parse-sheet"]').click();
+      const dialog = page.locator("#modal");
+      await dialog.locator(".parse-summary").waitFor();
+      assert.equal(
+        await dialog.locator(".parse-summary strong").textContent(),
+        "2",
+        await dialog.locator(".parse-products").textContent(),
+      );
+      assert.equal(
+        await dialog
+          .locator(".parse-products > div")
+          .filter({ hasText: "待保存" })
+          .count(),
+        2,
+      );
+      await dialog.locator('[data-action="confirm-parse"]').click();
+      await dialog.waitFor({ state: "hidden" });
+      assert.equal(
+        await page.locator(".workspace-heading-text h1").textContent(),
+        "本次最后保存",
+      );
+      assert.equal(
+        await page
+          .locator('.product-link[aria-current="true"] .product-code')
+          .textContent(),
+        "C-NEW",
+      );
+      assert.match(
+        await page.locator("#toast").textContent(),
+        /新增 1 个，更新 1 个/,
+      );
+      await page.locator('[data-action="view"][data-view="sheet"]').click();
+      await page.locator('[data-action="parse-sheet"]').click();
+      await dialog.locator(".parse-summary").waitFor();
+      assert.equal(
+        await dialog.locator(".parse-summary strong").textContent(),
+        "0",
+      );
+      assert.equal(
+        await dialog
+          .getByText("所有产品已同步，无需更新。", { exact: true })
+          .count(),
+        1,
+      );
+      const saved = await f.workflows.repo.view();
+      for (const row of [1, 4, 7, 10])
+        assert.equal(
+          saved.sheetSnapshot.sheets.preview.cellData[row][1].v,
+          "已同步",
+        );
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await f.close();
+    }
+  },
+);
 
 test(
   "save and parse completes missing product rows and merges metadata in the mounted sheet and after reload",

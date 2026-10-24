@@ -2,6 +2,7 @@ import type { ParserContext, ColumnField } from "../types";
 import { useState } from "react";
 import { ROLES } from "../../../shared/model.js";
 import { useApplication } from "../context.tsx";
+import { DialogActions } from "../dialogs/DialogActions";
 const COLUMN_LABELS = {
   codeColumn: "编号列",
   nameColumn: "名称 / 资料列",
@@ -48,7 +49,7 @@ function ColumnSelect({
 }
 export function ParseDialog({ context }: { context: ParserContext }) {
   const { controller } = useApplication(),
-    { source, mapping, layout, candidates } = context;
+    { source, mapping, layout, candidates, changes } = context;
   const [saving, setSaving] = useState(false);
   return (
     <>
@@ -123,8 +124,8 @@ export function ParseDialog({ context }: { context: ParserContext }) {
         自动收集实拍图各列，空位跳过、重复图片去重，按从左到右的顺序存入实拍图列表。
       </p>
       <div className="parse-summary">
-        识别到 <strong>{candidates.length}</strong> 个产品 ·{" "}
-        {candidates.reduce(
+        识别到 <strong>{changes.length}</strong> 个待保存产品 ·{" "}
+        {changes.reduce(
           (n, p) => n + p.tasks.filter((t) => t.references.length).length,
           0,
         )}{" "}
@@ -136,9 +137,9 @@ export function ParseDialog({ context }: { context: ParserContext }) {
             <strong>{p.code}</strong>
             <span>{p.name || "未填写名称"}</span>
             <small>
-              {p.photos.length} 张实拍图 ·{" "}
-              {p.tasks.filter((t) => t.references.length).length} 图 ·{" "}
-              {p.tasks.filter((t) => t.prompt).length} 提示词 ·{" "}
+              {changes.includes(p) ? "待保存" : "已同步"} · {p.photos.length}{" "}
+              张实拍图 · {p.tasks.filter((t) => t.references.length).length} 图
+              · {p.tasks.filter((t) => t.prompt).length} 提示词 ·{" "}
               {p.tasks.filter((t) => t.result).length} 结果
             </small>
           </div>
@@ -146,25 +147,30 @@ export function ParseDialog({ context }: { context: ParserContext }) {
         {!candidates.length && (
           <p>未识别到数据，调整列对应关系或先粘贴表格。</p>
         )}
+        {!!candidates.length && !changes.length && (
+          <p>所有产品已同步，无需更新。</p>
+        )}
       </div>
-      <button
-        type="button"
-        className="primary"
-        data-action="confirm-parse"
-        aria-busy={saving}
-        disabled={saving || !candidates.length || !!context.issues?.length}
-        onClick={async () => {
-          if (saving) return;
-          setSaving(true);
-          try {
-            await controller.dispatch("confirm-parse");
-          } finally {
-            setSaving(false);
-          }
-        }}
-      >
-        {saving ? "保存中…" : "保存并解析"}
-      </button>
+      <DialogActions>
+        <button
+          type="button"
+          className="primary"
+          data-action="confirm-parse"
+          aria-busy={saving}
+          disabled={saving || !candidates.length || !!context.issues?.length}
+          onClick={async () => {
+            if (saving) return;
+            setSaving(true);
+            try {
+              await controller.dispatch("confirm-parse");
+            } finally {
+              setSaving(false);
+            }
+          }}
+        >
+          {saving ? "保存中…" : "保存并解析"}
+        </button>
+      </DialogActions>
     </>
   );
 }

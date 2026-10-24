@@ -6,6 +6,8 @@ import { ActionButton, useApplication } from "../context.tsx";
 import { productQueueInfo } from "../../view-models/queue-view.js";
 import { ProductStatusBadge } from "../ProductStatusBadge.tsx";
 import { thumbnailSource } from "../../view-models/product-thumbnail.js";
+import { WorkspaceSwitcher } from "../workspaces/WorkspaceSwitcher";
+import type { WorkspaceDirectoryModel } from "../../application/use-workspaces";
 
 export function ProductThumbnail({
   product,
@@ -74,8 +76,14 @@ function ProductListItem({
     </div>
   );
 }
-export function Sidebar() {
-  const { state, ui, controller, isRemote } = useApplication();
+export function Sidebar({
+  workspaces,
+  onCreateWorkspace,
+}: {
+  workspaces: WorkspaceDirectoryModel;
+  onCreateWorkspace(): void;
+}) {
+  const { state, ui, controller, isRemote, user } = useApplication();
   const { products, page } = productPage(state, ui);
   const listRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -106,6 +114,17 @@ export function Sidebar() {
           <small>批量生图工作台</small>
         </div>
       </div>
+      {import.meta.env.MODE !== "demo" && (
+        <WorkspaceSwitcher
+          user={user}
+          model={workspaces}
+          flush={() => controller.flush()}
+          onManage={() =>
+            void controller.dispatch("view", { view: "workspaces" })
+          }
+          onCreate={onCreateWorkspace}
+        />
+      )}
       <div className="mobile-product-picker">
         <label htmlFor="mobile-product">产品 · {state.products.length}</label>
         <select

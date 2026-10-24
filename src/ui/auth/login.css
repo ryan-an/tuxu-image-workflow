@@ -178,15 +178,16 @@
   color: #8a90a3;
   margin: 0 0 40px;
 }
-#login-form label {
+.login-form label {
   display: block;
   color: #545d75;
   font-size: 12px;
   font-weight: 500;
   margin: 22px 0 10px;
 }
-#login-form input {
+.login-form input {
   width: 100%;
+  box-sizing: border-box;
   height: 46px;
   border-radius: 8px;
   border: 1px solid #e2e4ec;
@@ -198,20 +199,20 @@
     border-color 0.15s,
     box-shadow 0.15s;
 }
-#login-form input::placeholder {
+.login-form input::placeholder {
   color: #b4b8c7;
 }
-#login-form input:focus {
+.login-form input:focus {
   border-color: #8589df;
   box-shadow: 0 0 0 3px #575dd80d;
 }
-#login-form input[aria-invalid="true"] {
+.login-form input[aria-invalid="true"] {
   border-color: #cf8c85;
 }
 .login-password-field {
   position: relative;
 }
-#login-form .login-password-field input {
+.login-form .login-password-field input {
   padding-right: 48px;
 }
 .login-password-toggle {
@@ -337,5 +338,80 @@
   }
   .login-form-footer {
     margin-top: 36px;
+  }
+}
+.invitation-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 1fr;
+  place-items: center;
+  padding: 40px 20px;
+  box-sizing: border-box;
+  background:
+    radial-gradient(ellipse at 50% 0, #eceafa 0, transparent 65%), #f7f8fc;
+}
+.invitation-page .login-panel {
+  width: min(100%, 440px);
+  min-height: 0;
+  padding: 40px;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid #e5e7f0;
+  border-radius: 20px;
+  box-shadow: 0 16px 48px #34335d08;
+}
+.invitation-page .login-description {
+  margin-bottom: 28px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.invitation-page input[readonly] {
+  background: #f7f8fc;
+  color: #868ba0;
+}
+.invitation-page .login-submit {
+  margin-top: 24px;
+}
+.invitation-page .error-text {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.invitation-page .login-hint a {
+  color: #76729a;
+  text-decoration: none;
+}
+.invitation-page .login-hint a:hover {
+  color: var(--color-brand);
+  text-decoration: underline;
+}
+.invitation-mode-toggle {
+  background: none;
+  border: 0;
+  color: var(--color-brand);
+  font-size: 12px;
+  padding: 4px;
+  cursor: pointer;
+}
+.invitation-identity {
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--color-muted);
+  background: #f7f8fc;
+}
+.invitation-identity strong {
+  color: var(--color-text);
+  margin-left: 8px;
+}
+@media (max-width: 480px) {
+  .invitation-page .login-panel {
+    padding: 28px 24px;
+  }
+  .invitation-page .login-form-container h2 {
+    font-size: 26px;
   }
 }

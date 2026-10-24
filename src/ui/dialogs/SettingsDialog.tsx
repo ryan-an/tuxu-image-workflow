@@ -4,6 +4,7 @@ import { PROMPT_MODELS } from "../../../shared/service-models.js";
 import { ActionButton, ApplicationForm, useApplication } from "../context.tsx";
 import "./settings.css";
 import { Badge } from "../design-system/Badge";
+import { DialogActions } from "./DialogActions";
 
 const imageModels = [
   "nano-banana-2",
@@ -265,12 +266,14 @@ export function SettingsDialog() {
           比例与分辨率默认 auto。分辨率 auto
           沿用模型默认。队列保留提交时的配置。
         </p>
-        <button type="submit" className="primary">
-          保存设置
-        </button>
         <span id="settings-error" className="error-text">
           {ui.formError}
         </span>
+        <DialogActions>
+          <button type="submit" className="primary">
+            保存设置
+          </button>
+        </DialogActions>
       </ApplicationForm>
     </>
   );

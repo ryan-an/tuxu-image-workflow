@@ -13,9 +13,19 @@ import { SheetPanel } from "./sheet/SheetPanel.tsx";
 import { DialogHost } from "./dialogs/DialogHost.tsx";
 import { AssistantDock } from "./assistant/AssistantDock.tsx";
 import { Badge } from "./design-system/Badge";
+import type { CurrentUser } from "../../shared/access";
+import { MembersPage } from "./members/MembersPage";
+import { PasswordDialog } from "./auth/PasswordDialog";
+import { Button } from "./design-system/Button";
+import { WorkspaceManager } from "./workspaces/WorkspaceManager";
+import { CreateWorkspaceDialog } from "./workspaces/CreateWorkspaceDialog";
+import { useWorkspaces } from "../application/use-workspaces";
+import { openWorkspace } from "../services/workspaces";
+import { roleLabels } from "../../shared/access";
 
 function TopBar({ onLogout }: { onLogout?: () => Promise<void> }) {
-  const { state, ui, controller } = useApplication();
+  const { state, ui, controller, user } = useApplication();
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
   const missingKeys = [
@@ -56,11 +66,41 @@ function TopBar({ onLogout }: { onLogout?: () => Promise<void> }) {
         ))}
       </nav>
       <div className="top-actions">
+        {import.meta.env.MODE !== "demo" && (
+          <ActionButton action="activity" variant="ghost" size="sm">
+            操作历史
+          </ActionButton>
+        )}
+        <span className="current-account" title={user.username}>
+          {user.displayName}
+          <Badge tone="neutral">{roleLabels[user.role]}</Badge>
+        </span>
+        {import.meta.env.MODE !== "demo" && (
+          <ActionButton
+            action="view"
+            data={{ view: "workspaces" }}
+            className={ui.view === "workspaces" ? "active" : ""}
+          >
+            工作区管理
+          </ActionButton>
+        )}
+        {user.role === "owner" && (
+          <ActionButton
+            action="view"
+            data={{ view: "members" }}
+            className={ui.view === "members" ? "active" : ""}
+          >
+            成员管理
+          </ActionButton>
+        )}
+        {user.id !== "owner" && (
+          <Button onClick={() => setPasswordOpen(true)}>修改密码</Button>
+        )}
         <span id="save-status" role="status">
           {ui.saveStatus.startsWith("已保存") && (
             <i className="save-status-dot" aria-hidden="true" />
           )}
-          {ui.saveStatus}
+          {user.role === "viewer" ? "只读访问" : ui.saveStatus}
         </span>
         {ui.saveStatus.startsWith("保存失败") && (
           <ActionButton id="retry-save" action="save">
@@ -111,20 +151,42 @@ function TopBar({ onLogout }: { onLogout?: () => Promise<void> }) {
           </>
         )}
       </div>
+      {passwordOpen && (
+        <PasswordDialog onClose={() => setPasswordOpen(false)} />
+      )}
     </header>
   );
 }
 export function Application({
   controller,
   onLogout,
+  user = {
+    id: "owner",
+    username: "admin",
+    displayName: "所有者",
+    workspaceId: "default",
+    workspaceName: "默认团队",
+    role: "owner",
+  },
 }: {
   controller: ApplicationController;
   onLogout?: () => Promise<void>;
+  user?: CurrentUser;
 }) {
   const snapshot = useSyncExternalStore(
     controller.subscribe,
     controller.getSnapshot,
   );
+  const workspaces = useWorkspaces({
+    enabled: import.meta.env.MODE !== "demo",
+  });
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const workspaceUser = {
+    ...user,
+    workspaceName:
+      workspaces.workspaces.find((space) => space.id === user.workspaceId)
+        ?.name || user.workspaceName,
+  };
   if (!snapshot.ready && snapshot.error)
     return (
       <div className="startup">
@@ -136,9 +198,14 @@ export function Application({
   if (!snapshot.ready)
     return <div className="startup">图序正在打开工作台…</div>;
   return (
-    <ApplicationContext.Provider value={{ ...snapshot, controller }}>
+    <ApplicationContext.Provider
+      value={{ ...snapshot, controller, user: workspaceUser }}
+    >
       <div id="app">
-        <Sidebar />
+        <Sidebar
+          workspaces={workspaces}
+          onCreateWorkspace={() => setCreatingWorkspace(true)}
+        />
         <div className="app-main">
           <TopBar onLogout={onLogout} />
           <main id="content">
@@ -156,6 +223,27 @@ export function Application({
               </div>
             </section>
             <SheetPanel />
+            {snapshot.ui.view === "members" && user.role === "owner" && (
+              <MembersPage />
+            )}
+            {snapshot.ui.view === "workspaces" && (
+              <WorkspaceManager
+                model={workspaces}
+                currentWorkspaceId={user.workspaceId}
+                currentWorkspaceName={workspaceUser.workspaceName}
+                onCreate={() => setCreatingWorkspace(true)}
+                onBack={() =>
+                  void controller.dispatch("view", { view: "workbench" })
+                }
+                onOpen={(id) =>
+                  id === user.workspaceId
+                    ? controller.dispatch("view", { view: "workbench" })
+                    : openWorkspace(id, () => controller.flush())
+                }
+                beforeChange={() => controller.flush()}
+                onUnavailable={() => window.location.assign("/?manage=1")}
+              />
+            )}
           </main>
           <BatchBar />
         </div>
@@ -168,7 +256,15 @@ export function Application({
         {snapshot.ui.toast}
       </div>
       <DialogHost />
-      <AssistantDock />
+      {creatingWorkspace && (
+        <CreateWorkspaceDialog
+          model={workspaces}
+          onClose={() => setCreatingWorkspace(false)}
+          beforeCreate={() => controller.flush()}
+          onCreated={(id) => openWorkspace(id)}
+        />
+      )}
+      {user.role !== "viewer" && <AssistantDock />}
       <input
         type="file"
         accept="image/*"

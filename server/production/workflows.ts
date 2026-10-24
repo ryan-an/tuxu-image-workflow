@@ -1,5 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { editable, applyEdits, equal } from "../../shared/workspace-edits.js";
+import {
+  editable,
+  applyLatestEdits,
+  equal,
+} from "../../shared/workspace-edits.js";
+import { recordWorkspaceActivity } from "./workspace-activity.js";
+import { WorkspaceCollaboration } from "./workspace-collaboration.js";
+import { normalizePromptTemplates } from "../../shared/prompt-templates.js";
+import type { CurrentUser } from "../../shared/access.js";
+import { assertImageQuota } from "./account-usage.js";
+import { requireMembership } from "./workspace-access.js";
+import type { Permission } from "../../shared/access.js";
 import { ROLES, newProduct, savePrompt } from "../../shared/model.js";
 import {
   productPhotos,
@@ -7,7 +18,7 @@ import {
 } from "../../shared/prompt-suite.js";
 import { baseUrl, MODELS } from "../../shared/provider-config.js";
 import { migratePromptSettings } from "../../shared/doubao.js";
-import { Repository, WORKSPACE } from "./repository.js";
+import { Repository } from "./repository.js";
 import { Credentials } from "./credentials.js";
 import { Assets } from "./assets.js";
 import { AnalysisEvents } from "./analysis-events.js";
@@ -115,6 +126,7 @@ export function validateProduct(product: Product) {
 }
 export class Workflows {
   public analysisEvents = new AnalysisEvents();
+  public collaboration = new WorkspaceCollaboration();
   constructor(
     public repo: Repository,
     public assets: Assets,
@@ -124,7 +136,7 @@ export class Workflows {
     const row = (
       await this.repo.db.query(
         "SELECT document,credential,prompt_credential FROM workspace WHERE id=$1",
-        [WORKSPACE],
+        [this.repo.workspaceId],
       )
     ).rows[0];
     return {
@@ -134,10 +146,13 @@ export class Workflows {
       hasPromptKey: !!row.prompt_credential,
     };
   }
-  async updateSettings(input: Record<string, any>) {
+  async updateSettings(input: Record<string, any>, actor?: CurrentUser) {
     return this.repo.db.transaction(async (tx) => {
       const row = await this.repo.lock(tx),
         state = await this.repo.view(tx);
+      if (row.archived_at !== null) throw new AppError("工作区已归档", 409);
+      if (actor)
+        await requireMembership(tx, this.repo.workspaceId, actor.id, "manage");
       for (const key of Object.keys(input))
         if (
           ![
@@ -198,7 +213,7 @@ export class Workflows {
       await this.repo.saveWorkspace(tx, state);
       await tx.query(
         "UPDATE workspace SET credential=$2,prompt_credential=$3 WHERE id=$1",
-        [WORKSPACE, credential, promptCredential],
+        [this.repo.workspaceId, credential, promptCredential],
       );
       return {
         ...state.settings,
@@ -211,7 +226,7 @@ export class Workflows {
     const row = (
       await this.repo.db.query(
         "SELECT credential,prompt_credential FROM workspace WHERE id=$1",
-        [WORKSPACE],
+        [this.repo.workspaceId],
       )
     ).rows[0];
     const credential =
@@ -224,155 +239,218 @@ export class Workflows {
       );
     return this.credentials.decrypt(credential);
   }
-  async edit(raw: any[]) {
+  async edit(raw: any[], actor?: CurrentUser) {
     const edits = await this.assets.normalize(raw);
-    return this.repo.db.transaction(async (tx) => {
-      await this.repo.lock(tx);
-      const state = await this.repo.view(tx),
-        projection = editable(state);
-      for (const e of edits) {
-        const path = e.path;
-        const allowed =
-          Array.isArray(path) &&
-          ((path.length === 1 &&
-            ["common", "concurrency", "sheetSnapshot"].includes(path[0])) ||
-            (path[0] === "products" &&
-              path.length === 2 &&
-              !projection.products[path[1]]) ||
-            (path[0] === "products" &&
-              path.length === 3 &&
-              [
-                "code",
-                "name",
-                "facts",
-                "promptRequirements",
-                "photo",
-                "photos",
-                "photoThumbnail",
-              ].includes(path[2])) ||
-            (path[0] === "products" &&
-              path.length === 5 &&
-              path[2] === "tasks" &&
-              [
-                "references",
-                "prompt",
-                "primaryId",
-                "selectedIds",
-                "imports",
-              ].includes(path[4])));
-        if (!allowed) throw new AppError("该字段不能通过编辑接口修改");
-      }
-      try {
-        applyEdits(projection, edits);
-      } catch (error) {
-        throw new AppError((error as Error).message, 409);
-      }
-      if (
-        typeof projection.common !== "string" ||
-        projection.common.length > 100000 ||
-        !Number.isInteger(projection.concurrency) ||
-        projection.concurrency < 1 ||
-        projection.concurrency > 6
-      )
-        throw new AppError("无效规则或并发数量");
-      const products: Product[] = [];
-      for (const [id, e] of Object.entries(projection.products) as [
-        string,
-        any,
-      ][]) {
-        const existing = state.products.find((p) => p.id === id);
-        const product: Product =
-          existing || newProduct(e.code, e.name, e.facts);
-        product.id = id;
-        for (const key of [
-          "code",
-          "name",
-          "facts",
-          "promptRequirements",
-          "photo",
-          "photos",
-          "photoThumbnail",
-        ])
-          (product as any)[key] = e[key];
-        if (!existing)
-          product.tasks = Object.values(e.tasks).map(
-            ({ imports, ...t }: any) => ({
-              ...t,
-              revision: 0,
-              promptHistory: [],
-              versions: [],
-            }),
+    return this.repo.db
+      .transaction(async (tx) => {
+        const row = await this.repo.lock(tx);
+        if (row.archived_at !== null) throw new AppError("工作区已归档", 409);
+        if (actor)
+          await requireMembership(
+            tx,
+            this.repo.workspaceId,
+            actor.id,
+            raw.some((edit) => edit.path?.[0] === "concurrency")
+              ? "manage"
+              : "edit",
           );
-        else
-          for (const task of product.tasks) {
-            const input = e.tasks[task.id];
-            if (!input || input.role !== task.role)
-              throw new AppError("图片位置不能被替换");
-            if (input.prompt !== task.prompt) savePrompt(task, input.prompt);
-            if (!equal(input.references, task.references)) task.revision++;
-            task.references = input.references;
-            task.primaryId = input.primaryId;
-            task.selectedIds = input.selectedIds;
-          }
-        for (const task of product.tasks) {
-          const imports = e.tasks[task.id].imports || [];
-          if (!Array.isArray(imports)) throw new AppError("导入结果格式无效");
-          for (const version of imports) {
-            if (
-              !version ||
-              typeof version.id !== "string" ||
-              !/^[A-Za-z0-9_-]{1,100}$/.test(version.id) ||
-              typeof version.source !== "string" ||
-              !/^\/api\/assets\/[a-f0-9]{64}$/.test(version.source) ||
-              typeof version.prompt !== "string" ||
-              version.prompt.length > 100000 ||
-              version.origin !== "imported"
-            )
-              throw new AppError("导入结果格式无效");
-            const existingVersion = task.versions.find(
-              (item) => item.id === version.id,
-            );
-            if (existingVersion) {
-              if (
-                existingVersion.source !== version.source ||
-                existingVersion.prompt !== version.prompt ||
-                existingVersion.origin !== "imported"
-              )
-                throw new AppError("不能覆盖已有结果历史");
-            } else
-              task.versions.push({
-                ...version,
-                origin: "imported",
-                number: task.versions.length + 1,
-                createdAt: Date.now(),
-              });
-          }
+        const state = await this.repo.view(tx),
+          projection = editable(state);
+        const before = structuredClone(state);
+        for (const e of edits) {
+          const path = e.path;
+          const allowed =
+            Array.isArray(path) &&
+            ((path[0] === "sheetSnapshot" &&
+              path.length > 1 &&
+              path.length <= 12 &&
+              path
+                .slice(1)
+                .every(
+                  (part: any) =>
+                    typeof part === "string" &&
+                    !["__proto__", "constructor", "prototype"].includes(part),
+                )) ||
+              (path.length === 1 &&
+                ["common", "concurrency", "sheetSnapshot"].includes(path[0])) ||
+              (path[0] === "promptTemplates" &&
+                (path.length === 2 ||
+                  (path.length === 3 &&
+                    ["name", "content", "updatedAt"].includes(path[2])))) ||
+              (path[0] === "products" &&
+                path.length === 2 &&
+                !projection.products[path[1]]) ||
+              (path[0] === "products" &&
+                path.length === 3 &&
+                [
+                  "code",
+                  "name",
+                  "facts",
+                  "promptRequirements",
+                  "photo",
+                  "photos",
+                  "photoThumbnail",
+                ].includes(path[2])) ||
+              (path[0] === "products" &&
+                path.length === 5 &&
+                path[2] === "tasks" &&
+                [
+                  "references",
+                  "prompt",
+                  "primaryId",
+                  "selectedIds",
+                  "imports",
+                ].includes(path[4])));
+          if (!allowed) throw new AppError("该字段不能通过编辑接口修改");
         }
-        validateProduct(product);
-        products.push(product);
-      }
-      if (new Set(products.map((p) => p.code)).size !== products.length)
-        throw new AppError("产品编号重复");
-      for (const product of products) await this.repo.saveProduct(tx, product);
-      state.common = projection.common;
-      state.concurrency = projection.concurrency;
-      state.sheetSnapshot = projection.sheetSnapshot;
-      await this.repo.saveWorkspace(tx, state);
-      return this.repo.view(tx);
-    });
+        try {
+          applyLatestEdits(projection, edits);
+        } catch (error) {
+          throw new AppError((error as Error).message, 409);
+        }
+        try {
+          projection.promptTemplates = normalizePromptTemplates(
+            projection.promptTemplates,
+          );
+        } catch (error) {
+          throw new AppError((error as Error).message);
+        }
+        if (
+          typeof projection.common !== "string" ||
+          projection.common.length > 100000 ||
+          !Number.isInteger(projection.concurrency) ||
+          projection.concurrency < 1 ||
+          projection.concurrency > 6
+        )
+          throw new AppError("无效规则或并发数量");
+        const products: Product[] = [];
+        for (const [id, e] of Object.entries(projection.products) as [
+          string,
+          any,
+        ][]) {
+          const existing = state.products.find((p) => p.id === id);
+          const product: Product =
+            existing || newProduct(e.code, e.name, e.facts);
+          product.id = id;
+          for (const key of [
+            "code",
+            "name",
+            "facts",
+            "promptRequirements",
+            "photo",
+            "photos",
+            "photoThumbnail",
+          ])
+            (product as any)[key] = e[key];
+          if (!existing)
+            product.tasks = Object.values(e.tasks).map(
+              ({ imports, ...t }: any) => ({
+                ...t,
+                revision: 0,
+                promptHistory: [],
+                versions: [],
+              }),
+            );
+          else
+            for (const task of product.tasks) {
+              const input = e.tasks[task.id];
+              if (!input || input.role !== task.role)
+                throw new AppError("图片位置不能被替换");
+              if (input.prompt !== task.prompt) savePrompt(task, input.prompt);
+              if (!equal(input.references, task.references)) task.revision++;
+              task.references = input.references;
+              task.primaryId = input.primaryId;
+              task.selectedIds = input.selectedIds;
+            }
+          for (const task of product.tasks) {
+            const imports = e.tasks[task.id].imports || [];
+            if (!Array.isArray(imports)) throw new AppError("导入结果格式无效");
+            for (const version of imports) {
+              if (
+                !version ||
+                typeof version.id !== "string" ||
+                !/^[A-Za-z0-9_-]{1,100}$/.test(version.id) ||
+                typeof version.source !== "string" ||
+                !/^\/api\/assets\/[a-f0-9]{64}$/.test(version.source) ||
+                typeof version.prompt !== "string" ||
+                version.prompt.length > 100000 ||
+                version.origin !== "imported"
+              )
+                throw new AppError("导入结果格式无效");
+              const existingVersion = task.versions.find(
+                (item) => item.id === version.id,
+              );
+              if (existingVersion) {
+                if (
+                  existingVersion.source !== version.source ||
+                  existingVersion.prompt !== version.prompt ||
+                  existingVersion.origin !== "imported"
+                )
+                  throw new AppError("不能覆盖已有结果历史");
+              } else
+                task.versions.push({
+                  ...version,
+                  origin: "imported",
+                  number: task.versions.length + 1,
+                  createdAt: Date.now(),
+                });
+            }
+          }
+          validateProduct(product);
+          products.push(product);
+        }
+        if (new Set(products.map((p) => p.code)).size !== products.length)
+          throw new AppError("产品编号重复");
+        for (const product of products)
+          await this.repo.saveProduct(tx, product);
+        state.common = projection.common;
+        state.promptTemplates = projection.promptTemplates;
+        state.concurrency = projection.concurrency;
+        state.sheetSnapshot = projection.sheetSnapshot;
+        await recordWorkspaceActivity(
+          tx,
+          this.repo.workspaceId,
+          before,
+          state,
+          actor,
+        );
+        await this.repo.saveWorkspace(tx, state);
+        return this.repo.view(tx);
+      })
+      .then((state) => {
+        this.collaboration.changed();
+        return state;
+      });
   }
   async command(
     id: string,
     input: any,
     work: (tx: Queryable, state: Workspace) => Promise<any>,
+    actor?: CurrentUser,
+    permission: Permission = "edit",
   ) {
+    if (typeof id !== "string" || !id || id.length > 100)
+      throw new AppError("无效操作 ID");
     const fingerprint = createHash("sha256")
       .update(JSON.stringify(input))
       .digest("hex");
     return this.repo.db.transaction(async (tx) => {
-      await this.repo.lock(tx);
-      const old = (await tx.query("SELECT * FROM commands WHERE id=$1", [id]))
-        .rows[0];
+      const workspace = await this.repo.lock(tx);
+      if (workspace.archived_at !== null)
+        throw new AppError("工作区已归档", 409);
+      if (actor)
+        await requireMembership(
+          tx,
+          this.repo.workspaceId,
+          actor.id,
+          permission,
+        );
+      const old = (
+        await tx.query(
+          "SELECT * FROM commands WHERE id=$1 AND workspace_id=$2",
+          [id, this.repo.workspaceId],
+        )
+      ).rows[0];
       if (old) {
         if (old.fingerprint !== fingerprint)
           throw new AppError("操作 ID 已用于其他请求", 409);
@@ -380,8 +458,8 @@ export class Workflows {
       }
       const result = await work(tx, await this.repo.view(tx));
       await tx.query(
-        "INSERT INTO commands(id,fingerprint,response) VALUES($1,$2,$3)",
-        [id, fingerprint, result],
+        "INSERT INTO commands(id,fingerprint,response,workspace_id) VALUES($1,$2,$3,$4)",
+        [id, fingerprint, result, this.repo.workspaceId],
       );
       return result;
     });
@@ -390,6 +468,7 @@ export class Workflows {
     id: string,
     pairs: { productId: string; taskId: string }[],
     kind: string,
+    actor?: CurrentUser,
   ) {
     if (
       !["prompt", "prompt-set", "image", "workflow", "full-workflow"].includes(
@@ -399,129 +478,150 @@ export class Workflows {
       pairs.length > 3000
     )
       throw new AppError("无效任务请求");
-    return this.command(id, { pairs, kind }, async (tx, state) => {
-      const row = (
-        await tx.query(
-          "SELECT credential,prompt_credential FROM workspace WHERE id=$1",
-          [WORKSPACE],
-        )
-      ).rows[0];
-      if (!["prompt", "prompt-set"].includes(kind) && !row.credential)
-        throw new AppError("请先配置 Grsai 生图 API Key");
-      const groups = new Map<
-        string,
-        { product: Product; tasks: Product["tasks"] }
-      >();
-      for (const pair of pairs) {
-        const product = state.products.find((p) => p.id === pair.productId),
-          task = product?.tasks.find((t) => t.id === pair.taskId);
-        if (!product || !task)
-          throw new AppError("任务所属产品或图片位置不存在");
-        if (!groups.has(product.id))
-          groups.set(product.id, { product, tasks: [] });
-        const group = groups.get(product.id)!;
-        if (!group.tasks.includes(task)) group.tasks.push(task);
-      }
-      let count = 0;
-      for (const { product, tasks } of groups.values()) {
-        const photos = productPhotos(product);
-        if (!photos.length) throw new AppError(`${product.name}：缺少实拍图`);
-        const needsSet =
-          ["prompt", "prompt-set"].includes(kind) ||
-          kind === "full-workflow" ||
-          (kind === "workflow" && tasks.some((t) => !t.prompt.trim()));
-        const analysisTasks = tasks;
-        const activeSets = state.jobs.filter(
-          (j) =>
-            j.productId === product.id &&
-            j.kind === "prompt-set" &&
-            ["queued", "running"].includes(j.status),
-        );
-        let set = needsSet
-          ? activeSets.find((j) =>
-              analysisTasks.every((t) => j.taskIds?.includes(t.id)),
-            )
-          : undefined;
-        if (
-          needsSet &&
-          !set &&
-          activeSets.some((j) =>
-            analysisTasks.some((t) => j.taskIds?.includes(t.id)),
+    return this.command(
+      id,
+      { pairs, kind, ...(actor ? { actorId: actor.id } : {}) },
+      async (tx, state) => {
+        const row = (
+          await tx.query(
+            "SELECT credential,prompt_credential FROM workspace WHERE id=$1",
+            [this.repo.workspaceId],
           )
-        )
-          throw new AppError("所选卡片已有分析任务，请等待完成后重试", 409);
-        const fresh = (jobKind: Job["kind"], fields: any): Job => ({
-          id: randomUUID(),
-          productId: product.id,
-          productName: product.name,
-          kind: jobKind,
-          status: "queued",
-          stage: "pending",
-          createdAt: Date.now(),
-          mode: "live",
-          config: { ...state.settings },
-          error: "",
-          ...fields,
-        });
-        if (needsSet && !set) {
-          if (!row.prompt_credential)
-            throw new AppError("请先配置豆包 API Key");
-          if (analysisTasks.some((t) => !t.references.length))
-            throw new AppError(`${product.name}：请补齐所选卡片的对标图`);
-          const snapshot = structuredClone(product);
-          snapshot.tasks = snapshot.tasks.filter((t) =>
-            analysisTasks.some((target) => target.id === t.id),
+        ).rows[0];
+        if (!["prompt", "prompt-set"].includes(kind) && !row.credential)
+          throw new AppError("请先配置 Grsai 生图 API Key");
+        const groups = new Map<
+          string,
+          { product: Product; tasks: Product["tasks"] }
+        >();
+        for (const pair of pairs) {
+          const product = state.products.find((p) => p.id === pair.productId),
+            task = product?.tasks.find((t) => t.id === pair.taskId);
+          if (!product || !task)
+            throw new AppError("任务所属产品或图片位置不存在");
+          if (!groups.has(product.id))
+            groups.set(product.id, { product, tasks: [] });
+          const group = groups.get(product.id)!;
+          if (!group.tasks.includes(task)) group.tasks.push(task);
+        }
+        let count = 0,
+          imageCount = 0;
+        for (const { product, tasks } of groups.values()) {
+          const photos = productPhotos(product);
+          if (!photos.length) throw new AppError(`${product.name}：缺少实拍图`);
+          const needsSet =
+            ["prompt", "prompt-set"].includes(kind) ||
+            kind === "full-workflow" ||
+            (kind === "workflow" && tasks.some((t) => !t.prompt.trim()));
+          const analysisTasks = tasks;
+          const activeSets = state.jobs.filter(
+            (j) =>
+              j.productId === product.id &&
+              j.kind === "prompt-set" &&
+              ["queued", "running"].includes(j.status),
           );
-          snapshot.promptSets = [];
-          snapshot.tasks.forEach((t) => {
-            t.versions = [];
-            t.promptHistory = [];
-            t.selectedIds = [];
-            t.primaryId = null;
+          let set = needsSet
+            ? activeSets.find((j) =>
+                analysisTasks.every((t) => j.taskIds?.includes(t.id)),
+              )
+            : undefined;
+          if (
+            needsSet &&
+            !set &&
+            activeSets.some((j) =>
+              analysisTasks.some((t) => j.taskIds?.includes(t.id)),
+            )
+          )
+            throw new AppError("所选卡片已有分析任务，请等待完成后重试", 409);
+          const fresh = (jobKind: Job["kind"], fields: any): Job => ({
+            id: randomUUID(),
+            productId: product.id,
+            productName: product.name,
+            kind: jobKind,
+            status: "queued",
+            stage: "pending",
+            createdAt: Date.now(),
+            mode: "live",
+            config: { ...state.settings },
+            error: "",
+            ...(actor
+              ? {
+                  createdBy: {
+                    id: actor.id,
+                    username: actor.username,
+                    displayName: actor.displayName,
+                  },
+                }
+              : {}),
+            ...fields,
           });
-          set = fresh("prompt-set", {
-            role:
-              analysisTasks.length === 10
-                ? "整套 10 张提示词"
-                : `${analysisTasks.map((t) => t.role).join("、")}提示词`,
-            taskIds: analysisTasks.map((t) => t.id),
-            productSnapshot: snapshot,
-            revisions: Object.fromEntries(
-              analysisTasks.map((t) => [t.id, t.revision]),
-            ),
-            common: productRequirements(product, state.common),
-          });
-          await this.repo.insertJob(tx, set);
-          state.jobs.push(set);
-          count++;
+          if (needsSet && !set) {
+            if (!row.prompt_credential)
+              throw new AppError("请先配置豆包 API Key");
+            const snapshot = structuredClone(product);
+            snapshot.tasks = snapshot.tasks.filter((t) =>
+              analysisTasks.some((target) => target.id === t.id),
+            );
+            snapshot.promptSets = [];
+            snapshot.tasks.forEach((t) => {
+              t.versions = [];
+              t.promptHistory = [];
+              t.selectedIds = [];
+              t.primaryId = null;
+            });
+            set = fresh("prompt-set", {
+              role:
+                analysisTasks.length === 10
+                  ? "整套 10 张提示词"
+                  : `${analysisTasks.map((t) => t.role).join("、")}提示词`,
+              taskIds: analysisTasks.map((t) => t.id),
+              productSnapshot: snapshot,
+              revisions: Object.fromEntries(
+                analysisTasks.map((t) => [t.id, t.revision]),
+              ),
+              common: productRequirements(product, state.common),
+            });
+            await this.repo.insertJob(tx, set);
+            state.jobs.push(set);
+            count++;
+          }
+          if (["prompt", "prompt-set"].includes(kind)) continue;
+          for (const task of tasks) {
+            if (state.jobs.some((j) => j.taskId === task.id && active(j)))
+              continue;
+            if (!set && !task.prompt.trim())
+              throw new AppError("请先生成整套提示词");
+            const job = fresh("image", {
+              taskId: task.id,
+              role: task.role,
+              prompt: task.prompt,
+              dependsOn: needsSet ? set?.id : undefined,
+              referenceImages: task.realPhotoIndices?.length
+                ? task.realPhotoIndices.map((i) => photos[i]).filter(Boolean)
+                : photos,
+            });
+            await this.repo.insertJob(tx, job);
+            state.jobs.push(job);
+            count++;
+            imageCount++;
+          }
         }
-        if (["prompt", "prompt-set"].includes(kind)) continue;
-        for (const task of tasks) {
-          if (state.jobs.some((j) => j.taskId === task.id && active(j)))
-            continue;
-          if (!set && !task.prompt.trim())
-            throw new AppError("请先生成整套提示词");
-          const job = fresh("image", {
-            taskId: task.id,
-            role: task.role,
-            prompt: task.prompt,
-            dependsOn: needsSet ? set?.id : undefined,
-            referenceImages: task.realPhotoIndices?.length
-              ? task.realPhotoIndices.map((i) => photos[i]).filter(Boolean)
-              : photos,
-          });
-          await this.repo.insertJob(tx, job);
-          state.jobs.push(job);
-          count++;
-        }
-      }
-      return { count };
-    });
+        if (actor && imageCount)
+          await assertImageQuota(tx, actor.id, this.repo.workspaceId);
+        return { count };
+      },
+      actor,
+    );
   }
-  async control(id: string, action: string, input: any = {}) {
+  async control(
+    id: string,
+    action: string,
+    input: any = {},
+    actor?: CurrentUser,
+  ) {
     const result = await this.command(
       input.commandId,
-      { id, action, ...input },
+      { id, action, ...input, ...(actor ? { actorId: actor.id } : {}) },
       async (tx, state) => {
         if (action === "pause") {
           state.paused = !!input.paused;
@@ -614,6 +714,13 @@ export class Workflows {
             )
           )
             throw new AppError("已有相同位置的执行任务", 409);
+          let imageJobs = job.kind === "image" ? 1 : 0;
+          if (actor)
+            job.lastRetriedBy = {
+              id: actor.id,
+              username: actor.username,
+              displayName: actor.displayName,
+            };
           job.status = "queued";
           job.error = "";
           delete job.validationError;
@@ -638,12 +745,17 @@ export class Workflows {
               )
                 continue;
               child.status = "queued";
+              imageJobs++;
+              if (actor) child.lastRetriedBy = job.lastRetriedBy;
               child.error = "";
               await this.repo.saveJob(tx, child);
             }
+          if (actor && imageJobs)
+            await assertImageQuota(tx, actor.id, this.repo.workspaceId);
         } else throw new AppError("无效任务操作");
         return { ok: true };
       },
+      actor,
     );
     if ("cancelledIds" in result) {
       for (const jobId of result.cancelledIds as string[]) {
@@ -671,90 +783,103 @@ export class Workflows {
     }
     return result;
   }
-  async importWorkspace(id: string, raw: Workspace) {
+  async importWorkspace(id: string, raw: Workspace, actor?: CurrentUser) {
     const imported = await this.assets.normalize(raw);
-    return this.command(id, { import: imported }, async (tx, state) => {
-      if (state.products.length || state.jobs.length)
-        throw new AppError("迁移仅允许写入空工作区，已有数据不会被覆盖", 409);
-      if (
-        imported.schema !== 2 ||
-        !Array.isArray(imported.products) ||
-        !Array.isArray(imported.jobs)
-      )
-        throw new AppError("无效工作流备份");
-      const taskIds = new Set<string>(),
-        productIds = new Set<string>();
-      for (const product of imported.products) {
-        validateProduct(product);
-        if (productIds.has(product.id)) throw new AppError("产品 ID 重复");
-        productIds.add(product.id);
-        for (const task of product.tasks) {
-          if (taskIds.has(task.id)) throw new AppError("图片位置 ID 重复");
-          taskIds.add(task.id);
+    return this.command(
+      id,
+      { import: imported },
+      async (tx, state) => {
+        if (state.products.length || state.jobs.length)
+          throw new AppError("迁移仅允许写入空工作区，已有数据不会被覆盖", 409);
+        if (
+          imported.schema !== 2 ||
+          !Array.isArray(imported.products) ||
+          !Array.isArray(imported.jobs)
+        )
+          throw new AppError("无效工作流备份");
+        const taskIds = new Set<string>(),
+          productIds = new Set<string>();
+        for (const product of imported.products) {
+          validateProduct(product);
+          if (productIds.has(product.id)) throw new AppError("产品 ID 重复");
+          productIds.add(product.id);
+          for (const task of product.tasks) {
+            if (taskIds.has(task.id)) throw new AppError("图片位置 ID 重复");
+            taskIds.add(task.id);
+          }
+          await this.repo.saveProduct(tx, product);
         }
-        await this.repo.saveProduct(tx, product);
-      }
-      state.common =
-        typeof imported.common === "string" ? imported.common : state.common;
-      state.sheetSnapshot = imported.sheetSnapshot ?? null;
-      state.paused = true;
-      for (const key of configuration)
-        if (typeof imported.settings?.[key] === "string")
-          state.settings[key] = imported.settings[key];
-      state.settings = migratePromptSettings({
-        ...state.settings,
-        promptProvider: imported.settings?.promptProvider,
-      });
-      baseUrl(state.settings.baseUrl);
-      state.settings.mode = "live";
-      for (const old of imported.jobs) {
-        if (
-          typeof old.id !== "string" ||
-          !/^[A-Za-z0-9_-]{1,100}$/.test(old.id)
-        )
-          throw new AppError("迁移任务 ID 无效");
-        if (
-          !productIds.has(old.productId) ||
-          !["prompt-set", "image"].includes(old.kind)
-        )
-          continue;
-        const wasActive = ["running", "queued", "interrupted"].includes(
-          old.status,
-        );
-        const job = {
-          ...old,
-          config: {
-            ...Object.fromEntries(
-              configuration.map((k) => [
-                k,
-                old.config?.[k] ?? state.settings[k],
-              ]),
-            ),
-            promptProvider:
-              old.config?.promptProvider ??
-              (old.config?.promptModel
-                ? "grsai"
-                : state.settings.promptProvider),
-          },
-          mode: "live",
-          owner: undefined,
-          status: wasActive ? "cancelled" : old.status,
-          stage: old.remoteId
-            ? "polling"
-            : wasActive && old.status !== "queued"
-              ? old.kind === "image"
-                ? "submitting"
-                : "analyzing"
-              : "pending",
-          error: wasActive
-            ? "迁移任务已停止，请核对平台后继续查询或重新生成"
-            : old.error,
-        } as Job;
-        job.dependsOn = undefined;
-        await this.repo.insertJob(tx, job);
-      }
-      await this.repo.saveWorkspace(tx, state);
-      return { ok: true };
-    });
+        state.common =
+          typeof imported.common === "string" ? imported.common : state.common;
+        try {
+          state.promptTemplates = normalizePromptTemplates(
+            imported.promptTemplates,
+          );
+        } catch (error) {
+          throw new AppError((error as Error).message);
+        }
+        state.sheetSnapshot = imported.sheetSnapshot ?? null;
+        state.paused = true;
+        for (const key of configuration)
+          if (typeof imported.settings?.[key] === "string")
+            state.settings[key] = imported.settings[key];
+        state.settings = migratePromptSettings({
+          ...state.settings,
+          promptProvider: imported.settings?.promptProvider,
+        });
+        baseUrl(state.settings.baseUrl);
+        state.settings.mode = "live";
+        for (const old of imported.jobs) {
+          if (
+            typeof old.id !== "string" ||
+            !/^[A-Za-z0-9_-]{1,100}$/.test(old.id)
+          )
+            throw new AppError("迁移任务 ID 无效");
+          if (
+            !productIds.has(old.productId) ||
+            !["prompt-set", "image"].includes(old.kind)
+          )
+            continue;
+          const wasActive = ["running", "queued", "interrupted"].includes(
+            old.status,
+          );
+          const job = {
+            ...old,
+            config: {
+              ...Object.fromEntries(
+                configuration.map((k) => [
+                  k,
+                  old.config?.[k] ?? state.settings[k],
+                ]),
+              ),
+              promptProvider:
+                old.config?.promptProvider ??
+                (old.config?.promptModel
+                  ? "grsai"
+                  : state.settings.promptProvider),
+            },
+            mode: "live",
+            owner: undefined,
+            status: wasActive ? "cancelled" : old.status,
+            stage: old.remoteId
+              ? "polling"
+              : wasActive && old.status !== "queued"
+                ? old.kind === "image"
+                  ? "submitting"
+                  : "analyzing"
+                : "pending",
+            error: wasActive
+              ? "迁移任务已停止，请核对平台后继续查询或重新生成"
+              : old.error,
+          } as Job;
+          job.dependsOn = undefined;
+          await this.repo.insertJob(tx, job);
+        }
+        await this.repo.saveWorkspace(tx, state);
+        return { ok: true };
+      },
+      actor,
+      "manage",
+    );
   }
 }

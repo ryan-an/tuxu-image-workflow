@@ -7,6 +7,7 @@ import { newProduct } from "../../shared/model.js";
 import { editable, differences } from "../../shared/workspace-edits.js";
 import type { Product } from "../../server/production/types.js";
 import type { Provider } from "../../server/production/provider.js";
+import type { TransportSecurityOptions } from "../../server/production/transport-security.js";
 export const png =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
 export const password = "test-password-123456789",
@@ -22,7 +23,10 @@ export async function loginHeaders(
   if (response.statusCode !== 200) throw new Error("测试登录失败");
   return { cookie: String(response.headers["set-cookie"]).split(";")[0] };
 }
-export async function fixture(staticDirectory?: string) {
+export async function fixture(
+  staticDirectory?: string,
+  transport?: TransportSecurityOptions,
+) {
   const directory = await mkdtemp(join(tmpdir(), "tuxu-sqlite-"));
   const filename = join(directory, "workspace.sqlite");
   let db = database(filename);
@@ -34,8 +38,9 @@ export async function fixture(staticDirectory?: string) {
     password,
     logger: false,
     staticDirectory,
+    transport,
   };
-  let { app, workflows } = await createApp(options);
+  let { app, workflows, workspaces } = await createApp(options);
   await workflows.updateSettings({
     apiKey: "fake-platform-key",
     promptApiKey: "fake-doubao-key",
@@ -63,6 +68,9 @@ export async function fixture(staticDirectory?: string) {
     get workflows() {
       return workflows;
     },
+    get workspaces() {
+      return workspaces;
+    },
     filename,
     product: state.products[0],
     close: async () => {
@@ -80,7 +88,7 @@ export async function fixture(staticDirectory?: string) {
       await db.close();
       db = database(filename);
       await migrate(db);
-      ({ app, workflows } = await createApp({ ...options, db }));
+      ({ app, workflows, workspaces } = await createApp({ ...options, db }));
     },
     due: () =>
       db.query("UPDATE jobs SET due_at=$1 WHERE status='queued'", [Date.now()]),

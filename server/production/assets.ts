@@ -8,6 +8,7 @@ import type { IncomingMessage } from "node:http";
 import sharp from "sharp";
 import type { Database } from "./types.js";
 import { AppError } from "./types.js";
+import { WORKSPACE } from "./repository.js";
 export const ASSET_PATH = /^\/api\/assets\/([a-f0-9]{64})$/;
 const MAX_IMAGE = 40 * 1024 * 1024;
 export class Assets {
@@ -21,6 +22,7 @@ export class Assets {
   constructor(
     private db: Database,
     root: string,
+    private readonly workspaceId = WORKSPACE,
   ) {
     this.root = resolve(root);
   }
@@ -42,7 +44,10 @@ export class Assets {
         /^GIF8[79]a$/.test(bytes.toString("ascii", 0, 6)));
     if (!valid || bytes.length > MAX_IMAGE)
       throw new AppError("图片格式无效或超过 40MB");
-    const id = createHash("sha256").update(mime).update(bytes).digest("hex");
+    const hash = createHash("sha256");
+    if (this.workspaceId !== WORKSPACE)
+      hash.update(this.workspaceId).update("\0");
+    const id = hash.update(mime).update(bytes).digest("hex");
     await mkdir(this.root, { recursive: true });
     const temporary = join(this.root, `${id}.${randomUUID()}.tmp`);
     try {
@@ -52,20 +57,20 @@ export class Assets {
       await unlink(temporary).catch(() => {});
     }
     await this.db.query(
-      "INSERT INTO assets(id,mime,bytes) VALUES($1,$2,$3) ON CONFLICT(id) DO NOTHING",
-      [id, mime, bytes.length],
+      "INSERT INTO assets(id,workspace_id,mime,bytes) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO NOTHING",
+      [id, this.workspaceId, mime, bytes.length],
     );
     return `/api/assets/${id}`;
   }
   async get(id: string) {
     if (!/^[a-f0-9]{64}$/.test(id)) throw new AppError("图片不存在", 404);
-    const row = (await this.db.query("SELECT * FROM assets WHERE id=$1", [id]))
-      .rows[0];
+    const row = await this.authorized(id);
     if (!row) throw new AppError("图片不存在", 404);
     return { bytes: await readFile(join(this.root, id)), mime: row.mime };
   }
   async thumbnail(id: string) {
     if (!/^[a-f0-9]{64}$/.test(id)) throw new AppError("图片不存在", 404);
+    await this.authorized(id);
     if (this.previews.has(id)) return this.previews.get(id)!;
     const work = (async () => {
       const directory = join(this.root, "thumbnails");
@@ -112,6 +117,14 @@ export class Assets {
     value: any,
     images = new Map<string, Promise<string>>(),
   ): Promise<any> {
+    if (typeof value === "string" && value.startsWith("/api/assets/")) {
+      const id = /^\/api\/assets\/([a-f0-9]{64})(?:\/thumbnail)?$/.exec(
+        value,
+      )?.[1];
+      if (!id) throw new AppError("图片地址无效");
+      await this.authorized(id);
+      return value;
+    }
     if (typeof value === "string" && value.startsWith("data:image/")) {
       if (images.has(value)) return images.get(value);
       const parsed =
@@ -141,6 +154,16 @@ export class Assets {
       return result;
     }
     return value;
+  }
+  private async authorized(id: string) {
+    const row = (
+      await this.db.query(
+        "SELECT * FROM assets WHERE id=$1 AND workspace_id=$2",
+        [id, this.workspaceId],
+      )
+    ).rows[0];
+    if (!row) throw new AppError("图片不存在", 404);
+    return row;
   }
   async providerSource(source: string) {
     const match = ASSET_PATH.exec(source);

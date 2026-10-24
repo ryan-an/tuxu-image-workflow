@@ -203,6 +203,7 @@ function JobRow({ job }: { job: Job }) {
         <div className="queue-card-meta">
           <span>{kindNames[job.kind] || job.kind}</span>
           {model && <span>{model}</span>}
+          {job.createdBy && <span>发起人：{job.createdBy.displayName}</span>}
           <time dateTime={new Date(job.createdAt).toISOString()}>
             {formatTime(job.createdAt)}
           </time>
@@ -266,7 +267,7 @@ function JobRow({ job }: { job: Job }) {
   );
 }
 export function QueueDashboard() {
-  const { state, controller } = useApplication();
+  const { state, controller, user, ui } = useApplication();
   const [tab, setTab] = useState("products");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -560,6 +561,7 @@ export function QueueDashboard() {
               <select
                 id="concurrency"
                 value={state.concurrency}
+                disabled={user.role !== "owner"}
                 onChange={controller.changeField}
               >
                 {[1, 2, 3, 4, 5, 6].map((n) => (
@@ -570,7 +572,17 @@ export function QueueDashboard() {
             <ActionButton
               className="queue-download-selected result-action-button"
               action="download-batch-selected"
-              disabled={!sum("selected")}
+              disabled={
+                user.role === "viewer"
+                  ? !state.products.some((product) =>
+                      product.tasks.some(
+                        (task) =>
+                          (ui.downloadSelections[task.id] || task.selectedIds)
+                            .length,
+                      ),
+                    )
+                  : !sum("selected")
+              }
             >
               保存选中图片
             </ActionButton>

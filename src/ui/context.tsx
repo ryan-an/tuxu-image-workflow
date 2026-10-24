@@ -2,6 +2,7 @@ import type { ApplicationContextValue } from "./types";
 import type { FormHTMLAttributes } from "react";
 import { Button, type ButtonProps } from "./design-system/Button";
 import { createContext, useContext, useRef, useState } from "react";
+import { actionAllowed } from "../../shared/access";
 
 export const ApplicationContext = createContext<ApplicationContextValue | null>(
   null,
@@ -22,10 +23,11 @@ export function ActionButton({
   action: string;
   data?: Record<string, string | number | undefined>;
 }) {
-  const { controller } = useApplication();
+  const { controller, user } = useApplication();
   const attributes = Object.fromEntries(
     Object.entries(data).map(([key, value]) => [`data-${key}`, value]),
   );
+  if (!actionAllowed(user.role, action)) return null;
   return (
     <Button
       type="button"

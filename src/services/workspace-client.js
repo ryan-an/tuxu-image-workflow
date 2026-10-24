@@ -3,13 +3,18 @@ import {
   differences,
   mergeView,
 } from "../../shared/workspace-edits.js";
+import { sessionHeaders, analysisEventsUrl } from "./session-scope.js";
 export async function api(path, body, method = body ? "POST" : "GET") {
   const response = await fetch(path, {
     method,
     credentials: "same-origin",
+    cache: "no-store",
+    headers: {
+      ...sessionHeaders(),
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
     ...(body
       ? {
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         }
       : {}),
@@ -22,10 +27,27 @@ export async function api(path, body, method = body ? "POST" : "GET") {
   return data;
 }
 export class WorkspaceClient {
-  constructor(state, { render, sync, notify, syncBatch = (work) => work() }) {
+  constructor(
+    state,
+    {
+      render,
+      sync,
+      notify,
+      syncBatch = (work) => work(),
+      capture = () => {},
+      syncSheet = () => {},
+    },
+  ) {
     this.state = state;
     this.baseline = structuredClone(state);
-    Object.assign(this, { render, sync, notify, syncBatch });
+    Object.assign(this, {
+      render,
+      sync,
+      notify,
+      syncBatch,
+      capture,
+      syncSheet,
+    });
     this.chain = Promise.resolve();
   }
   serialize(work) {
@@ -39,6 +61,7 @@ export class WorkspaceClient {
     preserveExpected = false,
     changedIds = null,
   ) {
+    const previousSheet = structuredClone(this.state.sheetSnapshot);
     const oldProducts = new Map(this.state.products.map((p) => [p.id, p]));
     const changes = remote.products
       .filter((p) => !changedIds || changedIds.has(p.id))
@@ -81,6 +104,7 @@ export class WorkspaceClient {
           );
     }
     mergeView(this.state, remote, pending);
+    await this.syncSheet(previousSheet);
     const changed = changes.filter(
       (change) => change.reference || change.prompt || change.result,
     );
@@ -103,17 +127,31 @@ export class WorkspaceClient {
   }
   save() {
     return this.serialize(async () => {
-      const sent = editable(this.state),
+      this.capture();
+      const sent = structuredClone(editable(this.state)),
         edits = differences(editable(this.baseline), sent);
       if (!edits.length) return;
       const remote = await api("/api/workspace", { edits }, "PATCH");
+      this.capture();
       const pending = differences(sent, editable(this.state));
       await this.accept(remote, pending);
+    });
+  }
+  // Commit a dialog's frozen before-value without replacing other local edits.
+  edit(edits) {
+    return this.serialize(async () => {
+      this.capture();
+      const before = structuredClone(editable(this.baseline));
+      const remote = await api("/api/workspace", { edits }, "PATCH");
+      this.capture();
+      const pending = differences(before, editable(this.state));
+      await this.accept(remote, pending, true);
     });
   }
   refresh() {
     if (this.refreshing) return this.refreshing;
     this.refreshing = this.serialize(async () => {
+      this.capture();
       let remote,
         changedIds = null;
       if (this.cursor === undefined) this.cursor = this.state.syncCursor;
@@ -158,6 +196,7 @@ export class WorkspaceClient {
           };
         }
       }
+      this.capture();
       await this.accept(
         remote,
         differences(editable(this.baseline), editable(this.state)),
@@ -182,7 +221,7 @@ export class WorkspaceClient {
     if (typeof document !== "undefined")
       document.addEventListener("visibilitychange", this.onVisibilityChange);
     if (typeof EventSource !== "undefined") {
-      this.events = new EventSource("/api/analysis/events");
+      this.events = new EventSource(analysisEventsUrl());
       this.events.onmessage = (message) => {
         if (this.closed || this.isHidden()) return;
         const event = JSON.parse(message.data);

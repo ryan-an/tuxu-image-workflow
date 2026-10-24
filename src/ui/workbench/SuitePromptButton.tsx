@@ -9,7 +9,7 @@ export function SuitePromptButton({
   primary?: boolean;
   action?: string;
 }) {
-  const { state } = useApplication();
+  const { state, user } = useApplication();
   const product = currentProduct(state);
   const [mode, setMode] = useState("prompt");
   const menu = useRef<HTMLDetailsElement>(null);
@@ -53,6 +53,7 @@ export function SuitePromptButton({
       ["queued", "running"].includes(job.status),
   );
   const interrupted = analyses.find((job) => job.status === "interrupted");
+  if (user.role === "viewer") return null;
   return (
     <div className="suite-action-control">
       <ActionButton

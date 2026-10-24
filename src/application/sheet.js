@@ -4,7 +4,9 @@ import {
   setPrimary,
   savePrompt,
   addVersion,
+  chosen,
 } from "../../shared/model.js";
+import { PRODUCT_PAGE_SIZE } from "../view-models/product-page.js";
 
 import {
   detectColumns,
@@ -12,6 +14,48 @@ import {
   validateSheetParse,
   imageCell,
 } from "../integrations/sheet-bridge.js";
+
+// Match the import rules: missing external columns preserve existing values,
+// while explicitly empty preview cells can clear them.
+export function parsedProductNeedsUpdate(source, product, authoritative) {
+  if (!product) return true;
+  const name =
+    authoritative && source.present.metadata
+      ? source.name
+      : source.name || product.name;
+  const facts =
+    authoritative && source.present.metadata
+      ? source.facts
+      : source.facts || product.facts;
+  if (name !== product.name || facts !== product.facts) return true;
+  if (
+    ((authoritative && source.present.photo) || source.photos.length) &&
+    JSON.stringify(source.photos) !== JSON.stringify(productPhotos(product))
+  )
+    return true;
+  return source.tasks.some((item) => {
+    const task = product.tasks.find((task) => task.role === item.role);
+    if (!task) return true;
+    if (
+      ((authoritative && item.present.references) || item.references.length) &&
+      (item.references[0] !== task.references[0] ||
+        (!item.references.length && task.references.length) ||
+        (item.references.length > 1 &&
+          JSON.stringify(item.references) !== JSON.stringify(task.references)))
+    )
+      return true;
+    if (
+      ((authoritative && item.present.prompt) || item.prompt) &&
+      item.prompt !== task.prompt
+    )
+      return true;
+    return item.result
+      ? item.result !== (chosen(task)?.source || "")
+      : authoritative &&
+          item.present.result &&
+          (task.primaryId !== null || task.selectedIds.length > 0);
+  });
+}
 
 export function createSheet(context) {
   let parseContext = null;
@@ -76,8 +120,21 @@ export function createSheet(context) {
   async function switchView(next) {
     const { bridge, render, setView } = context;
     setView(next);
+    bridge.collaborationVisible = next === "sheet";
+    bridge.showCollaborators(bridge.peers || []);
+    bridge.publishSelection();
+    if (typeof window !== "undefined" && window.location?.pathname === "/") {
+      const url = new URL(window.location.href);
+      if (next === "workspaces") url.searchParams.set("manage", "1");
+      else url.searchParams.delete("manage");
+      window.history.replaceState(
+        null,
+        "",
+        url.pathname + url.search + url.hash,
+      );
+    }
     render();
-    if (next === "sheet") await bridge.mount();
+    if (next === "sheet" && context.canEdit !== false) await bridge.mount();
     else bridge.capture();
   }
 
@@ -113,6 +170,14 @@ export function createSheet(context) {
       parseContext.mapping,
       parseContext.layout,
       parseContext.candidates,
+    );
+    const products = new Map(context.state.products.map((p) => [p.code, p]));
+    parseContext.changes = parseContext.candidates.filter((source) =>
+      parsedProductNeedsUpdate(
+        source,
+        products.get(source.code),
+        parseContext.source.id === "preview",
+      ),
     );
     ui.parser = {
       ...parseContext,
@@ -155,7 +220,8 @@ export function createSheet(context) {
         switchView,
       } = context;
       let created = 0,
-        updated = 0;
+        updated = 0,
+        lastSavedProduct = null;
       const productsByCode = new Map(
         state.products.map((product) => [product.code, product]),
       );
@@ -164,6 +230,21 @@ export function createSheet(context) {
         for (const source of parseContext.candidates) {
           let p = productsByCode.get(source.code);
           const isNew = !p;
+          const needsUpdate = parsedProductNeedsUpdate(
+            source,
+            p,
+            authoritative,
+          );
+          if (!needsUpdate) {
+            // Still repair missing rows and acknowledge a reverted draft, but
+            // do not rewrite an unchanged product or include it in the count.
+            updateMetadata(p, p.code, true);
+            for (const t of p.tasks)
+              for (const k of ["reference", "prompt", "result"])
+                await syncTask(p, t, k, true);
+            bridge.markProductParsed(p.code);
+            continue;
+          }
           if (isNew) {
             p = newProduct(source.code, source.name, source.facts);
             state.products.push(p);
@@ -225,14 +306,25 @@ export function createSheet(context) {
             for (const k of ["reference", "prompt", "result"])
               await syncTask(p, t, k, true);
           bridge.markProductParsed(p.code);
+          lastSavedProduct = p;
         }
       });
-      if (parseContext.candidates[0])
-        state.activeProductId = state.products.find(
-          (p) => p.code === parseContext.candidates[0].code,
-        ).id;
+      const selected =
+        lastSavedProduct ||
+        productsByCode.get(parseContext.candidates.at(-1)?.code);
+      if (selected) state.activeProductId = selected.id;
       change();
       await context.persist();
+      // Persistence may reorder products. Reveal the saved product on its final
+      // page, including when a search would otherwise hide the new product.
+      if (selected) {
+        context.ui.search = "";
+        context.ui.productPage =
+          Math.floor(
+            state.products.findIndex((p) => p.id === selected.id) /
+              PRODUCT_PAGE_SIZE,
+          ) + 1;
+      }
       closeModal();
       await switchView("workbench");
       notify(`已保存并解析：新增 ${created} 个，更新 ${updated} 个产品`);

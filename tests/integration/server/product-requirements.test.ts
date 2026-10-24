@@ -144,7 +144,7 @@ test("product requirements are isolated, durable, and frozen when analysis is qu
   }
 });
 
-test("legacy products inherit current defaults and requirements edits validate and detect conflicts", async () => {
+test("legacy products inherit defaults and requirements edits validate and use server save order", async () => {
   const f = await fixture();
   try {
     await f.db.transaction(async (tx) => {
@@ -166,13 +166,10 @@ test("legacy products inherit current defaults and requirements edits validate a
       await assert.rejects(f.workflows.edit([{ ...edit, value }]), /产品资料/);
     }
     await f.workflows.edit([edit]);
-    await assert.rejects(
-      f.workflows.edit([{ ...edit, value: "过期的修改" }]),
-      /更新/,
-    );
+    await f.workflows.edit([{ ...edit, value: "最后提交的修改" }]);
     assert.equal(
       (await f.workflows.repo.view()).products[0].promptRequirements,
-      edit.value,
+      "最后提交的修改",
     );
   } finally {
     await f.close();

@@ -1,5 +1,5 @@
 import { saveSnapshot } from "../integrations/storage.js";
-import { APP_KEY, validBackup } from "../../shared/model.js";
+import { APP_KEY, validBackup, uid } from "../../shared/model.js";
 import { api } from "../services/workspace-client.js";
 
 export function createFiles(context) {
@@ -20,7 +20,12 @@ export function createFiles(context) {
       images = products.flatMap((p) =>
         p.tasks.flatMap((t) =>
           t.versions
-            .filter((v) => t.selectedIds.includes(v.id))
+            .filter((v) =>
+              (context.canEdit === false
+                ? context.ui.downloadSelections[t.id] || t.selectedIds
+                : t.selectedIds
+              ).includes(v.id),
+            )
             .map((v) => ({ p, t, v })),
         ),
       );
@@ -79,7 +84,7 @@ export function createFiles(context) {
       if (!validBackup(restored)) throw new Error("不是有效备份");
       if (repository) {
         await api("/api/workspace/import", {
-          commandId: crypto.randomUUID(),
+          commandId: uid(),
           workspace: restored,
         });
         location.reload();

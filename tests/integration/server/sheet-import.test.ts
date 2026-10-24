@@ -19,7 +19,10 @@ import {
   completeProductRows,
 } from "../../../src/integrations/sheet-bridge.js";
 import { fixture, png } from "../../support/production.js";
-import { createSheet } from "../../../src/application/sheet.js";
+import {
+  createSheet,
+  parsedProductNeedsUpdate,
+} from "../../../src/application/sheet.js";
 import { editable, differences } from "../../../shared/workspace-edits.js";
 
 test("imported sheet results survive server persistence without replacing generated history", async () => {
@@ -500,9 +503,10 @@ test("product status follows successful parsing and later table edits", async ()
     "parsing a new product from preview must not append a duplicate block",
   );
   const roleColumn = detectColumns(state.sheetSnapshot.sheets.preview).roles[0];
-  bridge.writeCell(2, roleColumn, { v: "表格修改后的提示词" });
+  bridge.writeUserCell(2, roleColumn, { v: "表格修改后的提示词" });
   assert.equal(status(), "未同步");
   state.products[0].tasks[0].prompt = "表格修改后的提示词";
+  await bridge.sync(state.products[0], state.products[0].tasks[0], "prompt");
   assert.equal(status(), "已同步");
   const restored = new SheetBridge(
     JSON.parse(JSON.stringify(state)),
@@ -528,6 +532,98 @@ test("product status follows successful parsing and later table edits", async ()
         range.startColumn === column,
     ),
   );
+});
+
+test("parsed status changes only for table drafts, never for background product updates or backfill", async () => {
+  const product = newProduct("BACKGROUND", "后台产品");
+  const h = parserHarness([product]);
+  h.bridge.markProductParsed(product.code);
+  const status = () => h.bridge.capture().sheets.preview.cellData[1][1].v;
+  assert.equal(status(), "已同步");
+  product.tasks[0].prompt = "后台新提示词";
+  addVersion(product.tasks[1], png, "后台结果");
+  assert.equal(
+    status(),
+    "已同步",
+    "generation can update products before backfill",
+  );
+  await h.bridge.sync(product, product.tasks[0], "prompt");
+  await h.bridge.sync(product, product.tasks[1], "result");
+  assert.equal(status(), "已同步");
+  h.bridge.writeUserCell(2, 4, { v: "后台新提示词", s: "format" });
+  assert.equal(status(), "已同步");
+  h.bridge.writeUserCell(2, 4, { v: "真实表格编辑" });
+  assert.equal(status(), "未同步");
+  h.bridge.writeUserCell(2, 4, { v: "后台新提示词" });
+  assert.equal(status(), "已同步");
+  const reloaded = new SheetBridge(
+    JSON.parse(JSON.stringify(h.state)),
+    () => {},
+    () => {},
+  );
+  assert.equal(reloaded.capture().sheets.preview.cellData[1][1].v, "已同步");
+});
+
+test("parse preview and save count only real changes and select the last saved product across pages", async () => {
+  const products = Array.from({ length: 34 }, (_, index) =>
+    newProduct(`COUNT-${index}`, `产品 ${index}`),
+  );
+  const fresh = newProduct("NEW-LAST", "最后新增产品");
+  const snapshot = workflowSnapshot({
+    products: [...products, fresh, newProduct("TAIL", "末尾已同步")],
+  });
+  products.push(newProduct("TAIL", "末尾已同步"));
+  const h = parserHarness(products, snapshot);
+  for (const product of products) h.bridge.markProductParsed(product.code);
+  h.bridge.writeUserCell(2, 4, { v: "本次真正更新" });
+  h.context.ui.search = "COUNT";
+  h.context.ui.productPage = 1;
+  const notices: string[] = [];
+  h.context.notify = (message: string) => notices.push(message);
+  await h.open();
+  assert.equal(h.context.ui.parser.candidates.length, 36);
+  assert.deepEqual(
+    h.context.ui.parser.changes.map((p: any) => p.code),
+    ["COUNT-0", "NEW-LAST"],
+  );
+  const unchanged = structuredClone(products[1]);
+  await h.sheet.confirmParse();
+  assert.equal(
+    h.state.activeProductId,
+    h.state.products.find((p: any) => p.code === "NEW-LAST").id,
+  );
+  assert.equal(h.context.ui.search, "");
+  assert.equal(h.context.ui.productPage, 2);
+  assert.match(notices.at(-1)!, /新增 1 个，更新 1 个/);
+  assert.deepEqual(
+    products[1],
+    unchanged,
+    "unchanged products retain their history and revision",
+  );
+  await h.open();
+  assert.equal(h.context.ui.parser.changes.length, 0);
+  await h.sheet.confirmParse();
+  assert.match(notices.at(-1)!, /新增 0 个，更新 0 个/);
+});
+
+test("change detection respects absent external fields, explicit clearing, and multi-reference preservation", () => {
+  const product: any = newProduct("COMPARE", "产品", "原资料");
+  product.photos = [png];
+  product.photo = png;
+  product.tasks[0].references = [png, "second-reference"];
+  product.tasks[0].prompt = "原提示词";
+  addVersion(product.tasks[0], png, "原结果");
+  const source = parseSheet(
+    workflowSnapshot({ products: [product] }).sheets.preview,
+    detectColumns(workflowSnapshot({ products: [product] }).sheets.preview),
+  )[0];
+  assert.equal(parsedProductNeedsUpdate(source, product, true), false);
+  source.photos = [];
+  source.facts = "";
+  source.tasks[0].prompt = "";
+  source.tasks[0].result = "";
+  assert.equal(parsedProductNeedsUpdate(source, product, false), false);
+  assert.equal(parsedProductNeedsUpdate(source, product, true), true);
 });
 
 test("sheet rows keep their configured height when long prompts are restored", () => {

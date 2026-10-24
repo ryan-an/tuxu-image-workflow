@@ -1,5 +1,10 @@
 import { ROLES, chosen, uid } from "../../shared/model.js";
 import { productPhotos } from "../../shared/prompt-suite.js";
+import {
+  applySheetSnapshot,
+  publishSheetSelection,
+  showSheetCollaborators,
+} from "./sheet-collaboration.js";
 import { readClipboardCells, loadClipboardImage } from "./paste-images.js";
 const HEADER = ["产品编号", "状态", "产品名称 / 资料", "内容", ...ROLES];
 const ROW_TYPES = ["示例图", "提示词", "结果图"];
@@ -43,44 +48,23 @@ function productStatusCell(label, parsed = false) {
   };
 }
 
-export function productStatusWrites(snapshot, products) {
+export function productStatusWrites(snapshot) {
   const sheet = snapshot?.sheets?.preview;
   if (!sheet) return [];
   const mapping = detectColumns(sheet);
   if (mapping.statusColumn < 0) return [];
-  const byCode = new Map(products.map((product) => [product.code, product]));
   return parseSheet(sheet, mapping).flatMap((source) => {
     const row = source.sourceRows[0] - 1;
     const current = sheet.cellData[row]?.[mapping.statusColumn];
     const parsed = !!current?.custom?.workflowParsed;
-    const product = byCode.get(source.code);
-    const matches =
-      product &&
-      source.name === product.name &&
-      source.facts === product.facts &&
-      JSON.stringify(source.photos) ===
-        JSON.stringify(productPhotos(product)) &&
-      source.tasks.every((item) => {
-        const task = product.tasks.find((task) => task.role === item.role);
-        return (
-          task &&
-          item.prompt === task.prompt &&
-          item.references[0] === task.references[0] &&
-          (item.result || "") === (chosen(task)?.source || "")
-        );
-      });
+    // Background generation updates products before the sheet is backfilled.
+    // Only table edits (or a failed save) represent unsaved table content.
     const dirty = source.sourceRows.some(
       (row) =>
         sheet.rowData?.[row - 1]?.custom?.workflowDirty ||
         sheet.rowData?.[row - 1]?.custom?.workflowSaveFailed,
     );
-    const label = dirty
-      ? "未同步"
-      : parsed
-        ? matches
-          ? "已同步"
-          : "未同步"
-        : "新建产品";
+    const label = dirty ? "未同步" : parsed ? "已同步" : "新建产品";
     return current?.v === label && current?.custom?.workflowParsed === parsed
       ? []
       : [
@@ -1421,8 +1405,15 @@ export class SheetBridge {
     this.installPageGuards();
     if (import.meta.env.MODE === "demo") window.demoAPI = univerAPI;
     this.valueSubscription = this.api.addEvent(
-      this.api.Event.SheetValueChanged,
-      () => {
+      this.api.Event.CommandExecuted,
+      (event) => {
+        if (this.receivingRemote || this.systemWrite) return;
+        if (
+          event.id.includes("set-selections") ||
+          event.id.includes("set-worksheet-active")
+        )
+          this.publishSelection();
+        if (!event.id.startsWith("sheet.mutation.")) return;
         clearTimeout(this.captureTimer);
         this.captureTimer = setTimeout(async () => {
           try {
@@ -1436,11 +1427,23 @@ export class SheetBridge {
       },
     );
     this.capture();
+    this.publishSelection();
+    this.showCollaborators(this.peers || []);
+  }
+  publishSelection(event) {
+    publishSheetSelection(this, event);
+  }
+  showCollaborators(peers) {
+    showSheetCollaborators(this, peers);
+  }
+  acceptRemoteSnapshot(previous) {
+    applySheetSnapshot(this, previous);
   }
   dispose() {
     this.disposed = true;
     clearTimeout(this.captureTimer);
     this.valueSubscription?.dispose();
+    this.showCollaborators([]);
     this.structureSubscription?.dispose();
     this.pageEditSubscription?.dispose();
     this.statusEditSubscription?.dispose();
@@ -1489,6 +1492,8 @@ export class SheetBridge {
       this.workbook = null;
       this.api.disposeUnit(id);
       this.workbook = this.api.createWorkbook(this.project());
+      this.showCollaborators(this.peers || []);
+      this.publishSelection();
     }
   }
   project() {
@@ -1630,10 +1635,7 @@ export class SheetBridge {
             },
           },
         };
-      for (const { row, column, cell } of productStatusWrites(
-        source,
-        this.state.products,
-      )) {
+      for (const { row, column, cell } of productStatusWrites(source)) {
         snapshot.sheets.preview.cellData[row][column] = cell;
         const local = this.pageRows ? this.pageRows.get(row) : row;
         if (local !== undefined && this.workbook?.getSheetBySheetId)

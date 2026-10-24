@@ -1,28 +1,28 @@
 import { database, migrate } from "./database.js";
 import { createApp } from "./app.js";
-import { Worker } from "./worker.js";
-import { GrsaiProvider } from "./provider.js";
+import { WorkspaceWorkers } from "./workspace-workers.js";
+import { loadTransportSecurity } from "./transport-security.js";
 const mode = process.argv[2] || "all";
 if (!["all", "migrate"].includes(mode))
   throw new Error("SQLite 运行方式为 all（API 与队列同进程）或 migrate");
+const transport =
+  mode === "migrate" ? undefined : await loadTransportSecurity(process.env);
 const db = database(process.env.DATABASE_PATH || "./data/workspace.sqlite");
 await migrate(db);
 if (mode === "migrate") {
   await db.close();
   process.exit(0);
 }
-const { app, workflows } = await createApp({
+const { app, workspaces } = await createApp({
   db,
   assetDirectory: process.env.ASSET_DIRECTORY || "./data/assets",
   credentialSecret: process.env.CREDENTIAL_SECRET || "",
   password: process.env.APP_PASSWORD || "",
   staticDirectory: process.env.NODE_ENV === "production" ? "./dist" : undefined,
+  transport,
 });
-const worker = new Worker(
-  workflows,
-  new GrsaiProvider(workflows.assets, (event) =>
-    app.log.info(event, "platform diagnostic"),
-  ),
+const worker = new WorkspaceWorkers(
+  workspaces,
   (error) => {
     if ((error as any)?.event === "prompt.completed") {
       app.log.info(error as object, "prompt completed");
@@ -32,19 +32,22 @@ const worker = new Worker(
         "worker stage failed",
       );
   },
+  (event) => app.log.info(event as object, "platform diagnostic"),
 );
 await app.listen({
   host: process.env.HOST || "127.0.0.1",
   port: Number(process.env.PORT || 3001),
 });
-worker.start();
+await worker.start();
 app.log.info(
   { database: process.env.DATABASE_PATH || "./data/workspace.sqlite" },
   "SQLite 工作区与任务队列已启动",
 );
-for (const job of (await workflows.repo.view()).jobs.filter(
-  (job) => job.status === "interrupted",
-))
+for (const job of (
+  await Promise.all((await workspaces.all()).map((w) => w.repo.view()))
+)
+  .flatMap((state) => state.jobs)
+  .filter((job) => job.status === "interrupted"))
   app.log.warn(
     {
       event: "task.interrupted.on-start",

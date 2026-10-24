@@ -7,6 +7,7 @@ export function createPersistence(context) {
     disposed = false,
     saveChain = Promise.resolve();
   function saveSoon() {
+    if (context.canEdit === false) return;
     if (disposed) return;
     dirty = true;
     context.setSaveStatus("保存中…");
@@ -14,9 +15,10 @@ export function createPersistence(context) {
       saveTimer = setTimeout(() => {
         saveTimer = null;
         void persist().catch(() => {});
-      }, 1000);
+      }, 250);
   }
   async function persist() {
+    if (context.canEdit === false) return;
     clearTimeout(saveTimer);
     saveTimer = null;
     const { state, repository, bridge, setSaveStatus, notify } = context;

@@ -31,6 +31,8 @@ export interface Product {
   photoThumbnail?: any;
 }
 export interface Job {
+  createdBy?: { id: string; username: string; displayName: string };
+  lastRetriedBy?: { id: string; username: string; displayName: string };
   id: string;
   productId: string;
   productName: string;

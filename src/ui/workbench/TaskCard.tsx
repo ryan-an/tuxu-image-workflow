@@ -17,19 +17,23 @@ export function VersionSelection({
   task: ImageTask;
   version: ImageVersion;
 }) {
-  const { controller } = useApplication();
+  const { controller, user, ui } = useApplication();
   return (
     <input
       type="checkbox"
       data-action="select-version"
       data-task={task.id}
       data-version={version.id}
-      checked={task.selectedIds.includes(version.id)}
+      checked={(user.role === "viewer"
+        ? ui.downloadSelections[task.id] || task.selectedIds
+        : task.selectedIds
+      ).includes(version.id)}
       onChange={(e) => controller.changeField(e)}
     />
   );
 }
 function VersionHistory({ task }: { task: ImageTask }) {
+  const { user } = useApplication();
   return (
     <div
       className="version-history result-switcher"
@@ -44,10 +48,10 @@ function VersionHistory({ task }: { task: ImageTask }) {
         >
           <ActionButton
             className="version-image"
-            action="choose-version"
+            action={user.role === "viewer" ? "view-version" : "choose-version"}
             data={{ task: task.id, version: v.id }}
             aria-pressed={v.id === task.primaryId}
-            title={`点击选用 V${v.number} · ${v.origin === "demo" ? "演示图片" : formatTime(v.createdAt)}`}
+            title={`${user.role === "viewer" ? "查看" : "点击选用"} V${v.number} · ${v.origin === "demo" ? "演示图片" : formatTime(v.createdAt)}`}
           >
             <img
               src={v.source}
@@ -67,7 +71,7 @@ function VersionHistory({ task }: { task: ImageTask }) {
   );
 }
 export function TaskCard({ task }: { task: ImageTask }) {
-  const { state } = useApplication();
+  const { state, user } = useApplication();
   const [referenceIndex, setReferenceIndex] = useState(0);
   const activeReference = Math.min(
     referenceIndex,
@@ -116,11 +120,12 @@ export function TaskCard({ task }: { task: ImageTask }) {
           </ActionButton>
           <ActionButton
             className={`prompt-button ${task.prompt ? "has-prompt" : ""}`}
-            action="edit-prompt"
+            action={user.role === "viewer" ? "prompt-history" : "edit-prompt"}
             data={{ task: task.id }}
-            title="展开编辑提示词"
+            title={user.role === "viewer" ? "查看提示词历史" : "展开编辑提示词"}
           >
-            {task.prompt && <i aria-label="已有提示词" />}提示词
+            {task.prompt && <i aria-label="已有提示词" />}
+            {user.role === "viewer" ? "提示词历史" : "提示词"}
           </ActionButton>
           <ActionButton
             className="card-generate-button"

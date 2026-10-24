@@ -9,17 +9,19 @@ export function MediaDialog({
   product: Product;
   task?: ImageTask;
 }) {
-  const { ui } = useApplication(),
+  const { ui, user } = useApplication(),
     sources = task ? task.references : productPhotos(product);
   return (
     <div id="media-uploader">
       <h2>{task ? `${task.role} · 参考图` : "产品实拍图"}</h2>
-      <p className="modal-subtitle">
-        {task
-          ? "仅添加到当前图片位置，用于分析布局和文案。"
-          : "添加当前产品的不同实拍视角，供整套分析和生图使用。"}
-        默认追加图片，已有图片保留。
-      </p>
+      {user.role !== "viewer" && (
+        <p className="modal-subtitle">
+          {task
+            ? "仅添加到当前图片位置，用于分析布局和文案。"
+            : "添加当前产品的不同实拍视角，供整套分析和生图使用。"}
+          默认追加图片，已有图片保留。
+        </p>
+      )}
       <ActionButton
         id="media-dropzone"
         className="media-dropzone"
@@ -30,22 +32,26 @@ export function MediaDialog({
         <span className="media-drop-icon" aria-hidden="true">
           ＋
         </span>
-        <strong>点击选择图片，或拖拽到这里</strong>
-        <span>
-          也可在此窗口按 <kbd>Ctrl</kbd> + <kbd>V</kbd> 粘贴图片
+        <span className="media-drop-copy">
+          <strong>点击选择图片，或拖拽到这里</strong>
+          <span>
+            也可按 <kbd>Ctrl</kbd> + <kbd>V</kbd> 粘贴图片
+          </span>
+          <small id="media-upload-hint">
+            支持截图、复制的图片、石墨图片单元格，可连续添加
+          </small>
         </span>
-        <small id="media-upload-hint">
-          支持截图、复制的图片、石墨图片单元格，可连续添加
-        </small>
       </ActionButton>
-      <p
-        id="media-feedback"
-        className={`media-feedback ${ui.mediaError ? "error-text" : ""}`}
-        role="status"
-        aria-live="polite"
-      >
-        {ui.mediaFeedback || "添加后自动保存，重复图片会跳过。"}
-      </p>
+      {user.role !== "viewer" && (
+        <p
+          id="media-feedback"
+          className={`media-feedback ${ui.mediaError ? "error-text" : ""}`}
+          role="status"
+          aria-live="polite"
+        >
+          {ui.mediaFeedback || "添加后自动保存，重复图片会跳过。"}
+        </p>
+      )}
       <div className="media-gallery-heading">
         已添加 <b>{sources.length}</b> 张
         {!task && !!sources.length && " · 第一张用于产品列表缩略图"}
@@ -65,6 +71,8 @@ export function MediaDialog({
             <ActionButton
               action={task ? "remove-reference" : "remove-photo"}
               data={{ task: task?.id, index }}
+              variant="secondary"
+              size="sm"
             >
               移除
             </ActionButton>
@@ -72,13 +80,19 @@ export function MediaDialog({
         ))}
         {!sources.length && (
           <p className="empty-small">
-            还没有图片，点击上方区域、粘贴或拖入第一张吧。
+            {user.role === "viewer"
+              ? "暂无图片"
+              : "还没有图片，点击上方区域、粘贴或拖入第一张吧。"}
           </p>
         )}
       </div>
       <div className="media-modal-footer">
-        <small>添加图片不会启动生成任务</small>
-        <ActionButton action="close-modal">完成</ActionButton>
+        <small>
+          {user.role === "viewer" ? "只读查看" : "添加图片不会启动生成任务"}
+        </small>
+        <ActionButton action="close-modal" variant="secondary" size="sm">
+          完成
+        </ActionButton>
       </div>
     </div>
   );

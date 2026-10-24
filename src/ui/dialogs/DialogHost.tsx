@@ -13,12 +13,16 @@ import { MediaDialog } from "./MediaDialog.tsx";
 import { SettingsDialog } from "./SettingsDialog.tsx";
 import { ParseDialog } from "../sheet/ParseDialog.tsx";
 import { RequirementsDialog } from "./RequirementsDialog.tsx";
+import { useDialogDismiss } from "./useDialogDismiss";
+import { ActivityDialog } from "./ActivityDialog";
 
 function DialogContent({ modal }: { modal: Modal }) {
   const { state, ui } = useApplication();
   const product = state.products.find((p) => p.id === modal.productId),
     task = product?.tasks.find((t) => t.id === modal.taskId);
   switch (modal.type) {
+    case "activity":
+      return <ActivityDialog />;
     case "prompt":
       return product && task ? (
         <PromptDialog product={product} task={task} />
@@ -57,6 +61,7 @@ function DialogContent({ modal }: { modal: Modal }) {
 export function DialogHost() {
   const { ui, controller } = useApplication(),
     ref = useRef<HTMLDialogElement>(null);
+  const dismiss = useDialogDismiss(controller.closeModal);
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
@@ -73,25 +78,41 @@ export function DialogHost() {
   return (
     <dialog
       id="modal"
-      className={ui.modal?.type === "common" ? "requirements-modal" : undefined}
+      className={
+        ui.modal?.type === "common"
+          ? "requirements-modal"
+          : ui.modal?.type === "media"
+            ? "media-modal"
+            : ui.modal?.type === "activity"
+              ? "activity-modal"
+              : undefined
+      }
       aria-labelledby={
-        ui.modal?.type === "common" ? "requirements-dialog-title" : undefined
+        ui.modal?.type === "common"
+          ? "requirements-dialog-title"
+          : ui.modal?.type === "activity"
+            ? "activity-dialog-title"
+            : undefined
+      }
+      aria-describedby={
+        ui.modal?.type === "activity"
+          ? "activity-dialog-description"
+          : undefined
       }
       ref={ref}
-      onCancel={(e) => {
-        e.preventDefault();
-        controller.closeModal();
-      }}
+      {...dismiss}
     >
       {ui.modal && (
         <div key={ui.modal.key}>
-          <ActionButton
-            className="modal-close"
-            action="close-modal"
-            aria-label="关闭"
-          >
-            ×
-          </ActionButton>
+          {ui.modal.type !== "activity" && (
+            <ActionButton
+              className="modal-close"
+              action="close-modal"
+              aria-label="关闭"
+            >
+              ×
+            </ActionButton>
+          )}
           <DialogContent modal={ui.modal} />
           {ui.formError && ui.modal.type !== "settings" && (
             <p className="error-text" role="alert">

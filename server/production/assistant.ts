@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Workflows } from "./workflows.js";
+import type { Workspaces } from "./workspaces.js";
+import type { FastifyRequest } from "fastify";
 import { AppError } from "./types.js";
 import { GrsaiProvider, ProviderError } from "./provider.js";
 import {
@@ -22,19 +24,53 @@ const instruction = `你是图序工作台的豆包，帮助用户评估电商�
 
 export async function registerAssistant(
   app: FastifyInstance,
-  workflows: Workflows,
+  workspaces: Workspaces,
 ) {
-  const conversations = new AssistantConversations(workflows.repo.db);
-  await conversations.recover();
-  const requests = new Map<
+  type Active = { controller: AbortController; text: string; attempt: number };
+  const contexts = new Map<
     string,
-    { controller: AbortController; text: string; attempt: number }
+    {
+      workflows: Workflows;
+      conversations: AssistantConversations;
+      requests: Map<string, Active>;
+    }
   >();
+  for (const workflows of await workspaces.all()) {
+    const conversations = new AssistantConversations(
+      workflows.repo.db,
+      workflows.repo.workspaceId,
+    );
+    await conversations.recover();
+    contexts.set(workflows.repo.workspaceId, {
+      workflows,
+      conversations,
+      requests: new Map(),
+    });
+  }
+  function scoped(request: FastifyRequest) {
+    const workflows = request.workspace;
+    let context = contexts.get(workflows.repo.workspaceId);
+    if (!context) {
+      context = {
+        workflows,
+        conversations: new AssistantConversations(
+          workflows.repo.db,
+          workflows.repo.workspaceId,
+        ),
+        requests: new Map(),
+      };
+      contexts.set(workflows.repo.workspaceId, context);
+    }
+    return context;
+  }
   const contextProperties = {
     productId: { type: "string", minLength: 1, maxLength: 100 },
     taskId: { type: "string", minLength: 1, maxLength: 100 },
   };
-  async function validateContext(context: AssistantContext) {
+  async function validateContext(
+    context: AssistantContext,
+    workflows: Workflows,
+  ) {
     const state = await workflows.repo.view();
     const product = state.products.find((p) => p.id === context.productId);
     if (context.productId && !product) throw new AppError("产品已不存在", 404);
@@ -53,8 +89,9 @@ export async function registerAssistant(
       },
     },
     async (request) => {
+      const { workflows, conversations, requests } = scoped(request);
       const context = request.query as AssistantContext;
-      await validateContext(context);
+      await validateContext(context, workflows);
       return { conversations: await conversations.list(context) };
     },
   );
@@ -70,16 +107,18 @@ export async function registerAssistant(
       },
     },
     async (request) => {
+      const { workflows, conversations, requests } = scoped(request);
       const context = request.body as AssistantContext;
-      await validateContext(context);
+      await validateContext(context, workflows);
       return conversations.create(context);
     },
   );
   app.get<{ Params: { id: string } }>(
     "/api/assistant/conversations/:id",
     async (request) => {
+      const { workflows, conversations, requests } = scoped(request);
       const conversation = await conversations.get(request.params.id);
-      await validateContext(conversation);
+      await validateContext(conversation, workflows);
       return conversation;
     },
   );
@@ -95,24 +134,27 @@ export async function registerAssistant(
       },
     },
     async (request) => {
+      const { workflows, conversations, requests } = scoped(request);
       const context = request.body as AssistantContext;
-      await validateContext(context);
+      await validateContext(context, workflows);
       return conversations.clear(context);
     },
   );
   app.post<{ Params: { id: string } }>(
     "/api/assistant/conversations/:id/select",
     async (request) => {
+      const { workflows, conversations, requests } = scoped(request);
       const conversation = await conversations.get(request.params.id);
-      await validateContext(conversation);
+      await validateContext(conversation, workflows);
       return conversations.select(conversation.id);
     },
   );
   app.post<{ Params: { id: string; turnId: string } }>(
     "/api/assistant/conversations/:id/turns/:turnId/cancel",
     async (request) => {
+      const { workflows, conversations, requests } = scoped(request);
       const conversation = await conversations.get(request.params.id);
-      await validateContext(conversation);
+      await validateContext(conversation, workflows);
       if (!conversation.turns.some((item) => item.id === request.params.turnId))
         throw new AppError("问题不存在", 404);
       const active = requests.get(request.params.turnId);
@@ -130,7 +172,9 @@ export async function registerAssistant(
     },
   );
   app.addHook("preClose", async () => {
-    for (const { controller } of requests.values()) controller.abort();
+    for (const context of contexts.values())
+      for (const { controller } of context.requests.values())
+        controller.abort();
   });
   app.post(
     "/api/assistant/chat",
@@ -167,6 +211,7 @@ export async function registerAssistant(
       },
     },
     async (request, reply) => {
+      const { workflows, conversations, requests } = scoped(request);
       const body = request.body as {
         productId?: string;
         taskId?: string;
@@ -205,7 +250,7 @@ export async function registerAssistant(
       )
         throw new AppError("对话不属于当前产品或卡片", 409);
       const context: AssistantContext = conversation || body;
-      await validateContext(context);
+      await validateContext(context, workflows);
       if (!conversation) {
         const latest = (await conversations.list(context))[0];
         conversation = latest

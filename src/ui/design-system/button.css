@@ -46,6 +46,32 @@
   outline-offset: 3px;
   box-shadow: var(--focus-ring);
 }
+.ui-button[data-variant][data-size="sm"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 9px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.ui-button[data-variant="ghost"][data-size="sm"] {
+  --button-fg: var(--color-muted);
+}
+.ui-button[data-size="sm"] svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+@media (pointer: coarse) {
+  .ui-button[data-variant][data-size="sm"] {
+    min-height: 36px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .ui-button {
     transition: none;

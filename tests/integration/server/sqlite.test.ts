@@ -25,7 +25,7 @@ test("SQLite transactions roll back and concurrent readers never see uncommitted
     const id = randomUUID();
     const transaction = f.db.transaction(async (tx) => {
       await tx.query(
-        "INSERT INTO commands(id,fingerprint,response) VALUES($1,$2,$3)",
+        "INSERT INTO commands(id,fingerprint,response,workspace_id) VALUES($1,$2,$3,'default')",
         [id, "test", { value: "temporary" }],
       );
       entered();

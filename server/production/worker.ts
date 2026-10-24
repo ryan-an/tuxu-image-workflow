@@ -6,6 +6,7 @@ import type { Workflows } from "./workflows.js";
 import type { Job } from "./types.js";
 import { stageTimeout } from "./execution-limits.js";
 import { streamedPrompts } from "../../shared/streamed-prompts.js";
+import { recordImageSuccess } from "./account-usage.js";
 export class Worker {
   private owner = randomUUID();
   private stopped = false;
@@ -237,6 +238,11 @@ export class Worker {
               current.progress = 100;
               current.finishedAt = Date.now();
               await this.workflows.repo.saveProduct(tx, product);
+              await recordImageSuccess(
+                tx,
+                current,
+                this.workflows.repo.workspaceId,
+              );
             },
           );
         }

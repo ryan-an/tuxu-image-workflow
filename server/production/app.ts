@@ -1,13 +1,20 @@
 import Fastify, { LogController } from "fastify";
 import staticFiles from "@fastify/static";
 import { extname, resolve } from "node:path";
-import { Repository } from "./repository.js";
-import { Assets, downloadImage } from "./assets.js";
-import { Credentials } from "./credentials.js";
-import { Workflows } from "./workflows.js";
+import { downloadImage } from "./assets.js";
 import { AppError, type Database } from "./types.js";
 import { registerAuthentication } from "./authentication.js";
 import { registerAssistant } from "./assistant.js";
+import { Accounts } from "./accounts.js";
+import { registerMemberRoutes } from "./member-routes.js";
+import { Workspaces } from "./workspaces.js";
+import { WorkspaceDirectory } from "./workspace-directory.js";
+import { registerWorkspaceRoutes } from "./workspace-routes.js";
+import { registerCollaborationRoutes } from "./collaboration-routes.js";
+import {
+  registerTransportSecurity,
+  type TransportSecurityOptions,
+} from "./transport-security.js";
 export interface AppOptions {
   db: Database;
   assetDirectory: string;
@@ -15,25 +22,41 @@ export interface AppOptions {
   password: string;
   staticDirectory?: string;
   logger?: boolean;
+  transport?: TransportSecurityOptions;
 }
 export async function createApp(options: AppOptions) {
   if (!options.password) throw new Error("APP_PASSWORD 不能为空");
-  const repo = new Repository(options.db);
-  await repo.initialize();
-  const assets = new Assets(options.db, options.assetDirectory);
-  const workflows = new Workflows(
-    repo,
-    assets,
-    new Credentials(options.credentialSecret),
+  const workspaces = new Workspaces(
+    options.db,
+    options.assetDirectory,
+    options.credentialSecret,
   );
+  const workflows = await workspaces.initialize();
   const app = Fastify({
     logger: options.logger ?? true,
     bodyLimit: 128 * 1024 * 1024,
     logController: new LogController({ disableRequestLogging: true }),
     requestTimeout: 30000,
+    ...(options.transport?.https ? { https: options.transport.https } : {}),
+    trustProxy: options.transport?.trustedProxies?.length
+      ? options.transport.trustedProxies
+      : false,
   });
-  const auth = registerAuthentication(app, options.password);
-  await registerAssistant(app, workflows);
+  registerTransportSecurity(app, options.transport);
+  const accounts = new Accounts(options.db);
+  await accounts.initialize(options.password);
+  const directory = new WorkspaceDirectory(options.db);
+  const auth = registerAuthentication(app, accounts, directory);
+  app.decorateRequest("workspace");
+  app.addHook("onRequest", async (request) => {
+    if (request.user) {
+      request.workspace = await workspaces.get(request.user.workspaceId);
+    }
+  });
+  registerMemberRoutes(app, options.db);
+  registerWorkspaceRoutes(app, directory);
+  registerCollaborationRoutes(app, auth.authenticated);
+  await registerAssistant(app, workspaces);
   app.setErrorHandler((error, request, reply) => {
     // Never log request bodies, credentials or upstream response payloads.
     const status = (error as any).statusCode || 500;
@@ -55,12 +78,13 @@ export async function createApp(options: AppOptions) {
     await options.db.query("SELECT 1");
     return { status: "ok" };
   });
-  app.get("/api/workflow/settings", () => workflows.settings());
+  app.get("/api/workflow/settings", (request) => request.workspace.settings());
   const streams = new Set<import("node:http").ServerResponse>();
   app.addHook("preClose", async () => {
     for (const stream of streams) stream.end();
   });
   app.get("/api/analysis/events", async (request, reply) => {
+    const workflows = request.workspace;
     reply.hijack();
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -69,19 +93,23 @@ export async function createApp(options: AppOptions) {
     });
     reply.raw.write(": connected\n\n");
     streams.add(reply.raw);
-    const send = (event: any) => {
-      if (!auth.authenticated(request)) return reply.raw.end();
+    const send = async (event: any) => {
+      if (!(await auth.authenticated(request).catch(() => false)))
+        return reply.raw.end();
       if (
         !reply.raw.destroyed &&
+        !reply.raw.writableEnded &&
         !reply.raw.write(`data: ${JSON.stringify(event)}\n\n`)
       )
         reply.raw.end(); // Reconnection receives the latest snapshot instead of an unbounded backlog.
     };
     workflows.analysisEvents.on("progress", send);
     for (const event of workflows.analysisEvents.latest.values()) send(event);
-    const heartbeat = setInterval(() => {
-      if (!auth.authenticated(request)) return reply.raw.end();
-      if (!reply.raw.destroyed) reply.raw.write(": heartbeat\n\n");
+    const heartbeat = setInterval(async () => {
+      if (!(await auth.authenticated(request).catch(() => false)))
+        return reply.raw.end();
+      if (!reply.raw.destroyed && !reply.raw.writableEnded)
+        reply.raw.write(": heartbeat\n\n");
     }, 15000);
     reply.raw.once("close", () => {
       clearInterval(heartbeat);
@@ -92,6 +120,7 @@ export async function createApp(options: AppOptions) {
   app.post(
     "/api/workflow/settings",
     {
+      config: { permission: "manage" },
       schema: {
         body: {
           type: "object",
@@ -119,14 +148,16 @@ export async function createApp(options: AppOptions) {
         },
       },
     },
-    (request) => workflows.updateSettings(request.body as any),
+    (request) =>
+      request.workspace.updateSettings(request.body as any, request.user!),
   );
-  app.get("/api/workspace", () =>
-    repo.db.transaction(async (tx) => {
+  app.get("/api/workspace", (request) => {
+    const repo = request.workspace.repo;
+    return repo.db.transaction(async (tx) => {
       await repo.lock(tx);
       return { ...(await repo.view(tx)), syncCursor: await repo.cursor(tx) };
-    }),
-  );
+    });
+  });
   app.get<{ Querystring: { since: number } }>(
     "/api/workspace/changes",
     {
@@ -146,7 +177,9 @@ export async function createApp(options: AppOptions) {
       },
     },
     (request) =>
-      repo.db.transaction((tx) => repo.changes(tx, request.query.since)),
+      request.workspace.repo.db.transaction((tx) =>
+        request.workspace.repo.changes(tx, request.query.since),
+      ),
   );
   app.patch(
     "/api/workspace",
@@ -159,7 +192,7 @@ export async function createApp(options: AppOptions) {
           properties: {
             edits: {
               type: "array",
-              maxItems: 10000,
+              maxItems: 100000,
               items: {
                 type: "object",
                 required: ["path", "before", "value"],
@@ -168,7 +201,7 @@ export async function createApp(options: AppOptions) {
                   path: {
                     type: "array",
                     minItems: 1,
-                    maxItems: 5,
+                    maxItems: 12,
                     items: { type: "string", maxLength: 200 },
                   },
                   before: {},
@@ -180,11 +213,20 @@ export async function createApp(options: AppOptions) {
         },
       },
     },
-    (request) => workflows.edit((request.body as any).edits),
+    (request) => {
+      const edits = (request.body as any).edits;
+      if (
+        request.user?.role !== "owner" &&
+        edits.some((edit: any) => edit.path[0] === "concurrency")
+      )
+        throw new AppError("仅所有者可修改并发上限", 403);
+      return request.workspace.edit(edits, request.user!);
+    },
   );
   app.post(
     "/api/workspace/import",
     {
+      config: { permission: "manage" },
       schema: {
         body: {
           type: "object",
@@ -199,7 +241,11 @@ export async function createApp(options: AppOptions) {
     },
     (request) => {
       const body = request.body as any;
-      return workflows.importWorkspace(body.commandId, body.workspace);
+      return request.workspace.importWorkspace(
+        body.commandId,
+        body.workspace,
+        request.user!,
+      );
     },
   );
   app.get(
@@ -244,7 +290,7 @@ export async function createApp(options: AppOptions) {
         status: string;
         search: string;
       };
-      return workflows.repo.history(
+      return request.workspace.repo.history(
         query.page,
         query.pageSize,
         query.status,
@@ -292,7 +338,12 @@ export async function createApp(options: AppOptions) {
     },
     (request) => {
       const body = request.body as any;
-      return workflows.enqueue(body.commandId, body.pairs, body.kind);
+      return request.workspace.enqueue(
+        body.commandId,
+        body.pairs,
+        body.kind,
+        request.user!,
+      );
     },
   );
   app.post(
@@ -326,7 +377,12 @@ export async function createApp(options: AppOptions) {
     },
     (request) => {
       const body = request.body as any;
-      return workflows.control((request.params as any).id, body.action, body);
+      return request.workspace.control(
+        (request.params as any).id,
+        body.action,
+        body,
+        request.user!,
+      );
     },
   );
   app.post(
@@ -348,20 +404,24 @@ export async function createApp(options: AppOptions) {
       const source = (request.body as any).source;
       if (!source.startsWith("data:image/"))
         throw new AppError("请上传图片内容");
-      return { source: await assets.normalize(source) };
+      return { source: await request.workspace.assets.normalize(source) };
     },
   );
   app.get("/api/assets/:id", async (request, reply) => {
-    const asset = await assets.get((request.params as any).id);
+    const asset = await request.workspace.assets.get(
+      (request.params as any).id,
+    );
     return reply
-      .header("Cache-Control", "private, max-age=31536000, immutable")
+      .header("Cache-Control", "private, no-store")
       .type(asset.mime)
       .send(asset.bytes);
   });
   app.get("/api/assets/:id/thumbnail", async (request, reply) => {
-    const asset = await assets.thumbnail((request.params as any).id);
+    const asset = await request.workspace.assets.thumbnail(
+      (request.params as any).id,
+    );
     return reply
-      .header("Cache-Control", "private, max-age=31536000, immutable")
+      .header("Cache-Control", "private, no-store")
       .type(asset.mime)
       .send(asset.bytes);
   });
@@ -416,5 +476,5 @@ export async function createApp(options: AppOptions) {
       return reply.sendFile("index.html");
     });
   }
-  return { app, workflows };
+  return { app, workflows, workspaces, accounts };
 }

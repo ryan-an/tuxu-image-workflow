@@ -25,21 +25,38 @@ export function PromptPreview({
   unvalidated?: boolean;
   validationFailed?: boolean;
 }) {
-  const { controller } = useApplication();
+  const { controller, user } = useApplication();
+  const canEdit = user.role !== "viewer";
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const submitting = useRef(false);
+  const draftChanged = useRef(false);
+  const editSource = useRef({ text, streaming });
   const formId = `inline-prompt-form-${taskId}`;
   const analysisError = interrupted
     ? error || "未能获得完整的提示词"
     : undefined;
   function edit() {
+    if (!canEdit) return;
+    draftChanged.current = false;
+    editSource.current = { text, streaming };
     setDraft(text);
     setSaveError("");
     setEditing(true);
   }
+  useEffect(() => {
+    // An untouched editor must not hide newly generated prompts. Once the user
+    // changes the draft (even clearing it), background updates must preserve it.
+    if (
+      editing &&
+      !draftChanged.current &&
+      (text !== editSource.current.text ||
+        (streaming && !editSource.current.streaming))
+    )
+      setEditing(false);
+  }, [editing, text, streaming]);
   const [visible, setVisible] = useState(text),
     target = useRef(text),
     viewport = useRef<HTMLDivElement>(null);
@@ -132,7 +149,9 @@ export function PromptPreview({
                 重新生成提示词
               </ActionButton>
             )}
-            <small>{streaming ? "实时输出" : "点击编辑"}</small>
+            <small>
+              {streaming ? "实时输出" : canEdit ? "点击编辑" : "只读"}
+            </small>
           </div>
         )}
       </div>
@@ -189,7 +208,10 @@ export function PromptPreview({
               id={`inline-prompt-${taskId}`}
               autoFocus
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => {
+                draftChanged.current = true;
+                setDraft(event.target.value);
+              }}
               rows={7}
               disabled={saving}
               placeholder="在这里编写这张图片的提示词…"
@@ -203,9 +225,9 @@ export function PromptPreview({
         ) : visible ? (
           <div
             className="prompt-preview-text prompt-click-to-edit"
-            role="button"
-            tabIndex={0}
-            aria-label="点击编辑提示词"
+            role={canEdit ? "button" : undefined}
+            tabIndex={canEdit ? 0 : undefined}
+            aria-label={canEdit ? "点击编辑提示词" : "提示词"}
             onClick={edit}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
@@ -220,9 +242,9 @@ export function PromptPreview({
         ) : !interrupted ? (
           <div
             className="prompt-waiting prompt-click-to-edit"
-            role="button"
-            tabIndex={0}
-            aria-label="点击编写提示词"
+            role={canEdit ? "button" : undefined}
+            tabIndex={canEdit ? 0 : undefined}
+            aria-label={canEdit ? "点击编写提示词" : "暂无提示词"}
             onClick={edit}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
@@ -256,9 +278,11 @@ export function PromptPreview({
                 ? "未返回有效提示词"
                 : "布局 · 文案 · 风格 · 产品要求"}
           </span>
-          <button type="button" className="text-button" onClick={edit}>
-            {text && !interrupted ? "编辑提示词 ↗" : "编写提示词 ↗"}
-          </button>
+          {canEdit && (
+            <button type="button" className="text-button" onClick={edit}>
+              {text && !interrupted ? "编辑提示词 ↗" : "编写提示词 ↗"}
+            </button>
+          )}
         </div>
       )}
     </div>

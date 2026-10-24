@@ -5,18 +5,16 @@ export interface UpstreamFailure {
   action?: "open-model" | "check-model" | "check-key";
 }
 
-// Read only a bounded JSON error body. Error responses can keep connections open.
-async function errorBody(response: Response) {
-  if (
-    !response.headers.get("content-type")?.includes("json") ||
-    !response.body
-  ) {
-    void response.body?.cancel().catch(() => {});
-    return {};
-  }
+// Read only a bounded error body. Error responses can keep connections open.
+export async function errorBody(response: Response) {
+  if (!response.body) return {};
   const reader = response.body.getReader(),
     decoder = new TextDecoder();
-  const timer = setTimeout(() => void reader.cancel().catch(() => {}), 1000);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel().catch(() => {});
+  }, 1000);
   let text = "",
     bytes = 0;
   try {
@@ -27,7 +25,17 @@ async function errorBody(response: Response) {
       if (bytes > 65536) return {};
       text += decoder.decode(value, { stream: true });
     }
-    return JSON.parse(text + decoder.decode());
+    if (timedOut) return {};
+    text += decoder.decode();
+    try {
+      return JSON.parse(text);
+    } catch {
+      // Do not expose proxy HTML pages as model error messages.
+      return response.headers.get("content-type")?.includes("text/plain") &&
+        !/<[a-z!][^>]*>/i.test(text)
+        ? { message: text }
+        : {};
+    }
   } catch {
     return {};
   } finally {
@@ -36,37 +44,94 @@ async function errorBody(response: Response) {
   }
 }
 
-export async function doubaoFailure(
-  response: Response,
-  model: string,
-  key: string,
+export function isUpstreamFailure(data: any): boolean {
+  return !!(
+    data?.error ||
+    data?.response?.error ||
+    ["failed", "violation", "incomplete"].includes(data?.status) ||
+    ["failed", "incomplete"].includes(data?.response?.status) ||
+    ["error", "response.failed", "response.incomplete"].includes(data?.type) ||
+    (typeof data?.code === "number" && ![0, 200].includes(data.code))
+  );
+}
+
+// Extract explicit error fields only: never serialize prompts, images or credentials.
+export function platformFailure(
+  body: any,
+  options: {
+    label: string;
+    key: string;
+    status: number;
+    requestId?: string | null;
+    taskId?: string;
+    doubao?: boolean;
+    model?: string;
+  },
 ) {
-  const body = await errorBody(response);
-  const clean = (value: unknown) =>
-    typeof value === "string" ? value.replaceAll(key, "[已隐藏]") : "";
-  const code = clean(body?.error?.code);
-  const requestId = clean(response.headers.get("x-request-id"));
+  const clean = (value: unknown) => {
+    const raw =
+      typeof value === "string" || typeof value === "number"
+        ? String(value)
+        : "";
+    return (options.key ? raw.replaceAll(options.key, "[已隐藏]") : raw)
+      .replace(/\bBearer\s+[^\s"'<>]+/gi, "Bearer [已隐藏]")
+      .replace(/\bsk-[a-zA-Z0-9_-]+/g, "[已隐藏]")
+      .replace(/[\u0000-\u001f\u007f]/g, " ")
+      .trim()
+      .slice(0, 2000);
+  };
+  const first = (...values: unknown[]) => values.map(clean).find(Boolean) || "";
+  const error = body?.error ?? body?.response?.error;
+  const code = first(error?.code, body?.code, error?.type);
+  const reason = first(
+    error?.message,
+    error?.msg,
+    error,
+    body?.message,
+    body?.msg,
+    body?.detail,
+  );
+  const failureReason = first(
+    body?.failure_reason,
+    body?.response?.failure_reason,
+    body?.incomplete_details?.reason,
+    body?.response?.incomplete_details?.reason,
+  );
+  const requestId = first(
+    options.requestId,
+    body?.request_id,
+    body?.requestId,
+    error?.request_id,
+    body?.response?.request_id,
+  );
   const detail: UpstreamFailure = {
-    status: response.status,
+    status: options.status,
     code: /^[\w.-]{1,120}$/.test(code) ? code : undefined,
     requestId: /^[\w.-]{1,200}$/.test(requestId) ? requestId : undefined,
   };
-  let message = `豆包请求失败（HTTP ${response.status}${detail.code ? `，${detail.code}` : ""}）`;
-  if (code === "ModelNotOpen") {
+  const reasons = [...new Set([reason, failureReason].filter(Boolean))];
+  let message = `${options.label}：${reasons.join("；") || "平台未提供具体失败原因"}`;
+  const identifiers = [
+    options.status >= 400 ? `HTTP ${options.status}` : "",
+    code ? `错误码：${code}` : "",
+    detail.requestId ? `请求 ID：${detail.requestId}` : "",
+    options.taskId ? `任务 ID：${clean(options.taskId)}` : "",
+  ].filter(Boolean);
+  if (identifiers.length) message += `（${identifiers.join("，")}）`;
+  // Keep existing setup shortcuts, but base advice on explicit codes only.
+  if (options.doubao && code === "ModelNotOpen") {
     detail.action = "open-model";
-    message = `豆包模型 ${clean(model)} 尚未在当前 API Key 所属账号开通（ModelNotOpen）。请前往火山方舟「开通管理」开通该模型，或在「模型设置」填写已开通的 Model ID / Endpoint ID。`;
-  } else if (code === "InvalidEndpointOrModel.ModelIDAccessDisabled") {
+    message += `。豆包模型 ${clean(options.model)} 尚未在当前 API Key 所属账号开通，请前往火山方舟「开通管理」开通模型，或在「模型设置」填写已开通的 Model ID / Endpoint ID。`;
+  } else if (
+    options.doubao &&
+    code === "InvalidEndpointOrModel.ModelIDAccessDisabled"
+  ) {
     detail.action = "check-model";
-    message =
-      "当前账号不支持直接用 Model ID 调用，请在「模型设置」填写有权限的 ep-… 推理接入点 ID。";
-  } else if (response.status === 404) {
-    detail.action = "check-model";
-    message = `豆包模型或推理接入点 ${clean(model)} 不存在或当前 API Key 无权访问（${detail.code || "HTTP 404"}）。请在「模型设置」核对 Model ID / Endpoint ID 及所属项目。`;
-  } else if ([401, 403].includes(response.status)) {
+    message += "。请在「模型设置」填写有权限的 ep-… 推理接入点 ID。";
+  } else if (options.doubao && [401, 403].includes(options.status)) {
     detail.action = "check-key";
-    message = `豆包 API Key 无效或无权访问所选模型（${detail.code || `HTTP ${response.status}`}），请检查火山方舟密钥、项目及模型权限。`;
-  } else if (response.status === 429) {
-    message = `豆包请求受限（${detail.code || "HTTP 429"}），请检查模型配额、余额或稍后重试。`;
+  } else if (options.doubao && options.status === 404) {
+    detail.action = "check-model";
   }
   return { message, detail };
 }

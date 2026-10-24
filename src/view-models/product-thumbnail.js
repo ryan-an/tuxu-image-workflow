@@ -22,6 +22,7 @@ export function thumbnailSource(product) {
     : "";
 }
 async function sourceHash(source) {
+  if (!crypto.subtle) return null;
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(source),
@@ -69,6 +70,7 @@ export async function productThumbnail(source, existing) {
     const work = (async () => {
       const hash = await sourceHash(source);
       if (
+        hash &&
         existing?.sourceHash === hash &&
         thumbnailSource({ photoThumbnail: existing })
       )

@@ -5,12 +5,14 @@ import {
   DEFAULT_COMMON,
   migrateDefaultCommon,
 } from "../../shared/prompt-suite.js";
+import { AppError } from "./types.js";
 import type { Database, Queryable, Workspace, Job, Product } from "./types.js";
 export const WORKSPACE = "default";
 export function emptyWorkspace(): Workspace {
   return {
     schema: 2,
     common: DEFAULT_COMMON,
+    promptTemplates: {},
     settings: { ...DEFAULT_CONFIG, mode: "live" },
     concurrency: 2,
     paused: false,
@@ -23,7 +25,10 @@ export function emptyWorkspace(): Workspace {
   };
 }
 export class Repository {
-  constructor(public db: Database) {}
+  constructor(
+    public db: Database,
+    public readonly workspaceId = WORKSPACE,
+  ) {}
   async history(
     page: number,
     pageSize: number,
@@ -32,7 +37,7 @@ export class Repository {
   ) {
     return this.db.transaction(async (tx) => {
       const conditions = ["workspace_id=$1"];
-      const values: any[] = [WORKSPACE];
+      const values: any[] = [this.workspaceId];
       const statuses =
         status === "active"
           ? ["queued", "running"]
@@ -71,8 +76,12 @@ export class Repository {
     });
   }
   async cursor(tx: Queryable = this.db) {
-    return (await tx.query("SELECT revision FROM sync_clock WHERE id=1"))
-      .rows[0].revision as number;
+    return (
+      await tx.query(
+        "SELECT revision FROM sync_clock WHERE id=1 AND workspace_id=$1",
+        [this.workspaceId],
+      )
+    ).rows[0].revision as number;
   }
   async changes(tx: Queryable, since: number) {
     const cursor = await this.cursor(tx);
@@ -87,26 +96,26 @@ export class Repository {
       };
     const records = (
       await tx.query(
-        "SELECT kind,entity_id,deleted FROM sync_entities WHERE revision > $1",
-        [since],
+        "SELECT kind,entity_id,deleted FROM sync_entities WHERE revision > $1 AND workspace_id=$2",
+        [since, this.workspaceId],
       )
     ).rows;
     const products = (
       await tx.query(
-        "SELECT p.document FROM products p JOIN sync_entities s ON s.kind='product' AND s.entity_id=p.id WHERE s.revision > $1 AND p.workspace_id=$2 ORDER BY p.code",
-        [since, WORKSPACE],
+        "SELECT p.document FROM products p JOIN sync_entities s ON s.kind='product' AND s.entity_id=p.id AND s.workspace_id=p.workspace_id WHERE s.revision > $1 AND p.workspace_id=$2 ORDER BY p.code",
+        [since, this.workspaceId],
       )
     ).rows.map((p) => p.document);
     const jobs = (
       await tx.query(
-        "SELECT j.* FROM jobs j JOIN sync_entities s ON s.kind='job' AND s.entity_id=j.id WHERE s.revision > $1 AND j.workspace_id=$2 ORDER BY j.created_at,j.id",
-        [since, WORKSPACE],
+        "SELECT j.* FROM jobs j JOIN sync_entities s ON s.kind='job' AND s.entity_id=j.id AND s.workspace_id=j.workspace_id WHERE s.revision > $1 AND j.workspace_id=$2 ORDER BY j.created_at,j.id",
+        [since, this.workspaceId],
       )
     ).rows.map(hydrateJob);
     const document = records.some((r) => r.kind === "workspace")
       ? (
           await tx.query("SELECT document FROM workspace WHERE id=$1", [
-            WORKSPACE,
+            this.workspaceId,
           ])
         ).rows[0].document
       : undefined;
@@ -126,8 +135,12 @@ export class Repository {
   async initialize() {
     const { products, jobs, ...document } = emptyWorkspace();
     await this.db.query(
-      "INSERT INTO workspace(id,document) VALUES($1,$2) ON CONFLICT(id) DO NOTHING",
-      [WORKSPACE, document],
+      "INSERT INTO workspace(id,document,created_at) VALUES($1,$2,$3) ON CONFLICT(id) DO NOTHING",
+      [this.workspaceId, document, Date.now()],
+    );
+    await this.db.query(
+      "UPDATE workspace SET created_at=updated_at WHERE id=$1 AND created_at=0",
+      [this.workspaceId],
     );
     await this.db.transaction(async (tx) => {
       const row = await this.lock(tx);
@@ -143,21 +156,22 @@ export class Repository {
     });
   }
   async lock(tx: Queryable) {
-    return (await tx.query("SELECT * FROM workspace WHERE id=$1", [WORKSPACE]))
-      .rows[0];
+    return (
+      await tx.query("SELECT * FROM workspace WHERE id=$1", [this.workspaceId])
+    ).rows[0];
   }
   async view(tx: Queryable = this.db): Promise<Workspace> {
     const { rows } = await tx.query(
       "SELECT document FROM workspace WHERE id=$1",
-      [WORKSPACE],
+      [this.workspaceId],
     );
     const products = await tx.query(
       "SELECT document FROM products WHERE workspace_id=$1 ORDER BY code",
-      [WORKSPACE],
+      [this.workspaceId],
     );
     const jobs = await tx.query(
       "SELECT * FROM jobs WHERE workspace_id=$1 ORDER BY created_at,id",
-      [WORKSPACE],
+      [this.workspaceId],
     );
     return {
       ...rows[0].document,
@@ -169,20 +183,21 @@ export class Repository {
     const { products, jobs, ...document } = state;
     await tx.query(
       "UPDATE workspace SET document=$2,updated_at=$3 WHERE id=$1",
-      [WORKSPACE, document, Date.now()],
+      [this.workspaceId, document, Date.now()],
     );
   }
   async saveProduct(tx: Queryable, product: Product) {
-    await tx.query(
+    const result = await tx.query(
       `INSERT INTO products(id,workspace_id,code,document) VALUES($1,$2,$3,$4)
-   ON CONFLICT(id) DO UPDATE SET code=excluded.code,document=excluded.document`,
-      [product.id, WORKSPACE, product.code, product],
+   ON CONFLICT(id) DO UPDATE SET code=excluded.code,document=excluded.document WHERE products.workspace_id=excluded.workspace_id`,
+      [product.id, this.workspaceId, product.code, product],
     );
+    if (!result.rowCount) throw new AppError("产品 ID 已存在，无法导入", 409);
   }
   async saveJob(tx: Queryable, job: Job, delayMs = 0) {
     await tx.query(
       `UPDATE jobs SET status=$2,stage=$3,remote_id=$4,payload=$5,
-   due_at=$6,owner=NULL,lease_until=NULL WHERE id=$1`,
+   due_at=$6,owner=NULL,lease_until=NULL WHERE id=$1 AND workspace_id=$7`,
       [
         job.id,
         job.status,
@@ -190,6 +205,7 @@ export class Repository {
         job.remoteId ?? null,
         job,
         Date.now() + delayMs,
+        this.workspaceId,
       ],
     );
   }
@@ -199,7 +215,7 @@ export class Repository {
    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [
         job.id,
-        WORKSPACE,
+        this.workspaceId,
         job.productId,
         job.taskId ?? null,
         job.kind,
@@ -213,12 +229,13 @@ export class Repository {
   }
   async claim(owner: string, now = Date.now()): Promise<Job | null> {
     return this.db.transaction(async (tx) => {
-      await this.lock(tx);
+      const workspace = await this.lock(tx);
+      if (workspace.archived_at !== null) return null;
       // An expired paid submission is uncertain. Never resubmit it automatically.
       const expired = (
         await tx.query(
-          "SELECT * FROM jobs WHERE status='running' AND lease_until < $1",
-          [new Date(now)],
+          "SELECT * FROM jobs WHERE status='running' AND lease_until < $1 AND workspace_id=$2",
+          [new Date(now), this.workspaceId],
         )
       ).rows;
       for (const row of expired) {
@@ -245,8 +262,8 @@ export class Repository {
         return null;
       for (const row of (
         await tx.query(
-          "SELECT * FROM jobs WHERE status='queued' AND due_at <= $1 ORDER BY due_at,created_at,id",
-          [new Date(now)],
+          "SELECT * FROM jobs WHERE status='queued' AND due_at <= $1 AND workspace_id=$2 ORDER BY due_at,created_at,id",
+          [new Date(now), this.workspaceId],
         )
       ).rows) {
         const job = hydrateJob(row),
@@ -289,8 +306,12 @@ export class Repository {
   ) {
     return this.db.transaction(async (tx) => {
       await this.lock(tx);
-      const row = (await tx.query("SELECT * FROM jobs WHERE id=$1", [job.id]))
-        .rows[0];
+      const row = (
+        await tx.query("SELECT * FROM jobs WHERE id=$1 AND workspace_id=$2", [
+          job.id,
+          this.workspaceId,
+        ])
+      ).rows[0];
       if (
         !row ||
         row.owner !== job.owner ||
@@ -311,8 +332,12 @@ export class Repository {
   async markStage(job: Job, stage: string) {
     return this.db.transaction(async (tx) => {
       await this.lock(tx);
-      const row = (await tx.query("SELECT * FROM jobs WHERE id=$1", [job.id]))
-        .rows[0];
+      const row = (
+        await tx.query("SELECT * FROM jobs WHERE id=$1 AND workspace_id=$2", [
+          job.id,
+          this.workspaceId,
+        ])
+      ).rows[0];
       if (
         !row ||
         row.owner !== job.owner ||
@@ -342,8 +367,12 @@ export class Repository {
     analysisResponse?: string,
   ) {
     return this.db.transaction(async (tx) => {
-      const row = (await tx.query("SELECT * FROM jobs WHERE id=$1", [job.id]))
-        .rows[0];
+      const row = (
+        await tx.query("SELECT * FROM jobs WHERE id=$1 AND workspace_id=$2", [
+          job.id,
+          this.workspaceId,
+        ])
+      ).rows[0];
       if (
         !row ||
         row.owner !== job.owner ||

@@ -36,9 +36,15 @@ for (const directory of groups[group]) {
 }
 files.sort();
 if (!files.length) throw new Error(`测试分组为空：${group}`);
-const result = spawnSync(process.execPath, ["--test", ...files], {
-  cwd: root,
-  stdio: "inherit",
-});
+// Each browser suite launches Chrome. Bound parallelism as the suite grows so
+// resource contention does not turn successful flows into timeout failures.
+const result = spawnSync(
+  process.execPath,
+  ["--test", ...(group === "e2e" ? ["--test-concurrency=4"] : []), ...files],
+  {
+    cwd: root,
+    stdio: "inherit",
+  },
+);
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;

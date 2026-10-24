@@ -100,8 +100,13 @@ export function assemblePrompt(
   modelThird = "",
   modelFourth = "",
 ) {
-  const size = outputSpec(role, common);
-  const third = requirementSection(common, 3) || modelThird;
+  // Only the bundled defaults have a known section format. Custom text may use
+  // any headings or no headings; never guess its meaning from section numbers.
+  const bundled = [DEFAULT_COMMON, LEGACY_DEFAULT_COMMON].includes(
+    common.replace(/\r\n/g, "\n").trim(),
+  );
+  const size = bundled ? outputSpec(role, common) : null;
+  const third = bundled ? requirementSection(common, 3) : modelThird || common;
   const fourth = size
     ? `图片尺寸是：${size.width}X${size.height}像素${size.dpi ? `\n分辨率${size.dpi}` : ""}`
     : modelFourth;
@@ -109,9 +114,10 @@ export function assemblePrompt(
 }
 export function suiteInstruction(product, common) {
   const roles = product.tasks.map((task) => task.role);
-  return `以下全部是用户当前可编辑的提示词生成要求，请按当前版本执行，不套用其他默认规则：\n${common}\n\n产品名称：${product.name}\n产品编号：${product.code}\n产品信息：${product.facts || "资料暂缺；不要猜测规格。"}\n\n本次仅分析以下${roles.length}张卡片，严格按此顺序：${roles.join("、")}。共用要求中的整套数量仅作为设计背景，本次输出范围以上述卡片为准，不要输出其他位置。未提供对标图的位置说明缺少参考，不声称已识别。
-仅返回一个JSON对象，不要Markdown：{"style":"按用户当前第二部分要求确定的整套统一设计规范", "images":[{"role":"尺寸图","layout":"按当前第一部分要求生成此位置的布局，所有可见文案放copy里", "copy":["按用户当前规则生成的图上文案"],"thirdPart":"原样保留用户当前第三部分正文", "fourthPart":"按用户当前第四部分为此图片确定的尺寸和分辨率要求", "photoIndices":[0]}]}。
-images必须恰好${roles.length}项，角色不重不漏；语言、字数、品牌、数量、配色、字体、尺寸及产品规则全部以用户当前要求为准。photoIndices从0开始，从标注的实拍图选择合适视角。第三部分不得自行改写用户当前文字。`;
+  return `以下全部是用户当前可编辑的提示词生成要求，请按当前版本执行，不套用其他默认规则：\n${common}\n\n产品名称：${product.name}\n产品编号：${product.code}\n产品信息：${product.facts || "资料暂缺；不要猜测规格。"}\n\n本次仅分析以下${roles.length}张卡片，严格按此顺序：${roles.join("、")}。共用要求中的整套数量仅作为设计背景，本次输出范围以上述卡片为准，不要输出其他位置。对标图是可选资料；部分或全部位置未提供对标图时，依据产品资料、实拍图、当前要求和图片类型自主设计，仍须输出所有指定卡片的完整提示词，不要求补图，不声称已识别未提供的对标图。
+用户要求是自由文本，标题、编号和段落格式不限；必须通读全文，不得因缺少“第一部分”等标题而忽略要求。下面的JSON字段只是返回格式，与用户正文的标题无关。
+仅返回一个JSON对象，不要Markdown：{"style":"依据全文中的视觉与风格要求制定整套统一设计规范", "images":[{"role":"尺寸图","layout":"依据全文要求生成此位置的布局，所有可见文案放copy里", "copy":["按用户当前规则生成的图上文案"],"thirdPart":"提取全文中的产品约束和必须遵守的要求；用户指定原样保留的文字必须原样保留", "fourthPart":"依据全文为此图片确定尺寸和分辨率；未指定的参数不要编造", "photoIndices":[0]}]}。
+images必须恰好${roles.length}项，角色不重不漏；语言、字数、品牌、数量、配色、字体、尺寸及产品规则全部以用户当前要求为准。photoIndices从0开始，从标注的实拍图选择合适视角。`;
 }
 export function productSpecs(product) {
   const info = `${product.name} ${product.facts || ""}`;

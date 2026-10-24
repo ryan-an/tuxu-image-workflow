@@ -384,6 +384,11 @@ test(
       await page.locator('#login-form button[type="submit"]').click();
       await page.locator("#app").waitFor();
       await context.clearCookies();
+      // Resume synchronization explicitly instead of spending the timeout on
+      // the idle poll interval when this suite runs alongside other browsers.
+      await page.evaluate(() =>
+        document.dispatchEvent(new Event("visibilitychange")),
+      );
       await page.waitForURL(`${root}/login`);
       assert.equal(await page.locator("#app").count(), 0);
       await page.setViewportSize({ width: 390, height: 844 });
@@ -494,8 +499,7 @@ test(
       await page.locator("#prompt-form").waitFor({ state: "detached" });
       await page.waitForFunction(
         () =>
-          document.querySelector("#save-status")?.textContent ===
-          "已保存数据",
+          document.querySelector("#save-status")?.textContent === "已保存数据",
       );
       await page.waitForFunction(
         () => document.querySelector("#queue-count")?.textContent === "1",
@@ -777,7 +781,9 @@ test(
       await f.db.query(
         "UPDATE jobs SET status='running' WHERE kind='prompt-set' AND status='interrupted'",
       );
-      await reopened.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+      await reopened.evaluate(() =>
+        document.dispatchEvent(new Event("visibilitychange")),
+      );
       const busy = reopened.locator(
         '.requirements-actions [data-action="cancel-product-analysis"]',
       );
@@ -823,7 +829,9 @@ test(
       );
       const imageJob = (await f.workflows.repo.claim("browser-image"))!;
       await f.workflows.repo.markStage(imageJob, "submitting");
-      await reopened.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+      await reopened.evaluate(() =>
+        document.dispatchEvent(new Event("visibilitychange")),
+      );
       const imageRow = reopened.locator(
         `.queue-row[data-job="${imageJob.id}"]`,
       );

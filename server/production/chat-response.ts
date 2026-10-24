@@ -1,14 +1,28 @@
 // OpenAI-compatible Chat endpoints may return JSON or Server-Sent Events.
 import { responsesText } from "../../shared/doubao.js";
+import { isUpstreamFailure } from "./provider-errors.js";
 // Assemble the entire answer before validating the suite; never use a partial JSON.
 export class ChatAPIError extends Error {
   definitive = true;
+  constructor(
+    message: string,
+    public failure?: unknown,
+  ) {
+    super(message);
+  }
 }
 export async function readResponsesResponse(
   response: Response,
   onText?: (text: string) => Promise<void>,
 ) {
   const result = (data: any) => {
+    if (isUpstreamFailure(data))
+      throw new ChatAPIError(
+        data?.status === "incomplete"
+          ? "豆包分析输出不完整"
+          : "豆包分析明确返回失败",
+        data,
+      );
     try {
       return responsesText(data);
     } catch (error) {
@@ -31,14 +45,12 @@ export async function readResponsesResponse(
         .join("\n");
       if (!data || data.trim() === "[DONE]") return;
       const value = JSON.parse(data);
-      if (
-        value.error ||
-        ["error", "response.failed", "response.incomplete"].includes(value.type)
-      )
+      if (isUpstreamFailure(value))
         throw new ChatAPIError(
           value.type === "response.incomplete"
             ? "豆包分析输出不完整，请检查输出长度限制后重试"
-            : "豆包分析明确返回失败，请检查模型、密钥或服务开通状态",
+            : "豆包分析明确返回失败",
+          value,
         );
       const previous = text;
       if (
@@ -103,13 +115,8 @@ export async function readChatResponse(
       return;
     }
     const value = JSON.parse(data);
-    if (
-      value.error ||
-      (typeof value.code === "number" && value.code !== 0 && !value.choices)
-    )
-      throw new ChatAPIError(
-        "分析平台明确返回失败，请检查模型、余额或平台记录",
-      );
+    if (isUpstreamFailure(value))
+      throw new ChatAPIError("分析平台明确返回失败", value);
     const choice = value.choices?.[0];
     const content = choice?.delta?.content ?? choice?.message?.content;
     if (typeof content === "string") text += content;

@@ -1,5 +1,6 @@
 import { loadSnapshot } from "../integrations/storage.js";
-import { APP_KEY } from "../../shared/model.js";
+import { APP_KEY, uid } from "../../shared/model.js";
+import { normalizePromptTemplates } from "../../shared/prompt-templates.js";
 import { api } from "../services/workspace-client.js";
 
 import { migrateAutoSizeDefaults } from "../../shared/generation-settings.js";
@@ -10,17 +11,17 @@ import {
 } from "../../shared/prompt-suite.js";
 import { migratePromptSettings } from "../../shared/doubao.js";
 
-export async function loadWorkspace() {
+export async function loadWorkspace({ canImport = true } = {}) {
   let state;
 
   const production = import.meta.env.MODE !== "demo";
   if (production) {
     state = await api("/api/workspace");
-    if (!state.products.length) {
+    if (canImport && !state.products.length) {
       const local = await loadSnapshot(APP_KEY);
       if (local?.schema === 2) {
         await api("/api/workspace/import", {
-          commandId: crypto.randomUUID(),
+          commandId: uid(),
           workspace: local,
         });
         state = await api("/api/workspace");
@@ -34,6 +35,7 @@ export async function loadWorkspace() {
       state = initialState(await loadSnapshot("image-workflow-univer-demo-v1"));
     }
   }
+  state.promptTemplates = normalizePromptTemplates(state.promptTemplates);
   if (!state.autoSizeDefaultsVersion) {
     state.settings = migrateAutoSizeDefaults(state.settings);
     state.autoSizeDefaultsVersion = 1;

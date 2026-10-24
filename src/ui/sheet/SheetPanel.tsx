@@ -1,9 +1,11 @@
 import { SheetPagination } from "./SheetPagination.tsx";
 import { ActionButton, useApplication } from "../context.tsx";
+import { ReadOnlySheet } from "./ReadOnlySheet";
+import { collaboratorColor } from "../../integrations/sheet-collaboration.js";
 
 // Univer owns the contents of this stable host. Switching views only hides it.
 export function SheetPanel() {
-  const { ui, controller } = useApplication();
+  const { ui, controller, user } = useApplication();
   return (
     <section id="sheet-section" hidden={ui.view !== "sheet"}>
       <div className="sheet-toolbar">
@@ -61,6 +63,20 @@ export function SheetPanel() {
         </div>
         <div className="sheet-toolbar-pagination">
           <SheetPagination />
+          {!!ui.sheetPeers.length && (
+            <div className="sheet-online-users" aria-label="在线协作者">
+              {ui.sheetPeers.map((peer) => (
+                <span
+                  className="sheet-online-user"
+                  key={peer.session}
+                  title={`${peer.actor.displayName} · ${peer.sheetId} · 第 ${peer.startRow + 1} 行，第 ${peer.startColumn + 1} 列`}
+                >
+                  <i style={{ background: collaboratorColor(peer.actor.id) }} />
+                  {peer.actor.displayName}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="sheet-toolbar-actions">
           <ActionButton
@@ -112,7 +128,11 @@ export function SheetPanel() {
           </ul>
         </details>
       )}
-      <div id="sheet-container" />
+      {user.role === "viewer" ? (
+        ui.view === "sheet" && <ReadOnlySheet />
+      ) : (
+        <div id="sheet-container" />
+      )}
     </section>
   );
 }

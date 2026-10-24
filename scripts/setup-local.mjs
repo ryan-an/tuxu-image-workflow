@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { resolve, join } from "node:path";
 
 export const projectDirectory = fileURLToPath(new URL("../", import.meta.url));
-export async function setupLocal() {
+export async function setupLocal({ quiet = false } = {}) {
   const filename = join(projectDirectory, ".env");
   let contents = "",
     exists = false;
@@ -24,6 +24,7 @@ export async function setupLocal() {
     HOST: "127.0.0.1",
     PORT: "3001",
     NODE_ENV: "production",
+    REQUIRE_HTTPS: "false",
   };
   const additions = Object.entries(defaults).filter(([key]) => !current[key]);
   if (additions.length) {
@@ -38,7 +39,7 @@ export async function setupLocal() {
         mode: 0o600,
       });
     } catch (error) {
-      if (!exists && error.code === "EEXIST") return setupLocal();
+      if (!exists && error.code === "EEXIST") return setupLocal({ quiet });
       throw error;
     }
   }
@@ -49,11 +50,15 @@ export async function setupLocal() {
     !configured.APP_PASSWORD
   )
     throw new Error(".env 中的加密主密钥或登录密码无效，请检查配置");
-  console.log("SQLite 本地配置已就绪，无需安装数据库服务。");
-  console.log(
-    `工作区：http://${configured.HOST}:${configured.PORT}  用户名：admin`,
-  );
-  console.log(`登录密码：${configured.APP_PASSWORD}`);
+  if (!quiet) {
+    console.log("SQLite 本地配置已就绪，无需安装数据库服务。");
+    const scheme =
+      configured.TLS_CERT_FILE && configured.TLS_KEY_FILE ? "https" : "http";
+    const host = configured.HOST === "0.0.0.0" ? "127.0.0.1" : configured.HOST;
+    console.log(
+      `工作区：${configured.PUBLIC_ORIGIN || `${scheme}://${host.includes(":") ? `[${host}]` : host}:${configured.PORT}`}  用户名：admin`,
+    );
+  }
   return configured;
 }
 if (

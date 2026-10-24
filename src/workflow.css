@@ -803,16 +803,6 @@ h1 {
   background: #8588da;
   border-radius: 50%;
 }
-.prompt-modal-actions {
-  display: flex;
-  gap: 9px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.prompt-modal-actions span {
-  font-size: 10px;
-  color: var(--muted);
-}
 .prompt-editor-history {
   margin-top: 20px;
   padding-top: 15px;
@@ -1671,15 +1661,6 @@ dialog textarea:focus {
   font-size: 10px;
   color: #a2aabb;
 }
-.version-modal-actions {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-.version-modal-actions label {
-  font-size: 11px;
-  color: #8c96af;
-}
 .preserve-lines,
 .prompt-history p {
   white-space: pre-wrap;
@@ -1726,6 +1707,31 @@ summary {
   background: #f5f7f5;
   border-radius: 7px;
 }
+dialog.media-modal {
+  width: 880px;
+  max-width: 92vw;
+  max-height: 90dvh;
+  overflow: hidden;
+}
+dialog.media-modal[open],
+dialog.media-modal > div,
+#media-uploader {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+dialog.media-modal > div,
+#media-uploader {
+  flex: 1;
+  min-width: 0;
+}
+#media-uploader > :not(.media-gallery) {
+  flex-shrink: 0;
+}
+#media-uploader .modal-subtitle {
+  margin-bottom: 12px;
+  color: var(--color-muted);
+}
 #media-dropzone {
   width: 100%;
   border: 1px dashed #c9cde7;
@@ -1733,13 +1739,14 @@ summary {
   background: #f8f8fe;
   display: flex;
   align-items: center;
-  flex-direction: column;
-  gap: 10px;
-  padding: 24px 15px;
+  gap: 12px;
+  padding: 12px 16px;
   outline: none;
-  color: #818aab;
+  color: var(--color-muted);
   font-size: 12px;
-  text-align: center;
+  text-align: left;
+  white-space: normal;
+  line-height: 1.5;
 }
 #media-dropzone:hover,
 #media-dropzone:focus-visible,
@@ -1750,61 +1757,81 @@ summary {
   background: #f0f0ff;
 }
 .media-drop-icon {
-  color: #8284cf;
-  background: #ededfa;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--color-brand);
+  background: var(--color-brand-soft);
   border-radius: 9px;
   font-size: 26px;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
+}
+.media-drop-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 .media-dropzone strong {
-  color: #687396;
+  color: var(--color-text);
   font-weight: 500;
 }
 .media-dropzone small {
   font-size: 10px;
-  color: #a1a7bc;
+  color: var(--color-muted);
 }
 .media-dropzone kbd {
   background: #fff;
   border: 1px solid #e1e4f0;
   border-radius: 4px;
-  padding: 2px 5px;
+  padding: 0 4px;
   font: inherit;
 }
 .media-feedback {
   font-size: 11px;
-  color: #929bb0;
+  color: var(--color-muted);
   line-height: 1.7;
   min-height: 19px;
-  margin: 10px 0 22px;
+  margin: 6px 0 12px;
 }
 .media-feedback.error-text {
   color: #c47982;
 }
 .media-gallery-heading {
   font-size: 11px;
-  color: #8993ac;
+  color: var(--color-muted);
 }
 .media-gallery {
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr));
+  align-content: start;
+  gap: 16px;
   margin: 12px 0 20px;
+  overflow: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
 }
 .media-gallery > div {
-  width: 100px;
-  gap: 5px;
+  width: auto;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
 }
 .media-gallery img {
-  width: 100px;
-  height: 90px;
+  grid-column: 1 / -1;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
 }
 .media-gallery > div > span {
-  font-size: 10px;
-  color: #8993ac;
+  font-size: 12px;
+  color: var(--color-muted);
 }
-.media-gallery > div > button {
-  font-size: 10px;
-  padding: 4px 6px;
+.media-gallery > .empty-small {
+  grid-column: 1 / -1;
 }
 .media-modal-footer {
   display: flex;
@@ -1815,7 +1842,7 @@ summary {
 }
 .media-modal-footer small {
   font-size: 10px;
-  color: #a1a7bc;
+  color: var(--color-muted);
 }
 .parse-summary {
   background: #eef0fb;
@@ -2105,9 +2132,6 @@ summary {
   .form-grid {
     grid-template-columns: 1fr;
     gap: 10px;
-  }
-  .version-modal-actions {
-    flex-wrap: wrap;
   }
   .sheet-toolbar {
     padding: 12px;

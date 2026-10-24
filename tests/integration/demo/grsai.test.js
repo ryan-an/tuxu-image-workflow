@@ -214,6 +214,29 @@ test("local adapter submits, polls, preserves IDs and hides the API key", async 
             item.text.includes(`对标图片位置：${role}`),
         ),
       );
+    for (const allMissing of [false, true]) {
+      product.tasks.forEach((task, index) => {
+        if (allMissing || index > 0) task.references = [];
+      });
+      const optional = await post("/api/workflow/prompt-set", {
+        product,
+        common: DEFAULT_COMMON,
+      });
+      assert.equal(optional.prompts.length, 10);
+      const optionalVision = JSON.parse(
+        calls.filter((call) => call.url.endsWith("/api/v3/responses")).at(-1)
+          .options.body,
+      ).input[0].content;
+      assert.equal(
+        optionalVision.filter((item) => item.type === "input_image").length,
+        allMissing ? 1 : 2,
+      );
+      assert.ok(
+        optionalVision.some((item) =>
+          item.text?.includes("未提供对标图，请依据产品资料"),
+        ),
+      );
+    }
     const request = JSON.parse(
       calls.find((c) => c.url.endsWith("/generate")).options.body,
     );

@@ -179,7 +179,7 @@ test("mandatory validation failure retains final response and logs the rule and 
       JSON.stringify(logs),
       /private layout|fake-doubao-key|base64/,
     );
-    await f.workflows.control(job.id, "retry");
+    await f.workflows.control(job.id, "retry", { commandId: randomUUID() });
     const retried = (await f.workflows.repo.view()).jobs.find(
       (j) => j.id === job.id,
     )!;
@@ -190,4 +190,3 @@ test("mandatory validation failure retains final response and logs the rule and 
     await f.close();
   }
 });
-

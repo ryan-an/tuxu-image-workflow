@@ -1,6 +1,7 @@
 import { productPage } from "../view-models/product-page.js";
 import { createCommands } from "./commands.js";
 import { createFormCommands } from "./form-commands.js";
+import { createRequirementCommands } from "./requirements.js";
 import { createMedia } from "./media.js";
 import { createSheet } from "./sheet.js";
 import { createFiles } from "./files.js";
@@ -12,15 +13,31 @@ import { bindBrowserEvents } from "./browser-events.js";
 import { WorkspaceClient } from "../services/workspace-client.js";
 import { RemoteQueue } from "../services/remote-queue.js";
 import { SheetBridge, parseSheet } from "../integrations/sheet-bridge.js";
+import { actionAllowed, can } from "../../shared/access.js";
+import { setSessionWorkspace } from "../services/session-scope.js";
+import { WorkspaceCollaborationClient } from "../services/workspace-collaboration.js";
 
 /** @returns {import("../ui/types.ts").ApplicationController} */
-export function createApplicationController() {
+export function createApplicationController(
+  user = {
+    id: "owner",
+    username: "admin",
+    displayName: "所有者",
+    workspaceId: "default",
+    workspaceName: "默认团队",
+    role: "owner",
+  },
+  { initialView = "workbench" } = {},
+) {
+  setSessionWorkspace(user.workspaceId, user.id);
   const store = createStateStore(),
     { ui, publish, notify, showModal, closeModal } = store;
+  ui.view = initialView;
   let state,
     repository,
     bridge,
     queue,
+    collaboration,
     ready = false,
     disposed = false;
   let cleanupEvents = () => {};
@@ -59,6 +76,9 @@ export function createApplicationController() {
       }
     };
   const context = {
+    canEdit: can(user.role, "edit"),
+    canManage: can(user.role, "manage"),
+    user,
     ...store,
     get state() {
       return state;
@@ -109,6 +129,8 @@ export function createApplicationController() {
         state.settings.mode === "live" &&
         ((!promptOnly && !ui.hasKey) || (needsPrompt && !ui.hasPromptKey))
       ) {
+        if (!context.canManage)
+          return notify("请联系所有者配置豆包和 Grsai API Key");
         context.settings();
         return notify(
           needsPrompt && !ui.hasPromptKey
@@ -134,9 +156,15 @@ export function createApplicationController() {
     createThumbnails(context),
     createCommands(context),
     createFormCommands(context),
+    createRequirementCommands(context),
   );
   async function start() {
-    const loaded = await loadWorkspace();
+    const loaded = await loadWorkspace({
+      canImport:
+        context.canManage &&
+        user.workspaceId === "default" &&
+        user.id === "owner",
+    });
     if (disposed) return;
     state = loaded.state;
     ui.hasKey = loaded.hasKey;
@@ -144,6 +172,8 @@ export function createApplicationController() {
     if (loaded.production) {
       repository = new WorkspaceClient(state, {
         render,
+        capture: () => bridge?.capture(),
+        syncSheet: (previous) => bridge?.acceptRemoteSnapshot(previous),
         sync: context.syncTask,
         syncBatch: async (work) => {
           await bridge.batch(work);
@@ -163,6 +193,17 @@ export function createApplicationController() {
       const errors = await bridge.reconcile();
       if (errors.length) notify("结果已保留，表格回填失败：" + errors[0]);
       queue = new RemoteQueue(state, repository, notify);
+      if (context.canEdit) {
+        collaboration = new WorkspaceCollaborationClient(
+          repository,
+          bridge,
+          (peers) => {
+            ui.sheetPeers = peers;
+            publish();
+          },
+        );
+        collaboration.start();
+      }
     } else {
       const { GenerationQueue } = await import("../demo/queue.js");
       queue = new GenerationQueue(state, {
@@ -182,11 +223,12 @@ export function createApplicationController() {
     }
     if (disposed) {
       repository?.stop();
+      collaboration?.stop();
       return;
     }
     ready = true;
     store.attach(state, !!repository);
-    cleanupEvents = bindBrowserEvents(context);
+    cleanupEvents = context.canEdit ? bindBrowserEvents(context) : () => {};
     render();
     repository?.start();
     context.saveSoon();
@@ -204,13 +246,51 @@ export function createApplicationController() {
         console.error(error);
       }
     },
-    dispatch: safe(context.action),
+    dispatch: safe(async (action, data) => {
+      if (!actionAllowed(user.role, action))
+        throw new Error("当前账号没有此操作权限");
+      await context.action(action, data);
+    }),
     flush: persistence.persist,
-    saveTaskPromptAndGenerate: context.saveTaskPromptAndGenerate,
-    submit: safe(context.submit),
-    changeField: safe(context.onChange),
-    uploadFiles: context.uploadFiles,
-    restoreBackup: context.restoreBackup,
+    saveProductRequirements: (...args) =>
+      context.saveProductRequirements(...args),
+    savePromptTemplate: (...args) => context.savePromptTemplate(...args),
+    deletePromptTemplate: (...args) => context.deletePromptTemplate(...args),
+    saveTaskPromptAndGenerate: async (...args) => {
+      if (!context.canEdit) throw new Error("查看者不能修改提示词");
+      await context.saveTaskPromptAndGenerate(...args);
+    },
+    submit: safe(async (event) => {
+      if (!context.canEdit) throw new Error("查看者不能修改资料");
+      await context.submit(event);
+    }),
+    changeField: safe(async (event) => {
+      if (!context.canEdit) {
+        const el = event.target;
+        if (el.dataset.action !== "select-version") return;
+        const task = currentProduct()?.tasks.find(
+          (t) => t.id === el.dataset.task,
+        );
+        if (!task) return;
+        const selected = new Set(
+          ui.downloadSelections[task.id] || task.selectedIds,
+        );
+        if (el.checked) selected.add(el.dataset.version);
+        else selected.delete(el.dataset.version);
+        ui.downloadSelections[task.id] = [...selected];
+        render();
+        return;
+      }
+      if (event.target.id === "concurrency" && !context.canManage)
+        throw new Error("仅所有者可修改并发上限");
+      await context.onChange(event);
+    }),
+    uploadFiles: (event) => {
+      if (context.canEdit) context.uploadFiles(event);
+    },
+    restoreBackup: async (event) => {
+      if (context.canManage) await context.restoreBackup(event);
+    },
     setSearch: (value) => {
       ui.search = value;
       ui.productPage = 1;
@@ -231,6 +311,7 @@ export function createApplicationController() {
     resolveSheetConflict: safe(context.resolveSheetConflict),
     dispose: () => {
       disposed = true;
+      collaboration?.stop();
       repository?.stop();
       persistence.dispose();
       cleanupEvents();

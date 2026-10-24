@@ -1,4 +1,5 @@
 import { newProduct, savePrompt, findTask } from "../../shared/model.js";
+import { api } from "../services/workspace-client.js";
 export function createFormCommands(context) {
   async function saveTaskPromptAndGenerate(productId, taskId, prompt) {
     if (!prompt.trim()) throw new Error("请先填写提示词");
@@ -41,7 +42,7 @@ export function createFormCommands(context) {
     } = context;
     if (
       !event.target.matches(
-        "#settings-form,#product-form,#common-form,#prompt-form,#reconcile-form",
+        "#settings-form,#product-form,#prompt-form,#reconcile-form",
       )
     )
       return;
@@ -72,16 +73,7 @@ export function createFormCommands(context) {
         }
       }
       delete values.customPromptModel;
-      const r = await fetch("/api/workflow/settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(values),
-        }),
-        data = await r.json();
-      if (!r.ok) {
-        setFormError(data.error);
-        return;
-      }
+      const data = await api("/api/workflow/settings", values);
       setHasKey(data.hasKey);
       setHasPromptKey(data.hasPromptKey);
       delete data.hasKey;
@@ -114,18 +106,6 @@ export function createFormCommands(context) {
       }
       closeModal();
       change();
-    } else if (form.id === "common-form") {
-      const product = state.products.find((p) => p.id === form.dataset.product);
-      if (!product) throw new Error("该产品已不存在");
-      if (!values.common.trim()) throw new Error("请填写整套提示词生成要求");
-      if (values.common.length > 100000)
-        throw new Error("生成要求不能超过 100000 字");
-      product.promptRequirements =
-        values.common === state.common ? null : values.common;
-      change();
-      await context.persist();
-      closeModal();
-      notify("当前产品的生成要求已保存，下次生成提示词时生效");
     }
   }
   return { submit, saveTaskPromptAndGenerate };

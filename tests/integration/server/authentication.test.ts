@@ -127,7 +127,7 @@ test("login and cookie-authenticated writes reject cross-site requests", async (
   }
 });
 
-test("expired sessions and sessions from a previous server process cannot read workspace data", async (t) => {
+test("expired sessions cannot read data and unexpired sessions survive restart", async (t) => {
   const f = await fixture();
   try {
     const headers = await loginHeaders(f.app);
@@ -152,7 +152,7 @@ test("expired sessions and sessions from a previous server process cannot read w
     assert.equal(
       (await f.app.inject({ url: "/api/workspace", headers: second }))
         .statusCode,
-      401,
+      200,
     );
   } finally {
     await f.close();

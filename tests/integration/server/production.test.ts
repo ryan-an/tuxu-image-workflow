@@ -13,7 +13,7 @@ import {
 } from "../../support/production.js";
 const secret = "12".repeat(32);
 
-test("API authentication, field ownership, encrypted credentials and conflicting edits", async () => {
+test("API authentication, field ownership, encrypted credentials and latest submitted edits", async () => {
   const f = await fixture();
   try {
     assert.equal((await f.app.inject("/api/workspace")).statusCode, 401);
@@ -63,10 +63,10 @@ test("API authentication, field ownership, encrypted credentials and conflicting
           method: "PATCH",
           url: "/api/workspace",
           headers,
-          payload: { edits: [{ ...edit, value: "过期修改" }] },
+          payload: { edits: [{ ...edit, value: "最后保存的名称" }] },
         })
       ).statusCode,
-      409,
+      200,
     );
     assert.equal(
       (

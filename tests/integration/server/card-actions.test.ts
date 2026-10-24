@@ -11,7 +11,102 @@ import {
   fakeProvider,
   counts,
   pairs,
+  loginHeaders,
 } from "../../support/production.js";
+
+for (const scenario of [
+  { kind: "prompt", allMissing: false, single: true },
+  { kind: "prompt-set", allMissing: true, single: false },
+  { kind: "image", allMissing: true, single: true },
+  { kind: "workflow", allMissing: false, single: false },
+  { kind: "full-workflow", allMissing: true, single: false },
+])
+  test(`${scenario.kind} completes with ${scenario.allMissing ? "all" : "some"} optional references missing`, async () => {
+    const f = await fixture();
+    try {
+      await f.workflows.edit(
+        f.product.tasks.flatMap((task, index) => [
+          ...(scenario.allMissing || index % 2 === 0
+            ? [
+                {
+                  path: [
+                    "products",
+                    f.product.id,
+                    "tasks",
+                    task.id,
+                    "references",
+                  ],
+                  before: task.references,
+                  value: [],
+                },
+              ]
+            : []),
+          ...(scenario.kind === "image"
+            ? [
+                {
+                  path: ["products", f.product.id, "tasks", task.id, "prompt"],
+                  before: "",
+                  value: `已有提示词：${task.role}`,
+                },
+              ]
+            : []),
+        ]),
+      );
+      const targets = scenario.single
+        ? pairs(f.product).slice(0, 1)
+        : pairs(f.product);
+      const promptOnly = ["prompt", "prompt-set"].includes(scenario.kind);
+      const imageCount = promptOnly ? 0 : targets.length;
+      const analysisCount = scenario.kind === "image" ? 0 : 1;
+      const response = await f.app.inject({
+        method: "POST",
+        url: "/api/jobs",
+        headers: await loginHeaders(f.app),
+        payload: {
+          commandId: randomUUID(),
+          pairs: targets,
+          kind: scenario.kind,
+        },
+      });
+      assert.equal(response.statusCode, 200, response.body);
+      assert.equal(response.json().count, analysisCount + imageCount);
+      const calls = counts(),
+        provider = fakeProvider(calls);
+      const analyze = provider.analyze,
+        submit = provider.submit;
+      provider.analyze = async (...args) => {
+        assert.equal(args[0].tasks.length, targets.length);
+        assert.equal(args[0].tasks[0].references.length, 0);
+        return analyze(...args);
+      };
+      provider.submit = async (...args) => {
+        assert.ok(args[0].trim());
+        assert.deepEqual(args[1], [f.product.photo]);
+        return submit(...args);
+      };
+      const worker = new Worker(f.workflows, provider, () => {});
+      for (let index = 0; index < analysisCount + imageCount * 2; index++) {
+        await f.due();
+        assert.equal(await worker.step(), true);
+      }
+      const state = await f.workflows.repo.view();
+      assert.ok(state.jobs.every((job) => job.status === "completed"));
+      for (const target of targets) {
+        const task = state.products[0].tasks.find(
+          (item) => item.id === target.taskId,
+        )!;
+        assert.ok(task.prompt.trim());
+        assert.equal(task.versions.length, promptOnly ? 0 : 1);
+      }
+      assert.deepEqual(calls, {
+        analyze: analysisCount,
+        submit: imageCount,
+        query: imageCount,
+      });
+    } finally {
+      await f.close();
+    }
+  });
 
 test("reanalyzing one card after a failed suite leaves sibling cards and jobs untouched", async () => {
   const f = await fixture();
@@ -223,6 +318,20 @@ test("single card model request includes only its reference and accepts only its
       2,
     );
     assert.ok(request.input[0].content[0].text.includes("images必须恰好1项"));
+    product.tasks[0].references = [];
+    const withoutReference = await analyze();
+    assert.equal(withoutReference.prompts.length, 1);
+    assert.equal(
+      request.input[0].content.filter((c: any) => c.type === "input_image")
+        .length,
+      1,
+    );
+    assert.ok(request.input[0].content[0].text.includes("对标图是可选资料"));
+    assert.ok(
+      request.input[0].content.some((c: any) =>
+        c.text?.includes("未提供对标图，请依据产品资料"),
+      ),
+    );
     extra = true;
     await assert.rejects(analyze(), /完整1张/);
   } finally {

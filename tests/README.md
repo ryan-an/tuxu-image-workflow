@@ -2,6 +2,8 @@
 
 测试与业务源码分开存放；新增测试和夹具统一放在本目录，禁止放入 `src/`、`server/`、`shared/` 或项目根目录。
 
+TLS 回归会通过 OpenSSL 在临时目录生成证书（Windows 可自动查找 Git for Windows 的 OpenSSL，或设置 `OPENSSL_PATH`）；不安装证书到系统信任库，也不读取个人证书。浏览器用隔离上下文接受测试 CA，服务端集成测试同时验证证书链可信与不可信的连接。
+
 | 目录                  | 用途                                     |
 | --------------------- | ---------------------------------------- |
 | `unit/frontend/`      | 前端状态、队列和纯业务逻辑单测           |
@@ -22,7 +24,7 @@ npm run test:production   # 生产服务端单测与集成测试
 npm run test:build        # 编译测试和复制 SQL 迁移
 ```
 
-浏览器回归需要先构建前端，提供本机 Playwright 模块与 Chrome 路径：
+浏览器回归固定最多同时运行 4 个测试文件，避免多个 Chrome 争抢资源引发超时。运行前先构建前端，提供本机 Playwright 模块与 Chrome 路径：
 
 ```powershell
 npm run build

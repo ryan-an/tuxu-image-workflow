@@ -18,11 +18,11 @@ export function LoginPage({ onLogin }: { onLogin(): void }) {
     setPending(true);
     setError("");
     try {
-      await login(
+      const session = await login(
         String(fields.get("username")).trim(),
         String(fields.get("password")),
       );
-      onLogin();
+      if (session.authenticated) onLogin();
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "暂时无法登录，请稍后重试",
@@ -95,7 +95,12 @@ export function LoginPage({ onLogin }: { onLogin(): void }) {
           <span className="login-form-eyebrow">欢迎回来</span>
           <h2 id="login-title">登录图序</h2>
           <p className="login-description">继续你的产品图片工作流</p>
-          <form id="login-form" onSubmit={submit} aria-busy={pending}>
+          <form
+            id="login-form"
+            className="login-form"
+            onSubmit={submit}
+            aria-busy={pending}
+          >
             <label htmlFor="login-username">用户名</label>
             <input
               id="login-username"
@@ -160,7 +165,7 @@ export function LoginPage({ onLogin }: { onLogin(): void }) {
               )}
             </button>
             <p id="login-hint" className="login-hint">
-              使用本机启动时显示的用户名和登录密码。
+              使用所有者提供的账号，或通过邀请链接设置密码。
             </p>
           </form>
           <div className="login-form-footer">

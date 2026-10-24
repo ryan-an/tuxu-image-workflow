@@ -1,4 +1,5 @@
 import type { ChangeEvent, FormEvent } from "react";
+import type { CurrentUser } from "../../shared/access.js";
 
 export interface ImageVersion {
   id: string;
@@ -46,6 +47,7 @@ export interface GenerationSettings {
   quality: string;
 }
 export interface Job {
+  createdBy?: { id: string; username: string; displayName: string };
   id: string;
   productId: string;
   productName: string;
@@ -75,6 +77,7 @@ export interface Job {
   syncError?: string;
 }
 export interface Workspace {
+  promptTemplates?: Record<string, PromptTemplate>;
   products: Product[];
   jobs: Job[];
   activeProductId?: string;
@@ -106,6 +109,7 @@ export interface ParserContext {
   };
   layout: string;
   candidates: ParsedProduct[];
+  changes: ParsedProduct[];
   issues?: string[];
 }
 export type ColumnField =
@@ -124,7 +128,8 @@ export interface Modal {
     | "parser"
     | "reconcile"
     | "paste"
-    | "prompt-history";
+    | "prompt-history"
+    | "activity";
   key: number;
   productId?: string;
   taskId?: string;
@@ -133,6 +138,7 @@ export interface Modal {
   id?: string;
 }
 export interface UIState {
+  downloadSelections: Record<string, string[]>;
   view: string;
   search: string;
   productPage: number;
@@ -146,6 +152,13 @@ export interface UIState {
   parser: ParserContext | null;
   exporting: boolean;
   sheetConflicts: { key: string; message: string }[];
+  sheetPeers: {
+    session: string;
+    actor: { id: string; displayName: string };
+    sheetId: string;
+    startRow: number;
+    startColumn: number;
+  }[];
   formError: string;
   mediaFeedback: string;
   mediaError: boolean;
@@ -160,6 +173,16 @@ export type ApplicationSnapshot =
   | ReadySnapshot
   | { ready: false; error?: string };
 export interface ApplicationController {
+  saveProductRequirements(
+    productId: string,
+    content: string,
+    before: string | null,
+  ): Promise<void>;
+  savePromptTemplate(
+    template: PromptTemplate,
+    before: PromptTemplate | null,
+  ): Promise<void>;
+  deletePromptTemplate(template: PromptTemplate): Promise<void>;
   subscribe(listener: () => void): () => void;
   getSnapshot(): ApplicationSnapshot;
   start(): Promise<void>;
@@ -192,4 +215,11 @@ export interface ApplicationController {
 }
 export interface ApplicationContextValue extends ReadySnapshot {
   controller: ApplicationController;
+  user: CurrentUser;
+}
+export interface PromptTemplate {
+  id: string;
+  name: string;
+  content: string;
+  updatedAt: number;
 }

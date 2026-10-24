@@ -22,7 +22,9 @@ test("unchanged workspace reads only the revision and preserves the delta respon
     deletedProducts: [],
     deletedJobs: [],
   });
-  assert.deepEqual(queries, ["SELECT revision FROM sync_clock WHERE id=1"]);
+  assert.deepEqual(queries, [
+    "SELECT revision FROM sync_clock WHERE id=1 AND workspace_id=$1",
+  ]);
   queries.length = 0;
   assert.deepEqual(await repo.changes(tx, 36), { reset: true, cursor: 35 });
   assert.equal(queries.length, 1);

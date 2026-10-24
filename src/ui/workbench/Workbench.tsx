@@ -12,7 +12,7 @@ import "./requirements.css";
 import { Badge } from "../design-system/Badge";
 
 export function Workbench() {
-  const { state, ui } = useApplication(),
+  const { state, ui, user } = useApplication(),
     product = currentProduct(state);
   if (!product)
     return <div className="empty-page">从表格解析产品，或添加第一个产品。</div>;
@@ -39,7 +39,11 @@ export function Workbench() {
             {stats.versions} 个历史版本
           </p>
         </div>
-        <ActionButton action="edit-product">编辑产品</ActionButton>
+        <ActionButton
+          action={user.role === "viewer" ? "view-product" : "edit-product"}
+        >
+          {user.role === "viewer" ? "查看产品" : "编辑产品"}
+        </ActionButton>
       </div>
       <div className="product-context">
         <div className="product-setup">
@@ -138,9 +142,11 @@ export function Workbench() {
             <div className="requirements-actions">
               <ActionButton
                 className="requirements-edit"
-                action="common-prompt"
+                action={
+                  user.role === "viewer" ? "view-requirements" : "common-prompt"
+                }
               >
-                编辑要求
+                {user.role === "viewer" ? "查看要求" : "编辑要求"}
               </ActionButton>
               <SuitePromptButton key={product.id} primary />
             </div>
@@ -184,8 +190,15 @@ export function Workbench() {
   );
 }
 export function BatchBar() {
-  const { state, ui } = useApplication(),
-    count = selectedCount(currentProduct(state));
+  const { state, ui, user } = useApplication(),
+    product = currentProduct(state),
+    count =
+      user.role === "viewer"
+        ? product?.tasks.reduce(
+            (n, t) => n + (ui.downloadSelections[t.id] || t.selectedIds).length,
+            0,
+          ) || 0
+        : selectedCount(product);
   return (
     <footer id="batch-bar" hidden={ui.view !== "workbench"}>
       <div id="batch-label">

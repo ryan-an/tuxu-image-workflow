@@ -58,6 +58,36 @@ async function until(condition) {
   throw new Error("queue did not finish");
 }
 
+test("local live queue accepts optional references for prompts, images and full workflows", () => {
+  for (const kind of [
+    "prompt",
+    "prompt-set",
+    "image",
+    "workflow",
+    "full-workflow",
+  ])
+    for (const allMissing of [false, true]) {
+      const { product, state, queue, pairs } = setup();
+      state.paused = true;
+      product.tasks.forEach((task, index) => {
+        if (allMissing || index % 2 === 0) task.references = [];
+        if (kind === "image") task.prompt = `已有提示词：${task.role}`;
+      });
+      const promptOnly = ["prompt", "prompt-set"].includes(kind);
+      assert.equal(
+        queue.enqueue(pairs, kind),
+        promptOnly ? 1 : kind === "image" ? 10 : 11,
+      );
+      if (kind !== "image")
+        assert.equal(
+          state.jobs[0].productSnapshot.tasks[0].references.length,
+          0,
+        );
+      for (const job of state.jobs.filter((item) => item.kind === "image"))
+        assert.deepEqual(job.referenceImages, [photo]);
+    }
+});
+
 test("local analysis snapshots each product's requirements and reset returns to defaults", () => {
   const { product, state, queue, pairs } = setup();
   state.paused = true;

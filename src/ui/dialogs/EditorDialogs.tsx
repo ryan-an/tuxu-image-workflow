@@ -1,7 +1,8 @@
 import type { Product, ImageTask, ImageVersion } from "../types";
-import { ActionButton, ApplicationForm } from "../context.tsx";
+import { ActionButton, ApplicationForm, useApplication } from "../context.tsx";
 import { formatTime } from "../selectors";
 import { VersionSelection } from "../workbench/TaskCard.tsx";
+import { DialogActions } from "./DialogActions";
 
 export function PromptHistory({ task }: { task: ImageTask }) {
   return (
@@ -54,20 +55,22 @@ export function PromptDialog({
             placeholder="先生成整套提示词，或在这里填写…"
           />
         </label>
-        <div className="prompt-modal-actions">
+        <details className="prompt-editor-history">
+          <summary>
+            历史提示词 <b>{task.promptHistory.length}</b>
+          </summary>
+          <PromptHistory task={task} />
+        </details>
+        <DialogActions>
+          <span className="dialog-actions-note">
+            已有图片使用的提示词保留在图片详情中
+          </span>
+          <ActionButton action="close-modal">取消</ActionButton>
           <button type="submit" className="primary">
             保存并重新生成
           </button>
-          <ActionButton action="close-modal">取消</ActionButton>
-          <span>已有图片使用的提示词保留在图片详情中</span>
-        </div>
+        </DialogActions>
       </ApplicationForm>
-      <details className="prompt-editor-history">
-        <summary>
-          历史提示词 <b>{task.promptHistory.length}</b>
-        </summary>
-        <PromptHistory task={task} />
-      </details>
     </>
   );
 }
@@ -78,6 +81,17 @@ export function ProductDialog({
   product?: Product;
   isNew?: boolean;
 }) {
+  const { user } = useApplication();
+  if (user.role === "viewer")
+    return (
+      <>
+        <h2>产品资料</h2>
+        <h3>
+          {product?.code} · {product?.name}
+        </h3>
+        <p className="preserve-lines">{product?.facts || "暂无产品资料"}</p>
+      </>
+    );
   return (
     <>
       <h2>{isNew ? "添加产品" : "编辑产品"}</h2>
@@ -109,9 +123,11 @@ export function ProductDialog({
             placeholder="规格、材质、颜色、数量…"
           />
         </label>
-        <button className="primary" type="submit">
-          保存产品
-        </button>
+        <DialogActions>
+          <button className="primary" type="submit">
+            保存产品
+          </button>
+        </DialogActions>
       </ApplicationForm>
     </>
   );
@@ -136,26 +152,26 @@ export function VersionDialog({
         </p>
       </div>
       <img className="large-preview" src={version.source} alt="历史效果图" />
-      <div className="version-modal-actions">
-        <ActionButton action="modal-primary" className="primary">
-          {task.primaryId === version.id
-            ? "当前表格展示版本"
-            : "选为表格展示版本"}
-        </ActionButton>
+      <details>
+        <summary>生成时使用的提示词</summary>
+        <p className="preserve-lines">{version.prompt}</p>
+      </details>
+      <DialogActions>
+        <label className="dialog-actions-note">
+          <VersionSelection task={task} version={version} /> 加入本套下载
+        </label>
         <ActionButton
           action="download-version"
           data={{ task: task.id, version: version.id }}
         >
           下载这张
         </ActionButton>
-        <label>
-          <VersionSelection task={task} version={version} /> 加入本套下载
-        </label>
-      </div>
-      <details>
-        <summary>生成时使用的提示词</summary>
-        <p className="preserve-lines">{version.prompt}</p>
-      </details>
+        <ActionButton action="modal-primary" className="primary">
+          {task.primaryId === version.id
+            ? "当前表格展示版本"
+            : "选为表格展示版本"}
+        </ActionButton>
+      </DialogActions>
     </div>
   );
 }
@@ -176,9 +192,11 @@ export function ReconcileDialog({ id }: { id?: string }) {
           <input type="checkbox" name="confirmNotAccepted" />
           我已核对，平台没有受理原请求
         </label>
-        <button type="submit" className="primary">
-          保存核对结果
-        </button>
+        <DialogActions>
+          <button type="submit" className="primary">
+            保存核对结果
+          </button>
+        </DialogActions>
       </ApplicationForm>
     </>
   );
@@ -196,9 +214,11 @@ export function PasteDialog() {
         rows={7}
         placeholder="Ctrl+V 粘贴…"
       />
-      <ActionButton className="primary" action="paste-insert">
-        插入图片到表格
-      </ActionButton>
+      <DialogActions>
+        <ActionButton className="primary" action="paste-insert">
+          插入图片到表格
+        </ActionButton>
+      </DialogActions>
     </>
   );
 }

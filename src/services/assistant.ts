@@ -1,3 +1,4 @@
+import { sessionHeaders } from "./session-scope.js";
 export interface AssistantContext {
   productId?: string;
   taskId?: string;
@@ -44,9 +45,12 @@ export async function assistantApi<T>(
     signal,
     credentials: "same-origin",
     cache: "no-store",
+    headers: {
+      ...sessionHeaders(),
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
     ...(body
       ? {
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         }
       : {}),
@@ -166,6 +170,7 @@ export async function streamAssistantChat(
     credentials: "same-origin",
     cache: "no-store",
     headers: {
+      ...sessionHeaders(),
       "Content-Type": "application/json",
       Accept: "text/event-stream",
     },

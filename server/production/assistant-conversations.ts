@@ -39,25 +39,32 @@ const turn = (row: any): AssistantTurn => ({
 });
 
 export class AssistantConversations {
-  constructor(private db: Database) {}
+  constructor(
+    private db: Database,
+    private readonly workspaceId = WORKSPACE,
+  ) {}
   async recover() {
     await this.db.query(
-      "UPDATE assistant_turns SET status='interrupted',error=$1,updated_at=$2 WHERE status='running'",
-      ["服务重启时回复中断，问题已保存；请按需重试。", Date.now()],
+      "UPDATE assistant_turns SET status='interrupted',error=$1,updated_at=$2 WHERE status='running' AND conversation_id IN (SELECT id FROM assistant_conversations WHERE workspace_id=$3)",
+      [
+        "服务重启时回复中断，问题已保存；请按需重试。",
+        Date.now(),
+        this.workspaceId,
+      ],
     );
   }
   async list(context: AssistantContext) {
     return (
       await this.db.query(
         "SELECT id,title,created_at AS createdAt,updated_at AS updatedAt FROM assistant_conversations WHERE workspace_id=$1 AND product_id IS $2 AND task_id IS $3 ORDER BY selected DESC,updated_at DESC,rowid DESC",
-        [WORKSPACE, context.productId ?? null, context.taskId ?? null],
+        [this.workspaceId, context.productId ?? null, context.taskId ?? null],
       )
     ).rows;
   }
   async clear(context: AssistantContext) {
     return this.db.transaction(async (tx) => {
       const values = [
-        WORKSPACE,
+        this.workspaceId,
         context.productId ?? null,
         context.taskId ?? null,
       ];
@@ -82,7 +89,7 @@ export class AssistantConversations {
     const row = (
       await tx.query(
         "SELECT * FROM assistant_conversations WHERE id=$1 AND workspace_id=$2",
-        [id, WORKSPACE],
+        [id, this.workspaceId],
       )
     ).rows[0];
     if (!row) throw new AppError("对话记录不存在", 404);
@@ -110,13 +117,13 @@ export class AssistantConversations {
         now = Date.now();
       await tx.query(
         "UPDATE assistant_conversations SET selected=0 WHERE workspace_id=$1 AND product_id IS $2 AND task_id IS $3",
-        [WORKSPACE, context.productId ?? null, context.taskId ?? null],
+        [this.workspaceId, context.productId ?? null, context.taskId ?? null],
       );
       await tx.query(
         "INSERT INTO assistant_conversations(id,workspace_id,product_id,task_id,title,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$6)",
         [
           id,
-          WORKSPACE,
+          this.workspaceId,
           context.productId ?? null,
           context.taskId ?? null,
           initial[0]?.content.slice(0, 40) || "新对话",
@@ -144,7 +151,7 @@ export class AssistantConversations {
       await tx.query(
         "UPDATE assistant_conversations SET selected=0 WHERE workspace_id=$1 AND product_id IS $2 AND task_id IS $3",
         [
-          WORKSPACE,
+          this.workspaceId,
           conversation.productId ?? null,
           conversation.taskId ?? null,
         ],

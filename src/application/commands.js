@@ -82,6 +82,7 @@ export function createCommands(context) {
         editProduct(true);
         break;
       case "edit-product":
+      case "view-product":
         editProduct();
         break;
       case "edit-prompt":
@@ -98,19 +99,17 @@ export function createCommands(context) {
       case "settings":
         settings();
         break;
+      case "activity":
+        showModal({ type: "activity" });
+        break;
       case "clear-key":
       case "clear-prompt-key": {
-        const r = await fetch("/api/workflow/settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            a === "clear-prompt-key"
-              ? { clearPromptKey: true }
-              : { clearKey: true },
-          ),
-        });
-        if (!r.ok) throw new Error("清除密钥失败");
-        const result = await r.json();
+        const result = await api(
+          "/api/workflow/settings",
+          a === "clear-prompt-key"
+            ? { clearPromptKey: true }
+            : { clearKey: true },
+        );
         setHasKey(result.hasKey);
         setHasPromptKey(result.hasPromptKey);
         render();
@@ -123,6 +122,7 @@ export function createCommands(context) {
         closeModal();
         break;
       case "common-prompt":
+      case "view-requirements":
         if (p) showModal({ type: "common", productId: p.id });
         break;
       case "upload-reference":
@@ -282,7 +282,7 @@ export function createCommands(context) {
         await exportExcel();
         break;
       case "backup":
-        if (repository) await persist();
+        if (repository && context.canEdit !== false) await persist();
         bridge.capture();
         downloadBlob(
           new Blob([JSON.stringify(await portableBackup(state))], {
