@@ -571,7 +571,11 @@ test(
         .first()
         .elementHandle();
       await reopened.click('[data-action="view"][data-view="queue"]');
+      await reopened
+        .getByRole("button", { name: "队列管理", exact: true })
+        .click();
       await reopened.selectOption("#concurrency", "2");
+      await reopened.keyboard.press("Escape");
       await reopened.click("#queue-tab-jobs");
       await Promise.all([
         reopened.waitForResponse(

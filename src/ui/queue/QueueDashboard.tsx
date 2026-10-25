@@ -1,14 +1,10 @@
 import { useJobHistory } from "../../application/use-job-history";
+import { useQueueProgress } from "../../application/use-queue-progress";
 import { useEffect, useState } from "react";
-import type { Product, Job } from "../types";
-import {
-  latestQueueJobs,
-  needsQueueReconciliation,
-  productQueueInfo,
-  queueJobWorking,
-  remainingQueuePairs,
-  retryableQueueJobs,
-} from "../../view-models/queue-view.js";
+import type { Job } from "../types";
+import type { QueueProgressRow } from "../../services/queue-progress";
+import { needsQueueReconciliation } from "../../../shared/queue-progress.js";
+import { queueJobWorking } from "../../../shared/job-status.js";
 import { ActionButton, useApplication } from "../context.tsx";
 import { ProductThumbnail } from "../products/Sidebar.tsx";
 import { formatTime, statusNames, kindNames } from "../selectors";
@@ -16,27 +12,16 @@ import { ProductStatusBadge } from "../ProductStatusBadge.tsx";
 import "./queue.css";
 import { Badge } from "../design-system/Badge";
 import { WorkspaceEmpty } from "../WorkspaceEmpty";
+import { Button } from "../design-system/Button";
+import { QueueManager } from "./QueueManager";
 
 function QueueProductRow({
   product,
   info,
-  failures,
-}: {
-  product: Product;
-  info: ReturnType<typeof productQueueInfo>;
-  failures: Job[];
-}) {
-  const { state } = useApplication();
-  const recovery = latestQueueJobs(state, product.id).find(
-    (job) =>
-      job.status === "interrupted" ||
-      (job.status === "failed" && needsQueueReconciliation(job)),
-  );
-  const active = state.jobs.some(
-    (job) =>
-      job.productId === product.id &&
-      ["queued", "running", "interrupted"].includes(job.status),
-  );
+  retryable,
+  recovery,
+  active,
+}: QueueProgressRow) {
   return (
     <tr data-product-row={product.id}>
       <td>
@@ -77,11 +62,10 @@ function QueueProductRow({
       <td>
         <div
           className="queue-image-counts"
-          aria-label={`历史图 ${info.history}，已选 ${info.selected}`}
+          aria-label={`已选 ${info.picked} 张，共 ${product.tasks.length} 张`}
         >
-          <strong>{info.history}</strong>
-          <span aria-hidden="true">/</span>
-          <strong className="queue-selected-count">{info.selected}</strong>
+          <strong className="queue-selected-count">{info.picked}</strong>
+          <span>/ {product.tasks.length}</span>
         </div>
       </td>
       <td>
@@ -91,7 +75,7 @@ function QueueProductRow({
             tone={info.tone}
             className="queue-product-status"
           />
-          {info.label === "待重试" && !!failures.length && (
+          {info.label === "待重试" && !!retryable && (
             <ActionButton
               className="status-retry-button"
               action="retry-product-failed"
@@ -268,11 +252,25 @@ function JobRow({ job }: { job: Job }) {
   );
 }
 export function QueueDashboard() {
-  const { state, controller, user, ui } = useApplication();
+  const { state, user, ui } = useApplication();
   const [tab, setTab] = useState("products");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [productPage, setProductPage] = useState(1);
+  const [productFilter, setProductFilter] = useState("all");
+  const [productSearch, setProductSearch] = useState("");
+  const progress = useQueueProgress(
+    state,
+    productPage,
+    productFilter,
+    productSearch,
+  );
+  const summary = progress.data?.summary;
+  useEffect(() => {
+    if (!progress.loading && !progress.error && progress.data)
+      setProductPage(progress.data.page);
+  }, [progress.data?.page, progress.loading, progress.error]);
   const history = useJobHistory(
     state.jobs,
     state.settings.mode === "demo",
@@ -285,24 +283,34 @@ export function QueueDashboard() {
     if (!history.loading && !history.error && tab === "jobs")
       setPage(history.page);
   }, [history.page, history.loading, history.error, tab]);
-  const products = state.products.map((product) => ({
-    product,
-    info: productQueueInfo(state, product),
-  }));
-  const sum = (field: "generated" | "history" | "selected") =>
-      products.reduce((n, p) => n + p.info[field], 0),
-    failed = retryableQueueJobs(state);
-  const latest = latestQueueJobs(state);
-  const failedCount = latest.filter((job) => job.status === "failed").length;
-  const workingCount = state.jobs.filter(queueJobWorking).length;
-  const pendingCount = state.jobs.filter(
-    (job) => job.status === "queued" && !job.remoteId,
-  ).length;
-  const interrupted = state.jobs.filter(
-      (j) => j.status === "interrupted",
-    ).length,
-    remaining = remainingQueuePairs(state).length;
+  const products = progress.products;
+  const failedCount = summary?.failed || 0;
+  const pendingCount = summary?.pending || 0;
+  const interrupted = summary?.interrupted || 0;
+  const completion = summary?.slots
+    ? (summary.generated / summary.slots) * 100
+    : 0;
+  const canDownload =
+    user.role === "viewer"
+      ? state.products.some((product) =>
+          product.tasks.some(
+            (task) =>
+              (ui.downloadSelections[task.id] || task.selectedIds).length,
+          ),
+        )
+      : !!summary?.selected;
   const matchingJobs = history.jobs;
+  function showProducts(status: string) {
+    setProductFilter(status);
+    setProductSearch("");
+    setProductPage(1);
+    setTab("products");
+    progress.retry();
+    if (status === "attention") {
+      setFilter("attention");
+      setPage(1);
+    }
+  }
   if (!state.products.length && !state.jobs.length)
     return <WorkspaceEmpty queue />;
   return (
@@ -311,128 +319,160 @@ export function QueueDashboard() {
         <div>
           <h1>执行队列</h1>
           <span>
-            {products.length} 套产品 ·{" "}
-            {state.products.reduce((n, p) => n + p.tasks.length, 0)} 个图片位置
+            当前工作区 · {summary?.products ?? state.products.length} 套产品
           </span>
         </div>
       </div>
-      <div className="batch-queue-summary">
-        <div>
-          <span>
-            图片任务{" "}
-            <strong id="queue-generated">
-              {sum("generated")} /{" "}
-              {state.products.reduce((n, p) => n + p.tasks.length, 0)}
-            </strong>
-          </span>
-          <span>
-            历史图 <strong id="queue-history">{sum("history")}</strong>
-          </span>
-          <span>
-            执行中 <strong>{workingCount}</strong>
-          </span>
-          <span>
-            待执行 <strong>{pendingCount}</strong>
-          </span>
-          <span>
-            失败 <strong>{failedCount}</strong>
-          </span>
-          <span>
-            已选图片 <strong id="queue-selected">{sum("selected")}</strong>
-          </span>
+      <section className="queue-overview" aria-label="全局统计">
+        <div className="queue-overview-heading">
+          <h2>全局统计</h2>
+          <span>全部产品</span>
+          {state.paused && <Badge tone="warning">队列已暂停</Badge>}
         </div>
-        <span>
-          {state.paused
-            ? "已暂停后续请求；继续后自动处理未完成任务"
-            : "可边生成边选图；已在队列中的位置不会重复加入"}
-        </span>
-      </div>
-      {!!(interrupted || failedCount) && (
-        <div
-          className="queue-attention"
-          role="region"
-          aria-label="异常任务提醒"
-        >
-          <svg
-            className="queue-attention-icon"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            aria-hidden="true"
-          >
-            <path d="M10.3 4.8 2.7 18a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 4.8a2 2 0 0 0-3.4 0Z" />
-            <path d="M12 9v5m0 3v.5" strokeLinecap="round" />
-          </svg>
-          <div className="queue-attention-copy">
-            <strong>
-              {[
-                failedCount ? `${failedCount} 个任务失败` : "",
-                interrupted ? `${interrupted} 个任务中断` : "",
-              ]
-                .filter(Boolean)
-                .join("，")}
+        <div className="queue-metrics">
+          <div className="queue-metric queue-metric--generated">
+            <span className="queue-metric-label">已出图</span>
+            <strong className="queue-metric-value" id="queue-generated">
+              {summary?.generated ?? "—"}
+              <span> / {summary?.slots ?? "—"} 张</span>
             </strong>
-            <p>在产品进度中处理失败与中断任务；此处可查看异常记录。</p>
+            <div
+              className="queue-metric-progress"
+              role="progressbar"
+              aria-label="全局生成进度"
+              aria-valuemin={0}
+              aria-valuemax={summary?.slots || 1}
+              aria-valuenow={summary?.generated || 0}
+            >
+              <i style={{ width: `${completion}%` }} />
+            </div>
           </div>
-          <button
-            className="queue-attention-button"
-            type="button"
-            onClick={() => {
-              setFilter("attention");
-              setPage(1);
-              setTab("jobs");
-            }}
+          <Button
+            className="queue-metric queue-metric--action"
+            aria-label="查看图已齐的产品"
+            aria-pressed={tab === "products" && productFilter === "complete"}
+            onClick={() => showProducts("complete")}
           >
-            查看异常任务
-            <span aria-hidden="true">→</span>
-          </button>
+            <span className="queue-metric-label">图已齐</span>
+            <strong className="queue-metric-value" id="queue-complete">
+              {summary?.completeProducts ?? "—"}
+              <span> / {summary?.products ?? "—"} 套</span>
+            </strong>
+            <span className="queue-metric-hint">
+              {tab === "products" && productFilter === "complete"
+                ? "已筛选"
+                : "查看 →"}
+            </span>
+          </Button>
+          <Button
+            className="queue-metric queue-metric--action"
+            aria-label="查看进行中的产品"
+            title="含排队、分析和生图"
+            aria-pressed={tab === "products" && productFilter === "active"}
+            onClick={() => showProducts("active")}
+          >
+            <span className="queue-metric-label">进行中</span>
+            <strong className="queue-metric-value" id="queue-working">
+              {summary?.activeProducts ?? "—"}
+              <span> 套</span>
+            </strong>
+            <span className="queue-metric-hint">
+              {tab === "products" && productFilter === "active"
+                ? "已筛选"
+                : "查看 →"}
+            </span>
+          </Button>
+          <Button
+            className="queue-metric queue-metric--action queue-attention"
+            aria-label="查看异常产品"
+            aria-pressed={tab === "products" && productFilter === "attention"}
+            title={`失败 ${failedCount} 项，中断 ${interrupted} 项`}
+            onClick={() => showProducts("attention")}
+          >
+            <span className="queue-metric-label">有异常</span>
+            <strong className="queue-metric-value" id="queue-attention">
+              {summary?.attentionProducts ?? "—"}
+              <span> 套</span>
+            </strong>
+            <span className="queue-metric-hint">
+              {tab === "products" && productFilter === "attention"
+                ? "已筛选"
+                : "查看 →"}
+            </span>
+          </Button>
         </div>
-      )}
-      <div className="queue-view-tabs" role="tablist" aria-label="队列视图">
-        {[
-          { id: "products", label: "产品进度", count: products.length },
-          {
-            id: "jobs",
-            label: "任务明细",
-            count: state.jobTotal ?? state.jobs.length,
-          },
-        ].map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            id={`queue-tab-${item.id}`}
-            aria-controls={`queue-panel-${item.id}`}
-            aria-selected={tab === item.id}
-            tabIndex={tab === item.id ? 0 : -1}
-            onClick={() => setTab(item.id)}
-            onKeyDown={(event) => {
-              if (
-                !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
-              )
-                return;
-              event.preventDefault();
-              const next =
-                event.key === "Home"
-                  ? "products"
-                  : event.key === "End"
-                    ? "jobs"
-                    : tab === "products"
+      </section>
+      <div className="queue-nav-row">
+        <div className="queue-view-tabs" role="tablist" aria-label="队列视图">
+          {[
+            {
+              id: "products",
+              label: "产品进度",
+              count: summary?.products ?? state.products.length,
+            },
+            {
+              id: "jobs",
+              label: "任务明细",
+              count: state.jobTotal ?? state.jobs.length,
+            },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              id={`queue-tab-${item.id}`}
+              aria-controls={`queue-panel-${item.id}`}
+              aria-selected={tab === item.id}
+              tabIndex={tab === item.id ? 0 : -1}
+              onClick={() => setTab(item.id)}
+              onKeyDown={(event) => {
+                if (
+                  !["ArrowLeft", "ArrowRight", "Home", "End"].includes(
+                    event.key,
+                  )
+                )
+                  return;
+                event.preventDefault();
+                const next =
+                  event.key === "Home"
+                    ? "products"
+                    : event.key === "End"
                       ? "jobs"
-                      : "products";
-              setTab(next);
-              document.getElementById(`queue-tab-${next}`)?.focus();
-            }}
+                      : tab === "products"
+                        ? "jobs"
+                        : "products";
+                setTab(next);
+                document.getElementById(`queue-tab-${next}`)?.focus();
+              }}
+            >
+              {item.label}{" "}
+              <Badge tone={tab === item.id ? "brand" : "neutral"}>
+                {item.count}
+              </Badge>
+            </button>
+          ))}
+        </div>
+        {tab === "products" && (
+          <div
+            className="queue-product-toolbar"
+            role="group"
+            aria-label="队列操作"
           >
-            {item.label}{" "}
-            <Badge tone={tab === item.id ? "brand" : "neutral"}>
-              {item.count}
-            </Badge>
-          </button>
-        ))}
+            <ActionButton
+              action="download-batch-selected"
+              variant="secondary"
+              size="sm"
+              disabled={!canDownload}
+              title="下载当前工作区全部产品的选中图片"
+            >
+              下载选图
+            </ActionButton>
+            <QueueManager
+              retryable={summary?.retryable || 0}
+              pending={pendingCount}
+            />
+          </div>
+        )}
       </div>
       {tab === "jobs" && (
         <section
@@ -441,16 +481,17 @@ export function QueueDashboard() {
           id="queue-panel-jobs"
           aria-labelledby="queue-tab-jobs"
         >
-          <div className="queue-records-heading">
-            <div>
-              <h2>任务执行记录</h2>
-              <p>查看进度和失败原因；重试、取消及并发设置请到产品进度。</p>
-            </div>
-            <span>仅查看</span>
-          </div>
           <div className="queue-detail-filter">
+            <input
+              aria-label="搜索队列任务"
+              placeholder="搜索产品、卡片、平台 ID 或错误"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+            />
             <label>
-              任务筛选{" "}
               <select
                 aria-label="任务状态"
                 value={filter}
@@ -466,16 +507,9 @@ export function QueueDashboard() {
                 <option value="cancelled">已取消</option>
               </select>
             </label>
-            <input
-              aria-label="搜索队列任务"
-              placeholder="搜索产品、卡片、平台 ID 或错误"
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value);
-                setPage(1);
-              }}
-            />
-            <span>{history.total} 条 · 按创建时间倒序</span>
+            <span role="status">
+              {history.loading ? "更新中…" : `${history.total} 条记录`}
+            </span>
           </div>
           <div className="queue-list" aria-busy={history.loading}>
             {matchingJobs.map((j) => (
@@ -485,11 +519,10 @@ export function QueueDashboard() {
               <div className="empty-page">
                 {state.jobs.length
                   ? "没有符合条件的任务"
-                  : "尚未加入任务，添加产品后即可批量生成。"}
+                  : "尚无执行记录，可在图片工作台发起生成。"}
               </div>
             )}
           </div>
-          {history.loading && <p role="status">正在加载任务…</p>}
           {history.error && (
             <div role="alert">
               {history.error}{" "}
@@ -527,113 +560,102 @@ export function QueueDashboard() {
           id="queue-panel-products"
           aria-labelledby="queue-tab-products"
         >
-          <div
-            className="queue-product-toolbar"
-            role="group"
-            aria-label="队列操作"
-          >
-            <ActionButton
-              className="primary"
-              action="generate-remaining"
-              disabled={!remaining}
-            >
-              批量生成剩余{remaining > 0 ? `（${remaining} 张）` : ""}
-            </ActionButton>
-            <ActionButton
-              action="pause-queue"
-              title="暂停后不再发起新的执行请求；平台已受理的任务可能继续生成"
-            >
-              {state.paused ? "继续队列" : "暂停队列"}
-            </ActionButton>
-            <ActionButton
-              action="retry-failed"
-              disabled={!failed.length}
-              title={
-                failedCount > failed.length
-                  ? "仅重试可恢复任务，其余需核对平台或处理上游分析"
-                  : undefined
-              }
-            >
-              重试失败{failed.length ? `（${failed.length}）` : ""}
-            </ActionButton>
-            <ActionButton
-              action="cancel-pending"
-              disabled={!pendingCount}
-              title="仅取消尚未提交平台的待执行任务"
-            >
-              取消待执行
-            </ActionButton>
-            <label className="queue-concurrency">
-              并发{" "}
+          <div className="queue-detail-filter queue-product-filter">
+            <input
+              aria-label="搜索产品进度"
+              placeholder="搜索产品名称或编号"
+              value={productSearch}
+              maxLength={500}
+              onChange={(event) => {
+                setProductSearch(event.target.value);
+                setProductPage(1);
+              }}
+            />
+            <label>
               <select
-                id="concurrency"
-                value={state.concurrency}
-                disabled={user.role !== "owner"}
-                onChange={controller.changeField}
+                aria-label="产品进度筛选"
+                value={productFilter}
+                onChange={(event) => {
+                  setProductFilter(event.target.value);
+                  setProductPage(1);
+                }}
               >
-                {[1, 2, 3, 4, 5, 6].map((n) => (
-                  <option key={n}>{n}</option>
-                ))}
+                <option value="all">全部产品</option>
+                <option value="missing">未出图</option>
+                <option value="partial">未出齐</option>
+                <option value="complete">图已齐</option>
+                <option value="ready">待选图</option>
+                <option value="selected">已选齐</option>
+                <option value="active">进行中</option>
+                <option value="attention">有异常</option>
               </select>
             </label>
-            <ActionButton
-              className="queue-download-selected result-action-button"
-              action="download-batch-selected"
-              disabled={
-                user.role === "viewer"
-                  ? !state.products.some((product) =>
-                      product.tasks.some(
-                        (task) =>
-                          (ui.downloadSelections[task.id] || task.selectedIds)
-                            .length,
-                      ),
-                    )
-                  : !sum("selected")
-              }
-            >
-              保存选中图片
-            </ActionButton>
+            <span role="status">
+              {progress.loading
+                ? "更新中…"
+                : `${progress.data?.total ?? "—"} 套产品`}
+            </span>
           </div>
-          <div className="batch-queue-table-wrap">
+          {progress.error && (
+            <div role="alert">
+              {progress.error}{" "}
+              <button type="button" onClick={progress.retry}>
+                重试加载产品进度
+              </button>
+            </div>
+          )}
+          <div className="batch-queue-table-wrap" aria-busy={progress.loading}>
             <table className="batch-queue-table">
               <thead>
                 <tr>
                   <th>产品</th>
-                  <th>生成进度</th>
-                  <th>历史图 / 已选</th>
+                  <th>已出图</th>
+                  <th>已选</th>
                   <th>状态</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody>
-                {products.map(
-                  ({
-                    product,
-                    info,
-                  }: {
-                    product: Product;
-                    info: ReturnType<typeof productQueueInfo>;
-                  }) => (
-                    <QueueProductRow
-                      key={product.id}
-                      product={product}
-                      info={info}
-                      failures={failed.filter(
-                        (job) => job.productId === product.id,
-                      )}
-                    />
-                  ),
-                )}
-                {!products.length && (
+                {products.map((row) => (
+                  <QueueProductRow key={row.product.id} {...row} />
+                ))}
+                {!progress.loading && !progress.error && !products.length && (
                   <tr>
                     <td colSpan={5} className="empty-page">
-                      从表格解析产品，或添加产品后开始。
+                      {state.products.length
+                        ? "没有符合条件的产品"
+                        : "从表格解析产品，或添加产品后开始。"}
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
+          <nav className="queue-history-pagination" aria-label="产品进度分页">
+            <button
+              type="button"
+              disabled={progress.loading || productPage <= 1}
+              onClick={() => setProductPage(productPage - 1)}
+            >
+              上一页
+            </button>
+            <span>
+              当前第 {progress.data?.page ?? productPage} /{" "}
+              {progress.data?.pages ?? 1} 页 · 每页 30 套 · 共{" "}
+              {progress.data?.total ?? "—"} 套符合条件
+            </span>
+            <button
+              type="button"
+              disabled={
+                progress.loading ||
+                !progress.data ||
+                productPage >= progress.data.pages
+              }
+              onClick={() => setProductPage(productPage + 1)}
+            >
+              下一页
+            </button>
+          </nav>
         </div>
       )}
     </div>

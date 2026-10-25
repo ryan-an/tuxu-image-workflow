@@ -19,6 +19,7 @@ import { Workspaces } from "./workspaces.js";
 import { WorkspaceDirectory } from "./workspace-directory.js";
 import { registerWorkspaceRoutes } from "./workspace-routes.js";
 import { registerCollaborationRoutes } from "./collaboration-routes.js";
+import { registerQueueProgress } from "./queue-progress.js";
 import {
   registerTransportSecurity,
   type TransportSecurityOptions,
@@ -191,6 +192,7 @@ export async function createApp(options: AppOptions) {
       }),
     );
   });
+  registerQueueProgress(app);
   app.get<{ Querystring: { ids: string } }>(
     "/api/workspace/products",
     {

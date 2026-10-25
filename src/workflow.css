@@ -868,7 +868,7 @@ h1 {
   font-size: 12px;
   color: #76849b;
 }
-.batch-queue button {
+.batch-queue button:where(:not([data-variant])) {
   border: 1px solid #dfe3ee;
   border-radius: 7px;
   background: white;

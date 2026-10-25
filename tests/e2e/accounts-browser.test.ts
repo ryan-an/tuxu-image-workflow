@@ -197,7 +197,9 @@ test(
       await (await download).saveAs(artifactPath("viewer-results.zip"));
       await viewer.locator('[data-action="view"][data-view="queue"]').click();
       assert.equal(
-        await viewer.locator(".queue-download-selected").isEnabled(),
+        await viewer
+          .locator('[data-action="download-batch-selected"]')
+          .isEnabled(),
         true,
       );
       await viewer

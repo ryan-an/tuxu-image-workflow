@@ -3,7 +3,7 @@ import { productPage } from "../../view-models/product-page.js";
 import { ProductPagination } from "./ProductPagination.tsx";
 import type { Product } from "../types";
 import { ActionButton, useApplication } from "../context.tsx";
-import { productQueueInfo } from "../../view-models/queue-view.js";
+import { productQueueInfo } from "../../../shared/queue-progress.js";
 import { ProductStatusBadge } from "../ProductStatusBadge.tsx";
 import { thumbnailSource } from "../../view-models/product-thumbnail.js";
 import { WorkspaceSwitcher } from "../workspaces/WorkspaceSwitcher";

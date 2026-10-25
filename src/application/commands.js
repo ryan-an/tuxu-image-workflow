@@ -4,10 +4,8 @@ import { api } from "../services/workspace-client.js";
 import { portableBackup } from "../services/backup.js";
 
 import { clipboardImageFiles } from "../integrations/media-upload.js";
-import {
-  remainingQueuePairs,
-  retryableQueueJobs,
-} from "../view-models/queue-view.js";
+import { retryableQueueJobs } from "../../shared/queue-progress.js";
+import { PRODUCT_PAGE_SIZE } from "../view-models/product-page.js";
 
 import { productPhotos } from "../../shared/prompt-suite.js";
 
@@ -73,6 +71,17 @@ export function createCommands(context) {
         break;
       case "open-product":
       case "queue-open-product":
+        if (a === "queue-open-product") {
+          const index = state.products.findIndex(
+            (product) => product.id === data.id,
+          );
+          if (index < 0) {
+            notify("产品已不存在，请刷新列表");
+            break;
+          }
+          ui.search = "";
+          ui.productPage = Math.floor(index / PRODUCT_PAGE_SIZE) + 1;
+        }
         state.activeProductId = data.id;
         setFilter("all");
         render();
@@ -188,12 +197,6 @@ export function createCommands(context) {
       case "cancel-pending":
         await queue.cancelPending();
         break;
-      case "generate-remaining": {
-        await context.ensureAll?.();
-        const pairs = remainingQueuePairs(state);
-        await queuePairs(pairs, "workflow");
-        break;
-      }
       case "retry-failed":
       case "retry-product-failed": {
         const failures = retryableQueueJobs(state).filter(

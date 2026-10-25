@@ -79,6 +79,7 @@ export interface Job {
   syncError?: string;
 }
 export interface Workspace {
+  syncCursor?: number;
   jobTotal?: number;
   promptTemplates?: Record<string, PromptTemplate>;
   products: Product[];
