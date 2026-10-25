@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { JOB_VIEW_COLUMNS, presentJob } from "./workspace-loading.js";
 import { leaseDuration } from "./execution-limits.js";
 import { DEFAULT_CONFIG } from "../../shared/provider-config.js";
 import {
@@ -69,10 +70,16 @@ export class Repository {
       const pages = Math.max(1, Math.ceil(total / pageSize));
       page = Math.min(page, pages);
       const rows = await tx.query(
-        `SELECT * FROM jobs WHERE ${where} ORDER BY COALESCE(json_extract(payload,'$.createdAt'),created_at) DESC,id DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+        `SELECT ${JOB_VIEW_COLUMNS} FROM jobs WHERE ${where} ORDER BY COALESCE(json_extract(payload,'$.createdAt'),created_at) DESC,id DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
         [...values, pageSize, (page - 1) * pageSize],
       );
-      return { jobs: rows.rows.map(hydrateJob), total, page, pageSize, pages };
+      return {
+        jobs: rows.rows.map((row) => presentJob(hydrateJob(row))),
+        total,
+        page,
+        pageSize,
+        pages,
+      };
     });
   }
   async cursor(tx: Queryable = this.db) {

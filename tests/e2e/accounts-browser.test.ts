@@ -231,6 +231,9 @@ test(
         false,
       );
       await viewer
+        .getByRole("button", { name: "账号菜单", exact: true })
+        .click();
+      await viewer
         .getByRole("button", { name: "修改密码", exact: true })
         .click();
       await viewer

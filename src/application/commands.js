@@ -75,6 +75,8 @@ export function createCommands(context) {
       case "queue-open-product":
         state.activeProductId = data.id;
         setFilter("all");
+        render();
+        await repository?.loadProducts([data.id]);
         await switchView("workbench");
         saveSoon();
         break;
@@ -147,7 +149,7 @@ export function createCommands(context) {
         p.photos = photos;
         p.photo = photos[0] || "";
         for (const task of p.tasks) delete task.realPhotoIndices;
-        updateMetadata(p);
+        await updateMetadata(p);
         change();
         openMedia(p);
         break;
@@ -187,6 +189,7 @@ export function createCommands(context) {
         await queue.cancelPending();
         break;
       case "generate-remaining": {
+        await context.ensureAll?.();
         const pairs = remainingQueuePairs(state);
         await queuePairs(pairs, "workflow");
         break;
@@ -285,9 +288,18 @@ export function createCommands(context) {
         if (repository && context.canEdit !== false) await persist();
         bridge.capture();
         downloadBlob(
-          new Blob([JSON.stringify(await portableBackup(state))], {
-            type: "application/json",
-          }),
+          new Blob(
+            [
+              JSON.stringify(
+                await portableBackup(
+                  repository ? await api("/api/workspace") : state,
+                ),
+              ),
+            ],
+            {
+              type: "application/json",
+            },
+          ),
           "图序-工作流备份.json",
         );
         break;

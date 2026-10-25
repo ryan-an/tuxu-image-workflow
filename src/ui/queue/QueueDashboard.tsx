@@ -15,6 +15,7 @@ import { formatTime, statusNames, kindNames } from "../selectors";
 import { ProductStatusBadge } from "../ProductStatusBadge.tsx";
 import "./queue.css";
 import { Badge } from "../design-system/Badge";
+import { WorkspaceEmpty } from "../WorkspaceEmpty";
 
 function QueueProductRow({
   product,
@@ -302,6 +303,8 @@ export function QueueDashboard() {
     ).length,
     remaining = remainingQueuePairs(state).length;
   const matchingJobs = history.jobs;
+  if (!state.products.length && !state.jobs.length)
+    return <WorkspaceEmpty queue />;
   return (
     <div className="batch-queue">
       <div className="batch-queue-heading">
@@ -391,7 +394,11 @@ export function QueueDashboard() {
       <div className="queue-view-tabs" role="tablist" aria-label="队列视图">
         {[
           { id: "products", label: "产品进度", count: products.length },
-          { id: "jobs", label: "任务明细", count: state.jobs.length },
+          {
+            id: "jobs",
+            label: "任务明细",
+            count: state.jobTotal ?? state.jobs.length,
+          },
         ].map((item) => (
           <button
             key={item.id}

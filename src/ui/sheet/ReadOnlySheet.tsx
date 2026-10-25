@@ -1,5 +1,6 @@
 import { productPage } from "../../view-models/product-page.js";
 import { useApplication } from "../context";
+import { PreviewImage } from "../PreviewImage";
 export function ReadOnlySheet() {
   const { state, ui } = useApplication();
   const { products } = productPage(state, ui);
@@ -40,9 +41,8 @@ export function ReadOnlySheet() {
                         target="_blank"
                         rel="noreferrer"
                       >
-                        <img
+                        <PreviewImage
                           src={source}
-                          loading="lazy"
                           alt={`参考图 ${index + 1}`}
                         />
                       </a>
@@ -56,9 +56,8 @@ export function ReadOnlySheet() {
                   <td>
                     {version ? (
                       <a href={version.source} target="_blank" rel="noreferrer">
-                        <img
+                        <PreviewImage
                           src={version.source}
-                          loading="lazy"
                           alt={`结果 V${version.number}`}
                         />
                       </a>

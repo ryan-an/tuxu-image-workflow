@@ -35,7 +35,17 @@ test(
       const button = page.locator("#settings-button");
       const status = button.locator(".settings-key-status");
       const checkStatus = async (text: string, configured = false) => {
-        await status.getByText(text, { exact: true }).waitFor();
+        await page.waitForFunction(
+          (text: string) =>
+            document
+              .querySelector(".settings-key-status")
+              ?.getAttribute("aria-label") === text,
+          text,
+        );
+        assert.equal(
+          await status.textContent(),
+          configured ? "已配置" : "待配置",
+        );
         assert.equal(
           await status.getAttribute("data-badge-tone"),
           configured ? "success" : "danger",

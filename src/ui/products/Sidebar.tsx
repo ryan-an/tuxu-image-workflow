@@ -8,6 +8,53 @@ import { ProductStatusBadge } from "../ProductStatusBadge.tsx";
 import { thumbnailSource } from "../../view-models/product-thumbnail.js";
 import { WorkspaceSwitcher } from "../workspaces/WorkspaceSwitcher";
 import type { WorkspaceDirectoryModel } from "../../application/use-workspaces";
+import { PreviewImage } from "../PreviewImage";
+import { Badge } from "../design-system/Badge";
+import "./sidebar.css";
+import { EmptyCollectionIcon } from "../WorkspaceEmpty";
+import { Button } from "../design-system/Button";
+
+function PlusIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function ProductCode({ code }: { code: string }) {
+  const characters = Array.from(code);
+  const suffix = characters.length > 18 ? characters.slice(-6).join("") : "";
+  return (
+    <span
+      className="product-code"
+      title={code}
+      aria-label={`产品编号：${code}`}
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        aria-hidden="true"
+      >
+        <path d="m6 2-2 12M12 2l-2 12M2 6h12M1 10h12" />
+      </svg>
+      <span className="product-code-prefix">
+        {suffix ? characters.slice(0, -6).join("") : code}
+      </span>
+      {suffix && <span className="product-code-suffix">{suffix}</span>}
+    </span>
+  );
+}
 
 export function ProductThumbnail({
   product,
@@ -18,17 +65,28 @@ export function ProductThumbnail({
 }) {
   const source = thumbnailSource(product);
   return source ? (
-    <img
+    <PreviewImage
       src={source}
       alt={`${product.name}实拍缩略图`}
       width={size}
       height={size}
-      loading="lazy"
       decoding="async"
     />
   ) : (
     <span className="thumbnail-placeholder" aria-label="暂无实拍缩略图">
-      ◇
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <rect x="3" y="3" width="18" height="18" rx="4" />
+        <circle cx="8.5" cy="8.5" r="1.5" />
+        <path d="m4 17 5-5 4 4 3-3 5 5" />
+      </svg>
     </span>
   );
 }
@@ -46,6 +104,7 @@ function ProductListItem({
       <ActionButton
         className="product-link"
         aria-current={active ? "true" : undefined}
+        aria-label={`打开产品：${product.name}，编号：${product.code}`}
         action="open-product"
         data={{ id: product.id }}
       >
@@ -53,24 +112,27 @@ function ProductListItem({
           <ProductThumbnail product={product} />
         </span>
         <span className="product-list-info">
-          <span className="product-code">{product.code}</span>
-          <strong title={product.name}>{product.name}</strong>
-          <span className="product-completion">
-            <ProductStatusBadge label={info.label} tone={info.tone} />
-            <small
-              title={`已勾选 ${info.picked} / ${product.tasks.length} 个图片位置`}
-            >
-              {info.picked}
-              <span> / {product.tasks.length}</span>
-            </small>
-          </span>
-          <span className="product-progress" aria-hidden="true">
-            <i
-              style={{
-                width: `${product.tasks.length ? (info.picked / product.tasks.length) * 100 : 0}%`,
-              }}
-            />
-          </span>
+          <strong className="product-name" title={product.name}>
+            {product.name}
+          </strong>
+          <ProductCode code={product.code} />
+        </span>
+        <span className="product-completion">
+          <ProductStatusBadge label={info.label} tone={info.tone} />
+          <small
+            title={`已勾选 ${info.picked} / ${product.tasks.length} 个图片位置`}
+          >
+            <span>已选 </span>
+            {info.picked}
+            <span> / {product.tasks.length}</span>
+          </small>
+        </span>
+        <span className="product-progress" aria-hidden="true">
+          <i
+            style={{
+              width: `${product.tasks.length ? (info.picked / product.tasks.length) * 100 : 0}%`,
+            }}
+          />
         </span>
       </ActionButton>
     </div>
@@ -106,7 +168,7 @@ export function Sidebar({
     Math.ceil((scrollTop + height) / rowHeight) + 2,
   );
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" aria-label="产品导航">
       <div className="brand">
         <span>图</span>
         <div>
@@ -145,8 +207,9 @@ export function Sidebar({
           className="icon-button"
           action="new-product"
           aria-label="添加产品"
+          title="添加产品"
         >
-          ＋
+          <PlusIcon />
         </ActionButton>
       </div>
       <div className="mobile-product-pagination">
@@ -155,13 +218,16 @@ export function Sidebar({
       <div id="sidebar-content">
         <div className="side-heading">
           <span>产品集合</span>
-          <span>{state.products.length}</span>
+          <Badge tone="neutral">{state.products.length}</Badge>
           <ActionButton
             className="icon-button"
+            variant="ghost"
+            size="sm"
             action="new-product"
             aria-label="添加产品"
+            title="添加产品"
           >
-            ＋
+            <PlusIcon />
           </ActionButton>
         </div>
         <div className="side-search">
@@ -216,11 +282,38 @@ export function Sidebar({
               </div>
             ))}
           </div>
-          {!products.length && <div className="empty-small">没有匹配产品</div>}
+          {!products.length && (
+            <div className="sidebar-empty">
+              <span className="sidebar-empty-icon">
+                <EmptyCollectionIcon />
+              </span>
+              <span>{ui.search.trim() ? "没有匹配的产品" : "还没有产品"}</span>
+              <small>
+                {ui.search.trim()
+                  ? "试试其他编号或名称"
+                  : user.role === "viewer"
+                    ? "成员添加产品后，将在这里展示"
+                    : "为你的创作建立第一个产品档案"}
+              </small>
+              {ui.search.trim() ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => controller.setSearch("")}
+                >
+                  清除搜索
+                </Button>
+              ) : (
+                <ActionButton action="new-product" variant="ghost" size="sm">
+                  ＋ 添加产品
+                </ActionButton>
+              )}
+            </div>
+          )}
         </div>
         <ProductPagination />
         <div className="side-bottom">
-          <span className="local-dot" />{" "}
+          <span className="local-dot" aria-hidden="true" />{" "}
           {isRemote ? "服务端工作区" : "本机工作区"} <small>自动保存</small>
         </div>
       </div>

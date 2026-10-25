@@ -3,6 +3,7 @@ import type { ImageTask, ImageVersion, Product } from "../types";
 import { ProductThumbnail } from "../products/Sidebar";
 import { productPhotos } from "../../../shared/prompt-suite.js";
 import { Badge, type BadgeTone } from "../design-system/Badge";
+import { PreviewImage } from "../PreviewImage";
 
 const contextTones: Record<string, BadgeTone> = {
   info: "neutral",
@@ -112,7 +113,7 @@ export function AssistantContext({
       <div className="assistant-context-main">
         <div className="assistant-context-preview">
           {result ? (
-            <img
+            <PreviewImage
               src={result.source}
               alt={`${task?.role}生成结果 V${result.number}`}
             />

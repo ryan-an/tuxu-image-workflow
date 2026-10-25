@@ -102,7 +102,7 @@ export function createFormCommands(context) {
         old.code = code;
         old.name = values.name;
         old.facts = values.facts;
-        updateMetadata(old, oldCode);
+        await updateMetadata(old, oldCode);
       }
       closeModal();
       change();

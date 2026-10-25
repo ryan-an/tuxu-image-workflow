@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import { fixture, loginHeaders } from "../../support/production.js";
 
 test("a running server serves new build assets as modules and never substitutes HTML for missing files", async () => {
@@ -21,6 +22,36 @@ test("a running server serves new build assets as modules and never substitutes 
     const before = await f.app.inject("/assets/before.js");
     assert.equal(before.statusCode, 200);
     assert.match(String(before.headers["content-type"]), /javascript/);
+
+    for (const [extension, source] of [
+      [
+        "js",
+        "export const message = 'compressible build asset';\n".repeat(100),
+      ],
+      ["css", ".example { color: rebeccapurple; }\n".repeat(100)],
+    ]) {
+      const filename = `module-aB12cD34.${extension}`;
+      await writeFile(join(directory, "assets", filename), source);
+      for (const encoding of ["gzip", "br"]) {
+        const response = await f.app.inject({
+          url: `/assets/${filename}`,
+          headers: { "accept-encoding": encoding },
+        });
+        assert.equal(response.statusCode, 200);
+        assert.equal(response.headers["content-encoding"], encoding);
+        assert.match(String(response.headers.vary), /Accept-Encoding/i);
+        assert.equal(
+          response.headers["cache-control"],
+          "public, max-age=31536000, immutable",
+        );
+        assert.equal(
+          (encoding === "br" ? brotliDecompressSync : gunzipSync)(
+            response.rawPayload,
+          ).toString(),
+          source,
+        );
+      }
+    }
 
     // Introduce a new build after route registration, exactly as a local rebuild does.
     await writeFile(

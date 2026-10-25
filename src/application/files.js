@@ -13,6 +13,7 @@ export function createFiles(context) {
   }
 
   async function downloadSelected(allProducts = false) {
+    if (allProducts) await context.ensureAll?.();
     const { state, notify, currentProduct, downloadBlob } = context;
     const products = allProducts
         ? state.products
@@ -60,6 +61,8 @@ export function createFiles(context) {
     setExporting(true);
     notify("正在导出 Excel，包含表格图片…");
     try {
+      await context.ensureAll?.();
+      await bridge.reconcile();
       const { exportExcel } = await import("../integrations/export-excel.js"),
         { buffer, imageCount } = await exportExcel(bridge.snapshot());
       downloadBlob(

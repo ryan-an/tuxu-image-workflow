@@ -167,6 +167,9 @@ test(
       await member.fill("#login-password", password);
       await member.click('#login-form button[type="submit"]');
       await member
+        .getByRole("button", { name: "账号菜单", exact: true })
+        .click();
+      await member
         .getByRole("button", { name: "修改密码", exact: true })
         .click();
       const passwordButton = member.locator(

@@ -371,6 +371,7 @@ test(
       await page.goto(`${root}/login`);
       await page.locator("#app").waitFor();
       assert.equal(new URL(page.url()).pathname, "/");
+      await page.getByRole("button", { name: "账号菜单", exact: true }).click();
       await page.locator("#logout").click();
       await page.waitForURL(`${root}/login`);
       await page.locator("#login-form").waitFor();

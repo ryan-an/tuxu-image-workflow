@@ -53,7 +53,8 @@ export function productQueueInfo(state, product) {
   const jobs = latestQueueJobs(state, product.id);
   const generated = product.tasks.filter((task) => task.versions.length).length;
   const history = product.tasks.reduce(
-    (n, task) => n + task.versions.length,
+    (n, task) =>
+      n + (product._summary ? task.versionCount : task.versions.length),
     0,
   );
   const selected = product.tasks.reduce(

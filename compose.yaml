@@ -1,5 +1,7 @@
+name: tuxu
 services:
   app:
+    image: tuxu-image:0.1.0
     build: .
     environment:
       DATABASE_PATH: /app/data/workspace.sqlite
@@ -12,7 +14,7 @@ services:
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
     ports:
-      - "${PUBLISH_HOST:-0.0.0.0}:${PORT:-3001}:3001"
+      - "80:3001"
     volumes:
       - workspace:/app/data
       - ./data/tls:/app/data/tls:ro

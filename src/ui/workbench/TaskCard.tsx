@@ -9,6 +9,7 @@ import { imageGeneration } from "../../view-models/image-generation.js";
 import "./task-card.css";
 import { ProductStatusBadge } from "../ProductStatusBadge";
 import { Badge } from "../design-system/Badge";
+import { PreviewImage } from "../PreviewImage";
 
 export function VersionSelection({
   task,
@@ -53,10 +54,9 @@ function VersionHistory({ task }: { task: ImageTask }) {
             aria-pressed={v.id === task.primaryId}
             title={`${user.role === "viewer" ? "查看" : "点击选用"} V${v.number} · ${v.origin === "demo" ? "演示图片" : formatTime(v.createdAt)}`}
           >
-            <img
+            <PreviewImage
               src={v.source}
               alt={`V${v.number}`}
-              loading="lazy"
               decoding="async"
             />
           </ActionButton>
@@ -156,10 +156,9 @@ export function TaskCard({ task }: { task: ImageTask }) {
           >
             {task.references[activeReference] ? (
               <>
-                <img
+                <PreviewImage
                   src={task.references[activeReference]}
                   alt={`${task.role}参考图`}
-                  loading="lazy"
                   decoding="async"
                 />
                 <span>查看 / 管理</span>
@@ -184,7 +183,7 @@ export function TaskCard({ task }: { task: ImageTask }) {
                   aria-pressed={index === activeReference}
                   onClick={() => setReferenceIndex(index)}
                 >
-                  <img src={source} alt="" loading="lazy" decoding="async" />
+                  <PreviewImage src={source} alt="" />
                 </button>
               ))}
             </div>
@@ -208,10 +207,9 @@ export function TaskCard({ task }: { task: ImageTask }) {
                 action="view-version"
                 data={{ task: task.id, version: result.id }}
               >
-                <img
+                <PreviewImage
                   src={result.source}
                   alt={`${task.role}当前选择结果`}
-                  loading="lazy"
                   decoding="async"
                 />
                 <Badge tone="success" className="result-tag">

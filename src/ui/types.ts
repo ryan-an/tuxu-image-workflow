@@ -15,6 +15,7 @@ export interface PromptVersion {
   createdAt: number;
 }
 export interface ImageTask {
+  versionCount?: number;
   id: string;
   role: string;
   references: string[];
@@ -26,6 +27,7 @@ export interface ImageTask {
   revision: number;
 }
 export interface Product {
+  _summary?: boolean;
   id: string;
   code: string;
   name: string;
@@ -77,6 +79,7 @@ export interface Job {
   syncError?: string;
 }
 export interface Workspace {
+  jobTotal?: number;
   promptTemplates?: Record<string, PromptTemplate>;
   products: Product[];
   jobs: Job[];
@@ -138,6 +141,7 @@ export interface Modal {
   id?: string;
 }
 export interface UIState {
+  productError?: string;
   downloadSelections: Record<string, string[]>;
   view: string;
   search: string;
