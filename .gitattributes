@@ -1,0 +1,2 @@
+# Keep the checksum of the migration relocated from the local 008.sql.
+/server/production/sqlite-migrations/014.sql text eol=lf

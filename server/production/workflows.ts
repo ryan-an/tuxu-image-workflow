@@ -22,6 +22,7 @@ import { Repository } from "./repository.js";
 import { Credentials } from "./credentials.js";
 import { Assets } from "./assets.js";
 import { AnalysisEvents } from "./analysis-events.js";
+import { removeProductRows } from "../../shared/sheet-data.js";
 import {
   AppError,
   type Job,
@@ -238,6 +239,65 @@ export class Workflows {
           : "请先配置 Grsai 生图 API Key",
       );
     return this.credentials.decrypt(credential);
+  }
+  async deleteProduct(id: string, actor?: CurrentUser) {
+    const result = await this.repo.db.transaction(async (tx) => {
+      const row = await this.repo.lock(tx);
+      if (row.archived_at !== null) throw new AppError("工作区已归档", 409);
+      if (actor)
+        await requireMembership(tx, this.repo.workspaceId, actor.id, "edit");
+      const state = await this.repo.view(tx);
+      const before = structuredClone(state);
+      const product = state.products.find((p) => p.id === id);
+      if (!product) throw new AppError("产品不存在或已删除", 404);
+      if (state.jobs.some((job) => job.productId === id && active(job)))
+        throw new AppError(
+          "该产品还有待执行、执行中或待核对任务，请先取消或处理后再删除",
+          409,
+        );
+      const running = await tx.query(
+        "SELECT t.id FROM assistant_turns t JOIN assistant_conversations c ON c.id=t.conversation_id WHERE c.product_id=$1 AND c.workspace_id=$2 AND t.status='running' LIMIT 1",
+        [id, this.repo.workspaceId],
+      );
+      if (running.rows.length)
+        throw new AppError("该产品的豆包咨询仍在回复，请先停止后再删除", 409);
+      await tx.query(
+        "DELETE FROM job_attempts WHERE job_id IN (SELECT id FROM jobs WHERE product_id=$1 AND workspace_id=$2)",
+        [id, this.repo.workspaceId],
+      );
+      await tx.query(
+        "UPDATE jobs SET depends_on=NULL WHERE product_id=$1 AND workspace_id=$2",
+        [id, this.repo.workspaceId],
+      );
+      await tx.query(
+        "DELETE FROM jobs WHERE product_id=$1 AND workspace_id=$2",
+        [id, this.repo.workspaceId],
+      );
+      await tx.query("DELETE FROM products WHERE id=$1 AND workspace_id=$2", [
+        id,
+        this.repo.workspaceId,
+      ]);
+      state.sheetSnapshot = removeProductRows(state.sheetSnapshot, product);
+      await this.repo.saveWorkspace(tx, state);
+      const after = await this.repo.view(tx);
+      await recordWorkspaceActivity(
+        tx,
+        this.repo.workspaceId,
+        before,
+        after,
+        actor,
+      );
+      return after;
+    });
+    this.collaboration.changed();
+    try {
+      await this.assets.collectUnused();
+    } catch {
+      // Deletion is already committed. The scheduled sweep retries filesystem
+      // failures without reporting a successfully deleted product as failed.
+      return { ...result, assetCleanupPending: true };
+    }
+    return result;
   }
   async edit(raw: any[], actor?: CurrentUser) {
     const edits = await this.assets.normalize(raw);

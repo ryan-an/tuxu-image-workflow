@@ -94,6 +94,27 @@ export async function migrate(db: Database) {
     await tx.query(
       "CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec')*1000 AS INTEGER)))",
     );
+    // The local sheet importer and the remote accounts feature independently
+    // used 008. Relocate only the exact, already applied sheet migration; its
+    // SQL and checksum stay unchanged, and all upgrades remain one transaction.
+    const legacySheetChecksum =
+      "e8ebae69e8266b139b833331bc70782846775e8f8a2e85a18b0d2b6c7e2047bc";
+    const legacy = (
+      await tx.query(
+        "SELECT checksum FROM schema_migrations WHERE version='008.sql'",
+      )
+    ).rows[0];
+    if (legacy?.checksum === legacySheetChecksum) {
+      const relocated = await readFile(new URL("014.sql", directory), "utf8");
+      if (
+        createHash("sha256").update(relocated).digest("hex") !==
+        legacySheetChecksum
+      )
+        throw new Error("已执行的表格导入迁移内容发生变化，请恢复 014.sql");
+      await tx.query(
+        "UPDATE schema_migrations SET version='014.sql' WHERE version='008.sql'",
+      );
+    }
     for (const file of files) {
       const sql = await readFile(new URL(file, directory), "utf8");
       const checksum = createHash("sha256").update(sql).digest("hex");

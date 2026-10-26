@@ -48,19 +48,75 @@ export class Assets {
     if (this.workspaceId !== WORKSPACE)
       hash.update(this.workspaceId).update("\0");
     const id = hash.update(mime).update(bytes).digest("hex");
-    await mkdir(this.root, { recursive: true });
-    const temporary = join(this.root, `${id}.${randomUUID()}.tmp`);
-    try {
-      await writeFile(temporary, bytes, { flag: "wx" });
-      await rename(temporary, join(this.root, id));
-    } finally {
-      await unlink(temporary).catch(() => {});
-    }
-    await this.db.query(
-      "INSERT INTO assets(id,workspace_id,mime,bytes) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO NOTHING",
-      [id, this.workspaceId, mime, bytes.length],
-    );
-    return `/api/assets/${id}`;
+    return this.db.transaction(async (tx) => {
+      await mkdir(this.root, { recursive: true });
+      const temporary = join(this.root, `${id}.${randomUUID()}.tmp`);
+      try {
+        await writeFile(temporary, bytes, { flag: "wx" });
+        await rename(temporary, join(this.root, id));
+      } finally {
+        await unlink(temporary).catch(() => {});
+      }
+      await tx.query(
+        "INSERT INTO assets(id,workspace_id,mime,bytes) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET created_at=CAST(unixepoch('subsec')*1000 AS INTEGER) WHERE assets.workspace_id=excluded.workspace_id",
+        [id, this.workspaceId, mime, bytes.length],
+      );
+      return `/api/assets/${id}`;
+    });
+  }
+  // A grace period protects uploads and downloaded results not yet attached to
+  // a product. All writes and reference checks share the database write lock.
+  async collectUnused(now = Date.now()) {
+    return this.db.transaction(async (tx) => {
+      const referenced = new Set<string>();
+      for (const sql of [
+        "SELECT document AS value FROM workspace WHERE id=$1",
+        "SELECT document AS value FROM products WHERE workspace_id=$1",
+        "SELECT payload AS value FROM jobs WHERE workspace_id=$1",
+        "SELECT response AS value FROM commands WHERE workspace_id=$1",
+        "SELECT t.user_text AS value,t.assistant_text FROM assistant_turns t JOIN assistant_conversations c ON c.id=t.conversation_id WHERE c.workspace_id=$1",
+        "SELECT document AS value FROM sheet_imports WHERE workspace_id=$1 AND expires_at >= $2",
+      ]) {
+        const rows = (
+          await tx.query(
+            sql,
+            sql.includes("$2") ? [this.workspaceId, now] : [this.workspaceId],
+          )
+        ).rows;
+        for (const row of rows)
+          for (const match of JSON.stringify(row).matchAll(
+            /\/api\/assets\/([a-f0-9]{64})/g,
+          ))
+            referenced.add(match[1]);
+      }
+      const candidates = (
+        await tx.query(
+          "SELECT id,bytes FROM assets WHERE created_at <= $1 AND workspace_id=$2",
+          [now - 60 * 60 * 1000, this.workspaceId],
+        )
+      ).rows;
+      let deleted = 0,
+        bytes = 0;
+      for (const asset of candidates) {
+        if (referenced.has(asset.id) || this.previews.has(asset.id)) continue;
+        const remove = async (path: string) => {
+          try {
+            await unlink(path);
+          } catch (error: any) {
+            if (error.code !== "ENOENT") throw error;
+          }
+        };
+        await remove(join(this.root, "thumbnails", `${asset.id}.webp`));
+        await remove(join(this.root, asset.id));
+        await tx.query("DELETE FROM assets WHERE id=$1 AND workspace_id=$2", [
+          asset.id,
+          this.workspaceId,
+        ]);
+        deleted++;
+        bytes += asset.bytes;
+      }
+      return { deleted, bytes };
+    });
   }
   async get(id: string) {
     if (!/^[a-f0-9]{64}$/.test(id)) throw new AppError("图片不存在", 404);

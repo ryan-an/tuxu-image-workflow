@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { readFile } from "node:fs/promises";
+import ExcelJS from "exceljs";
 import {
   fixture,
   fakeProvider,
@@ -409,7 +410,7 @@ test(
   },
 );
 test(
-  "production browser saves, submits, closes and reloads durable results and portable backup",
+  "production browser saves, submits, closes and reloads durable results and exports an independent example template",
   { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 60000 },
   async () => {
     const { chromium } = createRequire(import.meta.url)(
@@ -650,24 +651,28 @@ test(
       await reopened.click('[data-action="view"][data-view="sheet"]');
       const [download] = await Promise.all([
         reopened.waitForEvent("download"),
-        reopened.click('[data-action="backup"]'),
+        reopened.click('[data-action="export-template"]'),
       ]);
-      const backup = JSON.parse(
-        await readFile((await download.path())!, "utf8"),
-      );
-      assert.ok(
-        backup.products[0].tasks[0].versions[0].source.startsWith(
-          "data:image/",
-        ),
-      );
-      assert.equal(backup.products[0].tasks[0].prompt, "Production prompt");
-      const resultCell = backup.sheetSnapshot.sheets.preview.cellData[3][4];
-      const picture = Object.values(resultCell.p.drawings)[0] as {
-        source: string;
-      };
+      assert.equal(download.suggestedFilename(), "图序-产品导入模板.xlsx");
+      const templatePath = artifactPath("product-import-template.xlsx");
+      await download.saveAs(templatePath);
+      const template = new ExcelJS.Workbook();
+      await template.xlsx.readFile(templatePath);
       assert.equal(
-        picture.source,
-        backup.products[0].tasks[0].versions[0].source,
+        template.getWorksheet("产品模板")!.getCell("A2").value,
+        "示例-001",
+      );
+      assert.equal(template.getWorksheet("产品模板")!.rowCount, 2);
+      assert.ok(template.getWorksheet("填写说明"));
+      assert.equal(
+        await reopened
+          .locator('[data-action="backup"], [data-action="restore"]')
+          .count(),
+        0,
+      );
+      assert.equal(
+        (await f.workflows.repo.view()).products[0].tasks[0].prompt,
+        "Production prompt",
       );
       // A timed-out analysis must offer recovery rather than stay disabled.
       const workspace = await f.workflows.repo.view();

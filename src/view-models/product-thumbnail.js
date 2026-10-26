@@ -1,5 +1,6 @@
 export const THUMBNAIL_SIZE = 96;
 export const THUMBNAIL_MAX_BYTES = 12 * 1024;
+import { digestHex } from "../../shared/browser-crypto.js";
 const sourceCache = new Map();
 
 export function thumbnailBytes(data) {
@@ -22,14 +23,7 @@ export function thumbnailSource(product) {
     : "";
 }
 async function sourceHash(source) {
-  if (!crypto.subtle) return null;
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(source),
-  );
-  return [...new Uint8Array(digest)]
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
+  return digestHex(source);
 }
 async function compress(source, hash) {
   const image = new Image();

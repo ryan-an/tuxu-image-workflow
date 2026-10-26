@@ -39,6 +39,23 @@ await app.listen({
   port: Number(process.env.PORT || 3001),
 });
 await worker.start();
+const collectAssets = async () => {
+  try {
+    for (const workflows of await workspaces.all())
+      await workflows.assets.collectUnused();
+  } catch (error) {
+    app.log.error(
+      { errorType: (error as Error).name },
+      "unused asset cleanup failed",
+    );
+  }
+};
+await collectAssets();
+const assetCleanupTimer = setInterval(
+  () => void collectAssets(),
+  60 * 60 * 1000,
+);
+assetCleanupTimer.unref();
 app.log.info(
   { database: process.env.DATABASE_PATH || "./data/workspace.sqlite" },
   "SQLite 工作区与任务队列已启动",
@@ -63,6 +80,7 @@ let closing = false;
 async function close() {
   if (closing) return;
   closing = true;
+  clearInterval(assetCleanupTimer);
   await worker?.stop();
   await app.close();
   await db.close();

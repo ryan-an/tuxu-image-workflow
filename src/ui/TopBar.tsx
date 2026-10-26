@@ -6,6 +6,7 @@ import { Badge } from "./design-system/Badge";
 import { Button } from "./design-system/Button";
 import { PasswordDialog } from "./auth/PasswordDialog";
 import "./topbar.css";
+declare const __APP_VERSION__: string;
 
 function Icon({
   name,
@@ -323,6 +324,16 @@ export function TopBar({ onLogout }: { onLogout?: () => Promise<void> }) {
                 修改密码
               </Button>
             )}
+            <a
+              className="account-release-link"
+              href="/updates/"
+              target="_blank"
+              rel="noopener"
+            >
+              <Icon name="history" />
+              更新日志
+              <span>v{__APP_VERSION__}</span>
+            </a>
             {onLogout && (
               <Button
                 id="logout"

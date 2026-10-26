@@ -16,7 +16,9 @@ export function createStateStore() {
     parser: null,
     sheetConflicts: [],
     sheetPeers: [],
+    sheetStatus: "idle",
     exporting: false,
+    importing: false,
     formError: "",
     mediaFeedback: "",
     mediaError: false,
@@ -85,7 +87,9 @@ export function createStateStore() {
     setFilter: (value) => update("filter", value),
     setSearch: (value) => update("search", value),
     setSheetConflicts: (value) => update("sheetConflicts", value),
+    setSheetStatus: (value) => update("sheetStatus", value),
     setExporting: (value) => update("exporting", value),
+    setImporting: (value) => update("importing", value),
     dispose: () => {
       disposed = true;
       clearTimeout(toastTimer);

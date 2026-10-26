@@ -4,6 +4,10 @@
 
 ## 本机启动
 
+Windows 局域网免安装部署可使用内置 Node.js 的便携 ZIP：解压后双击「启动图序.cmd」，其他电脑通过浏览器访问。便携版固定将 SQLite、素材、日志和证书放在程序旁的 `data/`，将密码、加密主密钥和运行配置放在 `.env`；升级或改成 EXE 时只需完整保留这两个位置。打包命令为 `npm run windows:pack`（先测试并构建），使用与升级步骤见 [Windows 便携部署](docs/windows-portable.md)。
+
+Docker、Windows ZIP/EXE 之间的数据备份、恢复和迁移步骤见 [数据备份与迁移指南](docs/data-migration.md)。
+
 需要 Node.js 24。首次安装和构建：
 
 ```powershell
@@ -69,37 +73,10 @@ npm run test:e2e
 
 ## 可选 Docker
 
-完整的打包、备份、更新、故障处理和首次部署步骤见 [部署说明](部署说明.md)。已有服务器更新请先按说明备份，再执行更新命令。
+当前版本和图文更新说明见工作台右上角「账号菜单 → 更新日志」，也可直接访问 `/updates/`。新部署包自动递增版本并保留历史包；维护方式见 [版本与更新日志](docs/releases/README.md)。
 
-本机无需安装 Docker，安装好项目依赖后，可以直接编译并生成程序部署包：
+先运行 `npm run setup` 生成配置，再运行 `docker compose up --build -d`。只有一个应用容器和一个数据卷，访问地址相同。外网访问需要 HTTPS 反向代理。
 
-```powershell
-npm run pack:deploy
-```
-
-需要系统提供 `tar` 命令（Windows 10/11 和常见 Linux 系统一般自带）。生成项目上一级目录的 `tuxu-app.tar.gz`，包含当前代码编译后的前后端程序、数据库迁移和 Docker 构建文件；不包含项目源码、本机 `.env`、数据库、图片或本机依赖目录。解压后只有 `build-mirror/` 程序目录、`compose.yaml`、`changelog.md` 和 `DEPLOY.md`（部署说明，使用英文文件名避免跨系统乱码）。
-
-将压缩包上传到 Linux 服务器，在部署目录解压。首次部署的配置生成步骤见 [部署说明](部署说明.md)，无需在服务器单独安装 Node。已有部署在完成备份后执行：
-
-```bash
-cd /opt/tuxu
-tar -xzf tuxu-app.tar.gz && docker compose up --build -d app
-docker compose logs -f --tail=100 app
-```
-
-服务器构建镜像时只下载并安装运行依赖（原生模块必要时编译），不再构建前端或 TypeScript。后续更新先备份数据卷和 `.env`，在原部署目录解压新包，再执行 `docker compose up --build -d`。保留原 `.env` 和数据卷，不要执行 `docker compose down -v`；新版启动时自动迁移数据库。
-
-对于现有 `/opt/tuxu` 部署，确认已备份后执行：
-
-```bash
-cd /opt/tuxu
-tar -xzf tuxu-app.tar.gz && docker compose up --build -d app
-```
-
-包中的 Compose 固定使用项目名 `tuxu`、镜像名 `tuxu-image:0.1.0`、数据卷 `workspace` 和端口 `80:3001`，与现有部署一致。不要额外指定其他 `-p` 项目名或更改 `COMPOSE_PROJECT_NAME`，否则可能连接到其他数据卷。更新不运行旧 `configure.mjs`，避免重写端口配置。压缩包不会覆盖原 `.env` 或携带本机业务数据。
-
-低带宽服务器的首屏分步加载、响应压缩、浏览器缓存与更新部署方式见 [加载性能说明](docs/loading-performance.md)。
-
-先运行 `npm run setup` 生成配置，再运行 `docker compose up --build -d`，通过 `http://服务器IP` 访问，对外端口固定为 80，不要求证书。`REQUIRE_HTTPS` 默认 `false`；本机 Node 服务的 `PORT` 不改变 Docker 的对外端口。只有一个应用容器和一个数据卷。以后需要 HTTPS 时可选用 [证书或代理配置](docs/transport-security.md)，证书目录以只读方式挂载。
+云服务器无需上传业务源码：本机运行 `npm run docker:pack` 编译并生成运行包（本机不需要 Docker），再运行 `npm run docker:deploy -- --host root@服务器IP --domain 你的域名`，JS 脚本自动上传、在服务器 Docker 内安装运行依赖并组装镜像、生成配置和启动。服务器只需 Docker 和 Compose，不需要 Node.js；首次随机生成密码，后续保留数据与加密密钥。`npm run docker:image` 保留本机 Docker 完整镜像打包模式。平台选择、已有反向代理和无域名访问见 [部署说明](docs/docker-deployment.md)。
 
 模块职责见 [架构文档](docs/architecture.md)，前端维护见 [前端架构](docs/frontend.md)。旧原型记录见 [原型记录](docs/legacy-prototype.md)。`npm run dev:demo` 仅用于旧原型兼容验证。

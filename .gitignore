@@ -17,3 +17,7 @@ data/
 /artifacts/tests/
 /artifacts/screenshots/
 /artifacts/logs/
+/artifacts/docker/
+/artifacts/windows/
+/public/updates/
+/public/version.json

@@ -1,11 +1,7 @@
+import { applySheetImport } from "../../shared/sheet-import.js";
+import { api } from "../services/workspace-client.js";
 import { productPhotos } from "../../shared/prompt-suite.js";
-import {
-  newProduct,
-  setPrimary,
-  savePrompt,
-  addVersion,
-  chosen,
-} from "../../shared/model.js";
+import { chosen } from "../../shared/model.js";
 import { PRODUCT_PAGE_SIZE } from "../view-models/product-page.js";
 
 import {
@@ -13,7 +9,7 @@ import {
   parseSheet,
   validateSheetParse,
   imageCell,
-} from "../integrations/sheet-bridge.js";
+} from "../../shared/sheet-data.js";
 
 // Match the import rules: missing external columns preserve existing values,
 // while explicitly empty preview cells can clear them.
@@ -61,6 +57,7 @@ export function createSheet(context) {
   let parseContext = null;
   let opening = false,
     parsing = false;
+  let mounting = null;
   async function syncTask(p, t, kind, force = false) {
     const { bridge, notify } = context;
     try {
@@ -125,6 +122,8 @@ export function createSheet(context) {
 
   async function switchView(next) {
     const { bridge, render, setView } = context;
+    if (next === "sheet" && context.canEdit !== false && !bridge.workbook)
+      context.setSheetStatus("loading");
     setView(next);
     bridge.collaborationVisible = next === "sheet";
     bridge.showCollaborators(bridge.peers || []);
@@ -140,26 +139,57 @@ export function createSheet(context) {
       );
     }
     render();
-    if (next === "sheet") {
+    if (next !== "sheet") {
+      bridge.capture();
+      return;
+    }
+    const reconcile = async () => {
       await context.ensureAll?.();
       const errors = await bridge.reconcile();
       if (errors.length)
         context.notify("结果已保留，表格回填失败：" + errors[0]);
       render();
+    };
+    if (context.canEdit === false) {
+      await reconcile();
+      return;
     }
-    if (next === "sheet" && context.canEdit !== false) await bridge.mount();
-    else bridge.capture();
-    if (next === "sheet") context.saveSoon();
+    if (!mounting && !bridge.workbook) {
+      mounting = (async () => {
+        try {
+          // Let the loading surface paint before loading the spreadsheet engine.
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+          await reconcile();
+          await bridge.mount();
+          // Reveal only after the mounted canvas has had a chance to render.
+          await new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          );
+          if (!bridge.disposed) context.setSheetStatus("ready");
+        } catch (error) {
+          context.setSheetStatus("error");
+          throw error;
+        } finally {
+          mounting = null;
+        }
+      })();
+    }
+    if (mounting) await mounting;
+    else {
+      await reconcile();
+      context.setSheetStatus("ready");
+    }
+    context.saveSoon();
   }
 
-  async function openParser() {
+  async function openParser(importedSource = null) {
     const { bridge, renderParser } = context;
-    if (!bridge.workbook || opening) return;
+    if ((!bridge.workbook && !importedSource) || opening) return;
     opening = true;
     try {
       bridge.capture();
       await context.persist();
-      const source = bridge.parserSource();
+      const source = importedSource || bridge.parserSource();
       parseContext = {
         source,
         mapping: detectColumns(source),
@@ -172,27 +202,49 @@ export function createSheet(context) {
     }
   }
 
+  async function importSheetFile(event) {
+    const input = event.target,
+      file = input.files?.[0];
+    if (!file || context.ui.importing) return;
+    context.setImporting(true);
+    try {
+      await context.persist();
+      const { importSheetFile } = await import(
+        "../integrations/import-sheet.js"
+      );
+      parseContext = await importSheetFile(file);
+      renderParser();
+    } finally {
+      input.value = "";
+      context.setImporting(false);
+    }
+  }
+
   function renderParser() {
     const { ui, publish, showModal } = context;
-    parseContext.candidates = parseSheet(
-      parseContext.source,
-      parseContext.mapping,
-      parseContext.layout,
-    );
-    parseContext.issues = validateSheetParse(
-      parseContext.source,
-      parseContext.mapping,
-      parseContext.layout,
-      parseContext.candidates,
-    );
+    if (!parseContext.importId) {
+      parseContext.candidates = parseSheet(
+        parseContext.source,
+        parseContext.mapping,
+        parseContext.layout,
+      );
+      parseContext.issues = validateSheetParse(
+        parseContext.source,
+        parseContext.mapping,
+        parseContext.layout,
+        parseContext.candidates,
+      );
+    }
     const products = new Map(context.state.products.map((p) => [p.code, p]));
-    parseContext.changes = parseContext.candidates.filter((source) =>
-      parsedProductNeedsUpdate(
-        source,
-        products.get(source.code),
-        parseContext.source.id === "preview",
-      ),
-    );
+    parseContext.changes = parseContext.importId
+      ? parseContext.candidates
+      : parseContext.candidates.filter((source) =>
+          parsedProductNeedsUpdate(
+            source,
+            products.get(source.code),
+            parseContext.source.id === "preview",
+          ),
+        );
     ui.parser = {
       ...parseContext,
       mapping: {
@@ -206,6 +258,35 @@ export function createSheet(context) {
 
   async function confirmParse() {
     if (parsing) return;
+    if (parseContext?.importId) {
+      parsing = true;
+      try {
+        await context.persist();
+        const result = await api(
+          `/api/workspace/sheet-import/${parseContext.importId}/confirm`,
+          { commandId: parseContext.commandId },
+        );
+        await context.bridge.withRemoteWorkspace(() =>
+          context.repository.reload({ acceptRemoteSheet: true }),
+        );
+        context.state.activeProductId = result.firstProductId;
+        context.ui.search = "";
+        context.ui.filter = "all";
+        const index = [...context.state.products]
+          .sort((a, b) => a.code.localeCompare(b.code))
+          .findIndex((p) => p.id === result.firstProductId);
+        context.ui.productPage = Math.floor(Math.max(0, index) / 30) + 1;
+        context.render();
+        context.closeModal();
+        await context.switchView("sheet");
+        context.notify(
+          `已导入并解析 ${result.total} 个产品：新增 ${result.created} 个，更新 ${result.updated} 个，按每页30个展示`,
+        );
+      } finally {
+        parsing = false;
+      }
+      return;
+    }
     if (!parseContext?.candidates.length) throw new Error("没有可解析的产品。");
     const issues = validateSheetParse(
       parseContext.source,
@@ -217,131 +298,63 @@ export function createSheet(context) {
     parsing = true;
     let originalRowData;
     try {
-      context.bridge.completeProductRows(
-        parseContext.candidates.map((product) => product.code),
+      const { state, bridge, change, closeModal, switchView, notify } = context;
+      bridge.capture();
+      const previousRows = structuredClone(
+        state.sheetSnapshot.sheets.preview.rowData || {},
       );
-      originalRowData = structuredClone(
-        context.bridge.snapshot().sheets.preview.rowData || {},
-      );
-      const {
-        state,
-        bridge,
-        notify,
-        change,
-        closeModal,
-        syncTask,
-        updateMetadata,
-        switchView,
-      } = context;
-      let created = 0,
-        updated = 0,
-        lastSavedProduct = null;
-      const productsByCode = new Map(
-        state.products.map((product) => [product.code, product]),
-      );
-      const authoritative = parseContext.source.id === "preview";
-      await bridge.batch(async () => {
-        for (const source of parseContext.candidates) {
-          let p = productsByCode.get(source.code);
-          const isNew = !p;
-          const needsUpdate = parsedProductNeedsUpdate(
-            source,
-            p,
-            authoritative,
-          );
-          if (!needsUpdate) {
-            // Still repair missing rows and acknowledge a reverted draft, but
-            // do not rewrite an unchanged product or include it in the count.
-            await updateMetadata(p, p.code, true);
-            for (const t of p.tasks)
-              for (const k of ["reference", "prompt", "result"])
-                await syncTask(p, t, k, true);
-            bridge.markProductParsed(p.code);
-            continue;
-          }
-          if (isNew) {
-            p = newProduct(source.code, source.name, source.facts);
-            state.products.push(p);
-            productsByCode.set(p.code, p);
-            created++;
-          } else updated++;
-          if (authoritative && source.present.metadata) {
-            p.name = source.name;
-            p.facts = source.facts;
-          } else {
-            p.name = source.name || p.name;
-            p.facts = source.facts || p.facts;
-          }
-          if ((authoritative && source.present.photo) || source.photos.length) {
-            const next = source.photos;
-            if (JSON.stringify(productPhotos(p)) !== JSON.stringify(next)) {
-              p.photoThumbnail = null;
-              for (const task of p.tasks) delete task.realPhotoIndices;
-            }
-            p.photos = [...next];
-            p.photo = next[0] || "";
-          }
-          for (const item of source.tasks) {
-            const t = p.tasks.find((t) => t.role === item.role);
-            if (
-              (authoritative && item.present.references) ||
-              item.references.length
-            ) {
-              if (
-                item.references[0] !== t.references[0] ||
-                !item.references.length ||
-                (item.references.length > 1 &&
-                  JSON.stringify(item.references) !==
-                    JSON.stringify(t.references))
-              )
-                t.references = item.references;
-            }
-            if (
-              ((authoritative && item.present.prompt) || item.prompt) &&
-              item.prompt !== t.prompt
-            )
-              savePrompt(t, item.prompt);
-            if (item.result) {
-              const version =
-                t.versions.find((v) => v.source === item.result) ||
-                addVersion(t, item.result, item.prompt || t.prompt, "imported");
-              setPrimary(t, version.id);
-            } else if (authoritative && item.present.result) {
-              t.primaryId = null;
-              t.selectedIds = [];
-            }
-          }
-          if (isNew && parseContext.source.id !== "preview")
-            bridge.appendProduct(p);
-          else {
-            await updateMetadata(p, p.code, true);
-          }
-          for (const t of p.tasks)
-            for (const k of ["reference", "prompt", "result"])
-              await syncTask(p, t, k, true);
-          bridge.markProductParsed(p.code);
-          lastSavedProduct = p;
-        }
+      const imported = applySheetImport(state, parseContext.candidates, {
+        authoritative: parseContext.source.id === "preview",
       });
-      const selected =
-        lastSavedProduct ||
-        productsByCode.get(parseContext.candidates.at(-1)?.code);
-      if (selected) state.activeProductId = selected.id;
+      originalRowData = Object.fromEntries(
+        Object.entries(previousRows).map(([row, value]) => [
+          imported.rowMap.get(Number(row)) ?? row,
+          value,
+        ]),
+      );
+      const previousProducts = new Map(state.products.map((p) => [p.id, p]));
+      state.products = imported.state.products.map((next) => {
+        const previous = previousProducts.get(next.id);
+        if (!previous) return next;
+        const tasks = next.tasks.map((task) => {
+          const old = previous.tasks.find((t) => t.id === task.id);
+          return old ? Object.assign(old, task) : task;
+        });
+        return Object.assign(previous, next, { tasks });
+      });
+      const changedIds = new Set(imported.updatedIds);
+      const selectedId =
+        imported.importedIds.findLast(
+          (id) => !previousProducts.has(id) || changedIds.has(id),
+        ) || imported.importedIds.at(-1);
+      state.activeProductId = selectedId;
+      for (const id of imported.importedIds) bridge.knownProducts.add(id);
+      bridge.replaceSnapshot(imported.state.sheetSnapshot, imported.rowMap);
+      for (const [key, conflict] of bridge.conflicts)
+        if (
+          imported.importedIds.includes(
+            state.sheetSnapshot.sheets.preview.rowData?.[conflict.row]?.custom
+              ?.workflowProductId,
+          )
+        )
+          bridge.removeConflict(key);
       change();
       await context.persist();
       // Persistence may reorder products. Reveal the saved product on its final
       // page, including when a search would otherwise hide the new product.
-      if (selected) {
+      if (selectedId) {
         context.ui.search = "";
         context.ui.productPage =
           Math.floor(
-            state.products.findIndex((p) => p.id === selected.id) /
+            state.products.findIndex((p) => p.id === selectedId) /
               PRODUCT_PAGE_SIZE,
           ) + 1;
       }
       closeModal();
       await switchView("workbench");
-      notify(`已保存并解析：新增 ${created} 个，更新 ${updated} 个产品`);
+      notify(
+        `已保存并解析：新增 ${imported.created} 个，更新 ${imported.updated} 个产品`,
+      );
     } catch (error) {
       if (!originalRowData) throw error;
       const snapshot = context.bridge.snapshot();
@@ -402,6 +415,7 @@ export function createSheet(context) {
     updateMetadata,
     switchView,
     openParser,
+    importSheetFile,
     renderParser,
     confirmParse,
     updateParser,

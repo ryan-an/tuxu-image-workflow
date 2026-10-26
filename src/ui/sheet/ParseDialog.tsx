@@ -57,62 +57,71 @@ export function ParseDialog({ context }: { context: ParserContext }) {
       <p className="modal-subtitle">
         来源：{source.name}。按产品编号匹配更新，历史结果保留。
       </p>
-      <details className="parse-advanced">
-        <summary>高级配置</summary>
-        <div className="form-grid">
-          <label>
-            数据布局
-            <select
-              id="parse-layout"
-              value={layout}
-              onChange={(e) =>
-                controller.updateParser("layout", null, e.target.value)
-              }
-            >
-              <option value="auto">自动识别</option>
-              <option value="three">每产品三行</option>
-              <option value="single">每行一个产品</option>
-            </select>
-          </label>
-          <label>
-            表头所在行
-            <input
-              type="number"
-              id="parse-header"
-              min={0}
-              value={mapping.headerRow + 1}
-              title="0 表示没有表头"
-              onChange={(e) =>
-                controller.updateParser(
-                  "headerRow",
-                  null,
-                  Number(e.target.value) - 1,
-                )
-              }
-            />
-          </label>
-          {[
-            ["codeColumn", "编号列"],
-            ["nameColumn", "名称 / 资料列"],
-            ["typeColumn", "行类型列"],
-            ["photoColumn", "实拍图起始列"],
-          ].map(([field, label]) => (
-            <label key={field}>
-              {label}
-              <ColumnSelect context={context} field={field as ColumnField} />
+      {context.importId && (
+        <p className="modal-subtitle">
+          后端已解析全部 {context.total ?? candidates.length}{" "}
+          个产品。确认后统一生成三行结构，按每页30个展示；新增 {context.created}{" "}
+          个，更新 {context.updated} 个。
+        </p>
+      )}
+      {!context.importId && (
+        <details className="parse-advanced">
+          <summary>高级配置</summary>
+          <div className="form-grid">
+            <label>
+              数据布局
+              <select
+                id="parse-layout"
+                value={layout}
+                onChange={(e) =>
+                  controller.updateParser("layout", null, e.target.value)
+                }
+              >
+                <option value="auto">自动识别</option>
+                <option value="three">每产品三行</option>
+                <option value="single">每行一个产品</option>
+              </select>
             </label>
-          ))}
-        </div>
-        <h4>图片类型列对应关系</h4>
-        <div className="form-grid">
-          {ROLES.map((role, i) => (
-            <label key={role}>
-              {role}
-              <ColumnSelect context={context} roleIndex={i} />
+            <label>
+              表头所在行
+              <input
+                type="number"
+                id="parse-header"
+                min={0}
+                value={mapping.headerRow + 1}
+                title="0 表示没有表头"
+                onChange={(e) =>
+                  controller.updateParser(
+                    "headerRow",
+                    null,
+                    Number(e.target.value) - 1,
+                  )
+                }
+              />
             </label>
-          ))}
-        </div>
-      </details>
+            {[
+              ["codeColumn", "编号列"],
+              ["nameColumn", "名称 / 资料列"],
+              ["typeColumn", "行类型列"],
+              ["photoColumn", "实拍图起始列"],
+            ].map(([field, label]) => (
+              <label key={field}>
+                {label}
+                <ColumnSelect context={context} field={field as ColumnField} />
+              </label>
+            ))}
+          </div>
+          <h4>图片类型列对应关系</h4>
+          <div className="form-grid">
+            {ROLES.map((role, i) => (
+              <label key={role}>
+                {role}
+                <ColumnSelect context={context} roleIndex={i} />
+              </label>
+            ))}
+          </div>
+        </details>
+      )}
       {!!context.issues?.length && (
         <div className="error-text" role="alert">
           {context.issues.map((issue) => (
@@ -124,13 +133,26 @@ export function ParseDialog({ context }: { context: ParserContext }) {
         自动收集实拍图各列，空位跳过、重复图片去重，按从左到右的顺序存入实拍图列表。
       </p>
       <div className="parse-summary">
-        识别到 <strong>{changes.length}</strong> 个待保存产品 ·{" "}
-        {changes.reduce(
-          (n, p) => n + p.tasks.filter((t) => t.references.length).length,
-          0,
-        )}{" "}
+        识别到{" "}
+        <strong>
+          {context.importId
+            ? (context.total ?? candidates.length)
+            : changes.length}
+        </strong>{" "}
+        个待保存产品 ·{" "}
+        {context.referenceCount ??
+          changes.reduce(
+            (n, p) => n + p.tasks.filter((t) => t.references.length).length,
+            0,
+          )}{" "}
         个参考图位置
       </div>
+      {context.importId && (context.total || 0) > candidates.length && (
+        <p className="modal-subtitle">
+          下方仅预览前{candidates.length}个产品，确认将导入全部{context.total}
+          个，导入数量不受展示分页限制。
+        </p>
+      )}
       <div className="parse-products">
         {candidates.map((p) => (
           <div key={p.code}>

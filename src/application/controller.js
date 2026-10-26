@@ -12,7 +12,8 @@ import { loadWorkspace } from "./bootstrap.js";
 import { bindBrowserEvents } from "./browser-events.js";
 import { WorkspaceClient } from "../services/workspace-client.js";
 import { RemoteQueue } from "../services/remote-queue.js";
-import { SheetBridge, parseSheet } from "../integrations/sheet-bridge.js";
+import { SheetBridge } from "../integrations/sheet-bridge.js";
+import { parseSheet } from "../../shared/sheet-data.js";
 import { actionAllowed, can } from "../../shared/access.js";
 import { setSessionWorkspace } from "../services/session-scope.js";
 import { WorkspaceCollaborationClient } from "../services/workspace-collaboration.js";
@@ -327,6 +328,10 @@ export function createApplicationController(
     restoreBackup: async (event) => {
       if (context.canManage) await context.restoreBackup(event);
     },
+    importSheetFile: safe(async (event) => {
+      if (!context.canEdit) throw new Error("查看者不能导入表格");
+      await context.importSheetFile(event);
+    }),
     setSearch: (value) => {
       ui.search = value;
       ui.productPage = 1;

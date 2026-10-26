@@ -1,0 +1,72 @@
+.product-delete {
+  appearance: none;
+  border: 0;
+  box-shadow: none;
+  outline: none;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--color-danger, #b42318);
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.product-delete:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+.product-item:has(.product-delete) .product-list-info {
+  padding-right: 24px;
+}
+.product-item:hover .product-delete,
+.product-item:focus-within .product-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: none) {
+  .product-delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.product-delete-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 240px;
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 8px 28px #27304924;
+  font-size: 12px;
+}
+.product-delete-popover::backdrop {
+  background: transparent;
+}
+.product-delete-popover strong {
+  font-size: 13px;
+}
+.product-delete-popover p {
+  margin: 8px 0 12px;
+  line-height: 1.6;
+  color: var(--color-text-secondary, #64748b);
+}
+.product-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.product-delete-actions .ui-button {
+  padding: 6px 10px;
+  font-size: 12px;
+}

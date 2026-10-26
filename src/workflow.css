@@ -1078,6 +1078,9 @@ h1 {
   align-items: center;
   justify-self: end;
   gap: 9px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
 }
 .sheet-pagination {
   display: flex;
@@ -1255,12 +1258,188 @@ h1 {
   display: flex;
   flex-direction: column;
 }
-#sheet-container {
+.sheet-viewport {
   flex: 1;
   min-height: 420px;
   position: relative;
   overflow: hidden;
-  background: white;
+  background: var(--color-surface);
+  isolation: isolate;
+}
+#sheet-container {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+.sheet-viewport[data-state="ready"] #sheet-container {
+  opacity: 1;
+}
+.sheet-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--color-canvas);
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 300ms ease,
+    visibility 0s;
+}
+.sheet-viewport[data-state="ready"] .sheet-loading {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 300ms ease,
+    visibility 0s 300ms;
+}
+.sheet-loading-skeleton {
+  position: absolute;
+  inset: 20px 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  opacity: 0.5;
+  background: var(--color-surface);
+  mask-image: linear-gradient(#000, #0005);
+}
+.sheet-loading-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 46px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+.sheet-loading-tools i {
+  width: 44px;
+  height: 7px;
+  border-radius: 8px;
+  background: var(--color-neutral-soft);
+}
+.sheet-loading-tools i:nth-child(2) {
+  width: 80px;
+  margin-right: 20px;
+}
+.sheet-loading-grid {
+  display: grid;
+  grid-template-columns: 64px 100px 180px repeat(5, minmax(100px, 1fr));
+  grid-template-rows: 36px repeat(3, minmax(100px, 1fr));
+  height: calc(100% - 46px);
+}
+.sheet-loading-grid > span {
+  padding: 18px;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+.sheet-loading-grid > span:nth-child(-n + 8) {
+  background: var(--color-brand-soft);
+  padding-block: 14px;
+}
+.sheet-loading-grid i {
+  display: block;
+  width: 60%;
+  height: 6px;
+  border-radius: 8px;
+  background: var(--color-neutral-soft);
+}
+.sheet-loading-message {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(320px, calc(100% - 40px));
+  padding: 32px 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+  box-shadow: 0 12px 48px #25324b08;
+}
+.sheet-loading-mark {
+  display: grid;
+  grid-template-columns: repeat(3, 10px);
+  gap: 4px;
+  margin-bottom: 24px;
+  transform: rotate(-8deg);
+}
+.sheet-loading-mark span {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--color-brand);
+  animation: sheet-tile-breathe 1800ms ease-in-out infinite;
+}
+.sheet-loading-message strong {
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+.sheet-loading-message p {
+  margin: 10px 0 0;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.sheet-loading-track {
+  width: 84px;
+  height: 3px;
+  margin-top: 24px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--color-brand-soft);
+}
+.sheet-loading-track span {
+  display: block;
+  width: 32px;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-brand-border);
+  animation: sheet-track-glide 1500ms ease-in-out infinite;
+}
+.sheet-viewport[data-state="error"] .sheet-loading-mark span,
+.sheet-viewport[data-state="ready"] .sheet-loading * {
+  animation: none;
+}
+.sheet-viewport[data-state="error"] .sheet-loading-message button {
+  margin-top: 20px;
+}
+@keyframes sheet-tile-breathe {
+  0%,
+  75%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+@keyframes sheet-track-glide {
+  0% {
+    transform: translateX(-32px);
+  }
+  100% {
+    transform: translateX(84px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet-viewport[data-state] .sheet-loading,
+  #sheet-container {
+    transition: none;
+  }
+  .sheet-loading * {
+    animation: none !important;
+  }
+  .sheet-loading-mark span {
+    opacity: 0.65;
+  }
 }
 #toast {
   position: fixed;

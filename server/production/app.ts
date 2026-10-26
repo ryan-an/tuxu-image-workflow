@@ -24,6 +24,7 @@ import {
   registerTransportSecurity,
   type TransportSecurityOptions,
 } from "./transport-security.js";
+import { registerSheetImports } from "./sheet-imports.js";
 export interface AppOptions {
   db: Database;
   assetDirectory: string;
@@ -89,6 +90,7 @@ export async function createApp(options: AppOptions) {
   registerWorkspaceRoutes(app, directory);
   registerCollaborationRoutes(app, auth.authenticated);
   await registerAssistant(app, workspaces);
+  registerSheetImports(app);
   app.setErrorHandler((error, request, reply) => {
     // Never log request bodies, credentials or upstream response payloads.
     const status = (error as any).statusCode || 500;
@@ -111,6 +113,22 @@ export async function createApp(options: AppOptions) {
     return { status: "ok" };
   });
   app.get("/api/workflow/settings", (request) => request.workspace.settings());
+  app.delete<{ Params: { id: string } }>(
+    "/api/products/:id",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: {
+            id: { type: "string", pattern: "^[A-Za-z0-9_-]{1,100}$" },
+          },
+        },
+      },
+    },
+    (request) =>
+      request.workspace.deleteProduct(request.params.id, request.user!),
+  );
   const streams = new Set<import("node:http").ServerResponse>();
   app.addHook("preClose", async () => {
     for (const stream of streams) stream.end();
@@ -555,7 +573,10 @@ export async function createApp(options: AppOptions) {
       // running can introduce new content-hashed modules without a restart.
       wildcard: true,
       setHeaders(reply, filename) {
-        if (extname(filename) === ".html")
+        if (
+          extname(filename) === ".html" ||
+          basename(filename) === "version.json"
+        )
           reply.header("Cache-Control", "no-store");
         else if (
           filename.startsWith(resolve(options.staticDirectory!, "assets")) &&

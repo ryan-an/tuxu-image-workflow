@@ -58,6 +58,7 @@ const readActions = new Set([
   "download-selected",
   "download-batch-selected",
   "export-excel",
+  "export-template",
   "backup",
   "manage-photos",
   "upload-photo",

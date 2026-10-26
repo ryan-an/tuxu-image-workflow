@@ -288,6 +288,24 @@ export class WorkspaceClient {
       await this.accept(remote, pending, true);
     });
   }
+  deleteProduct(id) {
+    return this.serialize(async () => {
+      this.capture();
+      const before = editable(this.state);
+      const remote = await this.request(
+        `/api/products/${encodeURIComponent(id)}`,
+        undefined,
+        "DELETE",
+      );
+      this.capture();
+      const pending = differences(before, editable(this.state)).filter(
+        (edit) =>
+          edit.path[0] !== "sheetSnapshot" &&
+          !(edit.path[0] === "products" && edit.path[1] === id),
+      );
+      await this.accept(remote, pending);
+    });
+  }
   refresh() {
     if (this.refreshing) return this.refreshing;
     this.refreshing = this.serialize(async () => {
@@ -359,6 +377,18 @@ export class WorkspaceClient {
       this.scheduleRefresh();
     });
     return this.refreshing;
+  }
+  reload({ acceptRemoteSheet = false } = {}) {
+    return this.serialize(async () => {
+      const remote = await api("/api/workspace");
+      await this.accept(
+        remote,
+        differences(editable(this.baseline), editable(this.state)).filter(
+          (edit) => !acceptRemoteSheet || edit.path[0] !== "sheetSnapshot",
+        ),
+      );
+      this.cursor = remote.syncCursor;
+    });
   }
   start() {
     if (this.started) return;

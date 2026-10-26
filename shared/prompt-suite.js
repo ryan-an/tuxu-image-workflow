@@ -177,18 +177,9 @@ export function parseSuiteResponse(
     );
   const seen = new Set();
   const prompts = value.images.map((item) => {
-    if (
-      !item ||
-      !roles.includes(item.role) ||
-      seen.has(item.role) ||
-      typeof item.layout !== "string" ||
-      !item.layout.trim() ||
-      !Array.isArray(item.copy) ||
-      !item.copy.length ||
-      item.copy.some((s) => typeof s !== "string" || !s.trim())
-    )
+    if (!item || !roles.includes(item.role) || seen.has(item.role))
       throw new PromptValidationError(
-        "整套提示词角色、布局或文案字段不完整，请重试",
+        "提示词无法对应到图片位置，请重新生成",
         "invalid_card",
         roles.includes(item?.role) ? item.role : undefined,
       );
@@ -200,8 +191,12 @@ export function parseSuiteResponse(
       role: item.role,
       prompt: assemblePrompt(
         item.role,
-        item.layout,
-        item.copy,
+        typeof item.layout === "string" ? item.layout : "",
+        Array.isArray(item.copy)
+          ? item.copy.filter((line) => typeof line === "string")
+          : typeof item.copy === "string"
+            ? [item.copy]
+            : [],
         value.style,
         common,
         item.thirdPart || "",

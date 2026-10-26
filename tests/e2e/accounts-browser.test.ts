@@ -151,6 +151,7 @@ test(
         0,
       );
       assert.equal(await viewer.locator("#settings-button").count(), 0);
+      assert.equal(await viewer.locator(".product-delete").count(), 0);
       assert.equal(
         await viewer
           .getByRole("button", { name: "添加产品", exact: true })
@@ -216,6 +217,14 @@ test(
         0,
       );
       assert.equal(await viewer.locator("#sheet-container").count(), 0);
+      assert.equal(
+        await viewer.locator('[data-action="export-excel"]').isEnabled(),
+        true,
+      );
+      assert.equal(
+        await viewer.locator('[data-action="export-template"]').isEnabled(),
+        true,
+      );
       await viewer
         .locator('[data-action="view"][data-view="workbench"]')
         .click();

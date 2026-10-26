@@ -19,7 +19,7 @@ npm run build
 # 重新启动生产应用进程
 ```
 
-Docker 部署运行 `docker compose up --build -d`。已有数据库、素材和 `.env` 继续保留，无需清空数据。
+服务器部署使用 `npm run docker:pack` 生成运行包，再按 [Docker 部署](docker-deployment.md) 执行 `docker:deploy`。已有数据库、素材和 `.env` 继续保留，无需清空数据。
 
 验证时在 Network 中检查：
 

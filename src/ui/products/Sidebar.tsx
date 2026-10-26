@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { productPage } from "../../view-models/product-page.js";
 import { ProductPagination } from "./ProductPagination.tsx";
+import { ProductDeleteButton } from "./ProductDeleteButton";
 import type { Product } from "../types";
 import { ActionButton, useApplication } from "../context.tsx";
 import { productQueueInfo } from "../../../shared/queue-progress.js";
@@ -135,6 +136,7 @@ function ProductListItem({
           />
         </span>
       </ActionButton>
+      <ProductDeleteButton product={product} />
     </div>
   );
 }

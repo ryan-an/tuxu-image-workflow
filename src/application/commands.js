@@ -8,6 +8,7 @@ import { retryableQueueJobs } from "../../shared/queue-progress.js";
 import { PRODUCT_PAGE_SIZE } from "../view-models/product-page.js";
 
 import { productPhotos } from "../../shared/prompt-suite.js";
+import { removeProductRows } from "../../shared/sheet-data.js";
 
 const $ = (selector) => document.querySelector(selector);
 export function createCommands(context) {
@@ -44,6 +45,7 @@ export function createCommands(context) {
       downloadBlob,
       downloadSelected,
       exportExcel,
+      exportTemplate,
       openMedia,
       activeMediaTarget,
       receiveMedia,
@@ -92,6 +94,43 @@ export function createCommands(context) {
       case "new-product":
         editProduct(true);
         break;
+      case "delete-product": {
+        if (data.confirmed !== "true") break;
+        await context.ensureAll?.();
+        const product = state.products.find((item) => item.id === data.id);
+        if (!product) break;
+        if (
+          state.jobs.some(
+            (job) =>
+              job.productId === product.id &&
+              ["queued", "running", "interrupted"].includes(job.status),
+          )
+        )
+          throw new Error(
+            "该产品还有待执行、执行中或待核对任务，请先取消或处理后再删除",
+          );
+        await persist();
+        if (repository) await repository.deleteProduct(product.id);
+        else {
+          state.products = state.products.filter(
+            (item) => item.id !== product.id,
+          );
+          state.jobs = state.jobs.filter((job) => job.productId !== product.id);
+          state.sheetSnapshot = removeProductRows(state.sheetSnapshot, product);
+        }
+        bridge.replaceSnapshot(state.sheetSnapshot);
+        if (state.activeProductId === product.id)
+          state.activeProductId = state.products[0]?.id || null;
+        if (ui.assistant?.productId === product.id)
+          setAssistant({ open: false });
+        closeModal();
+        change();
+        await persist();
+        notify(
+          repository ? "产品已删除，无引用的图片会自动清理" : "产品已删除",
+        );
+        break;
+      }
       case "edit-product":
       case "view-product":
         editProduct();
@@ -286,6 +325,15 @@ export function createCommands(context) {
         break;
       case "export-excel":
         await exportExcel();
+        break;
+      case "export-template":
+        await exportTemplate();
+        break;
+      case "import-sheet":
+        $("#sheet-import-input").click();
+        break;
+      case "delete-sheet-rows":
+        bridge.removeDraftRows();
         break;
       case "backup":
         if (repository && context.canEdit !== false) await persist();

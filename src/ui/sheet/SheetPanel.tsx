@@ -1,4 +1,5 @@
 import { SheetPagination } from "./SheetPagination.tsx";
+import { SheetLoading } from "./SheetLoading.tsx";
 import { ActionButton, useApplication } from "../context.tsx";
 import { ReadOnlySheet } from "./ReadOnlySheet";
 import { collaboratorColor } from "../../integrations/sheet-collaboration.js";
@@ -6,6 +7,7 @@ import { collaboratorColor } from "../../integrations/sheet-collaboration.js";
 // Univer owns the contents of this stable host. Switching views only hides it.
 export function SheetPanel() {
   const { ui, controller, user } = useApplication();
+  const ready = user.role === "viewer" || ui.sheetStatus === "ready";
   return (
     <section id="sheet-section" hidden={ui.view !== "sheet"}>
       <div className="sheet-toolbar">
@@ -46,7 +48,9 @@ export function SheetPanel() {
               className="sheet-help-tooltip"
               role="tooltip"
             >
-              <p>每个产品三行：示例图 → 提示词 → 结果图。</p>
+              <p>
+                导入或粘贴时每个产品一行，解析后自动补成示例图、提示词、结果图三行。
+              </p>
               <p>修改表格后显示未同步，点击「保存并解析」才更新产品工作区。</p>
               <p>仅实际修改过的单元格受保护，其余位置自动回填。</p>
               <p>默认行高：示例图 160、提示词 120、结果图 160；可手动调整。</p>
@@ -79,23 +83,38 @@ export function SheetPanel() {
           )}
         </div>
         <div className="sheet-toolbar-actions">
+          <ActionButton action="import-sheet" disabled={ui.importing || !ready}>
+            {ui.importing ? "正在上传解析…" : "导入解析"}
+          </ActionButton>
+          <ActionButton action="delete-sheet-rows" disabled={!ready}>
+            删除选中行
+          </ActionButton>
           <ActionButton
             className="primary sheet-parse-button"
             action="parse-sheet"
+            disabled={!ready}
           >
             保存并解析
           </ActionButton>
           <ActionButton
             id="export"
             action="export-excel"
-            disabled={ui.exporting}
+            disabled={ui.exporting || !ready}
           >
             导出 Excel
           </ActionButton>
-          <ActionButton action="backup">备份工作流</ActionButton>
-          <ActionButton action="restore">恢复备份</ActionButton>
+          <ActionButton action="export-template" disabled={ui.exporting}>
+            导出模板
+          </ActionButton>
         </div>
       </div>
+      <input
+        id="sheet-import-input"
+        type="file"
+        accept=".xlsx"
+        hidden
+        onChange={controller.importSheetFile}
+      />
       {!!ui.sheetConflicts.length && (
         <details className="sheet-conflicts" open>
           <summary>
@@ -131,7 +150,14 @@ export function SheetPanel() {
       {user.role === "viewer" ? (
         ui.view === "sheet" && <ReadOnlySheet />
       ) : (
-        <div id="sheet-container" />
+        <div
+          className="sheet-viewport"
+          data-state={ui.sheetStatus}
+          aria-busy={ui.sheetStatus === "loading"}
+        >
+          <div id="sheet-container" inert={!ready} />
+          <SheetLoading status={ui.sheetStatus} />
+        </div>
       )}
     </section>
   );

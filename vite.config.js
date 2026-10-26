@@ -23,7 +23,11 @@ export default defineConfig(({ mode, command }) => {
         ? "::1"
         : env.HOST || "127.0.0.1";
   const target = `${https ? "https" : "http"}://${host.includes(":") ? `[${host}]` : host}:${env.PORT || 3001}`;
+  const { version } = JSON.parse(
+    readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+  );
   return {
+    define: { __APP_VERSION__: JSON.stringify(version) },
     esbuild: { jsx: "automatic" },
     // Existing browser tabs may still request chunks from the preceding build.
     build: { emptyOutDir: false },

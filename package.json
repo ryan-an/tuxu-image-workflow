@@ -1,12 +1,11 @@
 {
   "name": "tuxu-image-workflow",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.1",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
-    "build": "npm run typecheck && vite build && npm run build:server",
-    "pack:deploy": "node scripts/pack-deploy.mjs",
+    "build": "npm run release:notes && npm run typecheck && vite build && npm run build:server",
     "preview": "vite preview --host 127.0.0.1 --port 5173 --strictPort",
     "test": "npm run test:build && node scripts/run-tests.mjs",
     "format": "prettier --write \"src/**/*.{js,ts,tsx,css}\" \"shared/**/*.js\" \"server/**/*.{js,ts}\" \"scripts/**/*.mjs\" \"tests/**/*.{js,ts}\" vite.config.js index.html \"tsconfig*.json\" package.json README.md docs/architecture.md tests/README.md compose.yaml",
@@ -15,6 +14,10 @@
     "build:server": "tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "setup": "node scripts/setup-local.mjs",
     "setup:https": "node scripts/setup-https.mjs",
+    "docker:pack": "node scripts/docker-pack.mjs",
+    "windows:pack": "node scripts/windows-pack.mjs",
+    "docker:image": "node scripts/docker-pack.mjs --image",
+    "docker:deploy": "node scripts/docker-deploy.mjs",
     "start": "node scripts/start-local.mjs",
     "teams": "node scripts/teams.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.frontend.json",
@@ -22,7 +25,10 @@
     "test:build": "tsc -p tsconfig.test.json && node scripts/copy-migrations.mjs build-test",
     "test:unit": "npm run test:build && node scripts/run-tests.mjs unit",
     "test:integration": "npm run test:build && node scripts/run-tests.mjs integration",
-    "test:e2e": "npm run test:build && node scripts/run-tests.mjs e2e"
+    "test:e2e": "npm run test:build && node scripts/run-tests.mjs e2e",
+    "release:screenshots": "node scripts/capture-release-screenshots.mjs",
+    "release:notes": "node scripts/build-release-notes.mjs",
+    "release": "node scripts/release-manager.mjs"
   },
   "engines": {
     "node": ">=24.0.0"

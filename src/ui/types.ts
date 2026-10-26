@@ -97,6 +97,11 @@ export interface ParsedProduct {
   tasks: { references: string[]; prompt: string; result: string }[];
 }
 export interface ParserContext {
+  importId?: string;
+  total?: number;
+  referenceCount?: number;
+  created?: number;
+  updated?: number;
   source: {
     name: string;
     columnCount: number;
@@ -156,6 +161,7 @@ export interface UIState {
   assistant: { open: boolean; productId?: string; taskId?: string };
   parser: ParserContext | null;
   exporting: boolean;
+  importing: boolean;
   sheetConflicts: { key: string; message: string }[];
   sheetPeers: {
     session: string;
@@ -164,6 +170,7 @@ export interface UIState {
     startRow: number;
     startColumn: number;
   }[];
+  sheetStatus: "idle" | "loading" | "ready" | "error";
   formError: string;
   mediaFeedback: string;
   mediaError: boolean;
@@ -207,6 +214,7 @@ export interface ApplicationController {
   ): Promise<void>;
   uploadFiles(event: ChangeEvent<HTMLInputElement>): void;
   restoreBackup(event: ChangeEvent<HTMLInputElement>): Promise<void>;
+  importSheetFile(event: ChangeEvent<HTMLInputElement>): Promise<void>;
   setSearch(value: string): void;
   setProductPage(value: number): void;
   resolveSheetConflict(key: string, prefer: "local" | "remote"): Promise<void>;

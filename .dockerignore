@@ -6,6 +6,8 @@ tests
 artifacts
 data
 .env
+.env.*
+.git
 .npm-cache
 *.png
 *.xlsx

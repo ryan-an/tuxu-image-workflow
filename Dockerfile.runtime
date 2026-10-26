@@ -1,0 +1,24 @@
+# Build context contains compiled application files only, created by docker:pack.
+FROM node:24-bookworm-slim AS base
+FROM base AS dependencies
+WORKDIR /app
+# Prebuilt native addons may be unavailable; support compilation inside Docker.
+RUN sed -i 's@http://deb.debian.org@http://mirrors.tuna.tsinghua.edu.cn@g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY package*.json ./
+# The official Node image already includes headers matching its Node version.
+RUN npm_config_nodedir=/usr/local npm ci --omit=dev
+
+FROM base
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3001 ASSET_DIRECTORY=/app/data/assets DATABASE_PATH=/app/data/workspace.sqlite
+WORKDIR /app
+COPY package*.json ./
+COPY --from=dependencies /app/node_modules ./node_modules
+RUN mkdir -p /app/data/assets && chown -R node:node /app/data
+COPY dist ./dist
+COPY build-server ./build-server
+USER node
+EXPOSE 3001
+CMD ["node","build-server/server/production/main.js","all"]

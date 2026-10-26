@@ -52,6 +52,17 @@ test("dimension annotations retain all inner/outer measurements and compact unit
     );
   }
 
+  for (const fields of [{ layout: "", copy: [] }, { copy: "任意文案" }, {}]) {
+    const parsed = parseSuiteResponse(
+      JSON.stringify({
+        style: "统一风格",
+        images: [{ role: "尺寸图", ...fields }],
+      }),
+      6,
+      product,
+    );
+    assert.equal(parsed.prompts.length, 1);
+  }
   const compact = newProduct("compact", "2个盘外尺寸37x12cm内尺寸32x7.5cm");
   assert.deepEqual(
     new Set(productSpecs(compact).measurements.map((m: any) => m.number)),
@@ -144,7 +155,7 @@ test("mandatory validation failure retains final response and logs the rule and 
       style: "统一风格",
       images: [
         {
-          role: "尺寸图",
+          role: "不存在的位置",
           layout: "",
           copy: ["Thoughtful Design For Your Everyday Needs"],
           fourthPart: "分辨率300",
@@ -168,12 +179,14 @@ test("mandatory validation failure retains final response and logs the rule and 
       job = state.jobs.find((j) => j.kind === "prompt-set")!;
     assert.equal(job.status, "failed");
     assert.equal(job.analysisResponse, text);
-    assert.match(job.promptDrafts!["尺寸图"], /分辨率300$/);
+    assert.deepEqual(job.promptDrafts, {});
     assert.deepEqual(job.validationError, {
       code: "invalid_card",
-      role: "尺寸图",
     });
-    assert.deepEqual(logs[0].validation, job.validationError);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(logs[0].validation)),
+      job.validationError,
+    );
     assert.ok(state.jobs.every((j) => j.status === "failed"));
     assert.doesNotMatch(
       JSON.stringify(logs),

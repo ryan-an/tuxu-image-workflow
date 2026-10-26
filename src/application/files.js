@@ -105,5 +105,33 @@ export function createFiles(context) {
     }
   }
 
-  return { downloadBlob, downloadSelected, exportExcel, restoreBackup };
+  async function exportTemplate() {
+    const { notify, setExporting, downloadBlob } = context;
+    setExporting(true);
+    try {
+      const { exportSheetTemplate } = await import(
+        "../integrations/sheet-template.js"
+      );
+      const buffer = await exportSheetTemplate();
+      downloadBlob(
+        new Blob([buffer], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }),
+        "图序-产品导入模板.xlsx",
+      );
+      notify("已导出模板，包含一个示例产品及填写说明");
+    } catch (error) {
+      notify("模板导出失败：" + error.message);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return {
+    downloadBlob,
+    downloadSelected,
+    exportExcel,
+    exportTemplate,
+    restoreBackup,
+  };
 }

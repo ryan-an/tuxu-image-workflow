@@ -10,7 +10,7 @@
 REQUIRE_HTTPS=false
 ```
 
-关闭时，本机、局域网、Docker 和公网 IP 均允许 HTTP，登录、邀请、改密和业务接口照常工作，不要求证书，不自动跳转。普通 Node 服务若需接收其他设备的连接，可设置 `HOST=0.0.0.0`；Docker 默认通过 `PUBLISH_HOST=0.0.0.0` 发布端口，也可改为 `127.0.0.1` 限制为本机。
+关闭时，本机、局域网、Docker 和公网 IP 均允许 HTTP，登录、邀请、改密和业务接口照常工作，不要求证书，不自动跳转。普通 Node 服务若需接收其他设备的连接，可设置 `HOST=0.0.0.0`；源码 Compose 与本地 Docker 部署脚本默认只绑定本机 3001；公网端口和自动域名代理按 [Docker 部署](docker-deployment.md) 配置。
 
 以后需要强制 HTTPS 时，先配好证书或 HTTPS 代理，再设置 `REQUIRE_HTTPS=true` 并重启服务，无需重新构建前端。开启后所有 HTTP 业务请求（含本机）在解析请求体、校验密码和创建会话前被拒绝，返回 426；若同时配置 `PUBLIC_ORIGIN`，GET/HEAD 导航跳转到该固定 HTTPS 入口，含密码的 POST 不重定向。`PUBLIC_ORIGIN` 单独存在不会开启拦截。
 
@@ -44,13 +44,12 @@ certutil -user -addstore Root .\data\tls\local-ca.pem
 | ------------------------------- | ------------------------------------------------------------------ |
 | `REQUIRE_HTTPS`                 | 是否强制 HTTPS；默认 `false`，改为 `true` 后重启生效，无需重建前端 |
 | `HOST`、`PORT`                  | Node 服务监听地址与端口；网络共享通常使用 `HOST=0.0.0.0`           |
-| `PUBLISH_HOST`                  | Docker 发布地址，默认 `0.0.0.0`；仅本机可设 `127.0.0.1`            |
 | `TLS_CERT_FILE`、`TLS_KEY_FILE` | 服务端直接提供 HTTPS，必须同时配置，最低 TLS 1.2                   |
 | `TLS_CA_FILE`                   | Vite 开发代理验证本地 HTTPS 服务所需的 CA；生成工具自动填写        |
 | `TRUSTED_PROXIES`               | 明确列出的反向代理 IP/CIDR，逗号分隔；默认不信任转发头             |
 | `PUBLIC_ORIGIN`                 | 可选的 HTTPS 站点原点，例如 `https://images.example.com`，不含路径 |
 
-配置证书后，Vite 开发服务器及其到 API 的代理都使用 HTTPS，并验证上游证书。Docker 映射 `data/tls/` 为只读目录，服务账号需能读取私钥。证书配置与强制开关独立：直接配置 TLS 证书会把监听器切换为 HTTPS；只有 `REQUIRE_HTTPS=true` 才会启用 HTTP 拒绝和跳转策略。
+配置证书后，Vite 开发服务器及其到 API 的代理都使用 HTTPS，并验证上游证书。Docker 若直接使用应用证书，需要自行把 `data/tls/` 挂载为只读目录并传入证书环境变量，服务账号需能读取私钥。证书配置与强制开关独立：直接配置 TLS 证书会把监听器切换为 HTTPS；只有 `REQUIRE_HTTPS=true` 才会启用 HTTP 拒绝和跳转策略。
 
 ## 已有 HTTPS 反向代理
 
