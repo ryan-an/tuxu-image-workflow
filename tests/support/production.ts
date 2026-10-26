@@ -8,6 +8,7 @@ import { editable, differences } from "../../shared/workspace-edits.js";
 import type { Product } from "../../server/production/types.js";
 import type { Provider } from "../../server/production/provider.js";
 import type { TransportSecurityOptions } from "../../server/production/transport-security.js";
+import type { ExecutionLimits } from "../../server/production/execution-limits.js";
 export const png =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
 export const password = "test-password-123456789",
@@ -26,6 +27,7 @@ export async function loginHeaders(
 export async function fixture(
   staticDirectory?: string,
   transport?: TransportSecurityOptions,
+  executionLimits?: ExecutionLimits,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "tuxu-sqlite-"));
   const filename = join(directory, "workspace.sqlite");
@@ -39,6 +41,7 @@ export async function fixture(
     logger: false,
     staticDirectory,
     transport,
+    executionLimits,
   };
   let { app, workflows, workspaces } = await createApp(options);
   await workflows.updateSettings({

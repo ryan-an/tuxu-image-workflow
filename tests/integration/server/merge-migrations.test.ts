@@ -34,6 +34,9 @@ for (const source of ["local-sheet-import", "remote-accounts"] as const) {
         );
       }
       const { products, jobs, ...document } = emptyWorkspace();
+      document.concurrency = 4;
+      delete document.promptConcurrency;
+      delete document.queryConcurrency;
       await db.query(
         "INSERT INTO workspace(id,document,credential,prompt_credential) VALUES('default',$1,'preserved-image-key','preserved-prompt-key')",
         [document],
@@ -57,11 +60,11 @@ for (const source of ["local-sheet-import", "remote-accounts"] as const) {
       ).rows[0];
       assert.equal(workspace.credential, "preserved-image-key");
       assert.equal(workspace.prompt_credential, "preserved-prompt-key");
-      assert.deepEqual(workspace.document, document);
+      assert.deepEqual(workspace.document, { ...document, promptConcurrency: 15, queryConcurrency: 8 });
       assert.equal(
         (await db.query("SELECT count(*) AS count FROM schema_migrations"))
           .rows[0].count,
-        14,
+        15,
       );
       await db.query("SELECT * FROM accounts");
       await db.query("SELECT * FROM workspace_members");
@@ -86,7 +89,7 @@ for (const source of ["local-sheet-import", "remote-accounts"] as const) {
       assert.equal(
         (await db.query("SELECT count(*) AS count FROM schema_migrations"))
           .rows[0].count,
-        14,
+        15,
       );
       await db.query(
         "UPDATE schema_migrations SET checksum='unexpected' WHERE version='008.sql'",

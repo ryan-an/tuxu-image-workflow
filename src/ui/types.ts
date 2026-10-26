@@ -49,6 +49,18 @@ export interface GenerationSettings {
   quality: string;
 }
 export interface Job {
+  startedAt?: number;
+  finishedAt?: number;
+  rateLimitUntil?: number;
+  analysisPhase?: "preparing" | "requesting" | "streaming";
+  timings?: {
+    attemptStartedAt: number;
+    requestStartedAt?: number;
+    firstTokenAt?: number;
+    completedAt?: number;
+    imageCount?: number;
+    imageBytes?: number;
+  };
   createdBy?: { id: string; username: string; displayName: string };
   id: string;
   productId: string;
@@ -88,6 +100,8 @@ export interface Workspace {
   settings: GenerationSettings;
   common: string;
   concurrency: number;
+  promptConcurrency?: number;
+  queryConcurrency?: number;
   paused: boolean;
 }
 export interface ParsedProduct {

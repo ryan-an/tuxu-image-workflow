@@ -1,25 +1,37 @@
 import { randomUUID } from "node:crypto";
 import { productPhotos } from "../../shared/prompt-suite.js";
 import { savePrompt, selectVersion } from "../../shared/model.js";
-import { ProviderError, type Provider } from "./provider.js";
+import {
+  ProviderError,
+  retryableRateLimit,
+  type Provider,
+} from "./provider.js";
 import type { Workflows } from "./workflows.js";
 import type { Job } from "./types.js";
-import { stageTimeout } from "./execution-limits.js";
+import {
+  stageTimeout,
+  modelScope,
+  type ExecutionLane,
+} from "./execution-limits.js";
 import { streamedPrompts } from "../../shared/streamed-prompts.js";
 import { recordImageSuccess } from "./account-usage.js";
 export class Worker {
   private owner = randomUUID();
   private stopped = false;
   private timer?: ReturnType<typeof setTimeout>;
-  private tasks = new Set<Promise<void>>();
+  private tasks = new Set<Promise<boolean>>();
+  private active = { prompt: 0, submit: 0, query: 0 };
   private controllers = new Set<AbortController>();
   constructor(
     private workflows: Workflows,
     private provider: Provider,
     private log: (error: unknown) => void = console.error,
   ) {}
-  async step(): Promise<boolean> {
-    const job = await this.workflows.repo.claim(this.owner);
+  get limits() {
+    return this.workflows.repo.executionLimits;
+  }
+  async step(lane?: ExecutionLane): Promise<boolean> {
+    const job = await this.workflows.repo.claim(this.owner, Date.now(), lane);
     if (!job) return false;
     if (this.stopped) {
       await this.workflows.repo.updateClaim(
@@ -51,7 +63,8 @@ export class Worker {
       if (job.kind === "prompt-set") {
         if (!(await this.workflows.repo.markStage(job, "analyzing")))
           return true;
-        let lastProgress = 0;
+        let lastProgress = 0,
+          lastPersist = 0;
         const targets = job.productSnapshot!.tasks.filter(
           (t) => !job.taskIds || job.taskIds.includes(t.id),
         );
@@ -70,18 +83,42 @@ export class Worker {
                 targets.some((t) => t.role === role),
               ),
             );
+            const now = Date.now();
             if (
-              await this.workflows.repo.saveAnalysisProgress(
+              (!final && now - lastPersist < 1000) ||
+              (await this.workflows.repo.saveAnalysisProgress(
                 job,
                 drafts,
                 text.length,
                 final ? text : undefined,
-              )
-            )
+              ))
+            ) {
+              if (final || now - lastPersist >= 1000) lastPersist = now;
               this.workflows.analysisEvents.publish({
                 id: job.id,
                 drafts,
                 receivedChars: text.length,
+                analysisPhase: job.analysisPhase,
+                timings: job.timings,
+              });
+            }
+          },
+          async (event) => {
+            signal.throwIfAborted();
+            job.analysisPhase = event.phase;
+            job.timings ||= { attemptStartedAt: stageStarted };
+            if (event.phase === "requesting") {
+              job.timings.requestStartedAt = event.at;
+              job.timings.imageCount = event.imageCount;
+              job.timings.imageBytes = event.imageBytes;
+            }
+            if (event.phase === "streaming")
+              job.timings.firstTokenAt ??= event.at;
+            if (await this.workflows.repo.saveAnalysisTiming(job))
+              this.workflows.analysisEvents.publish({
+                id: job.id,
+                analysisPhase: job.analysisPhase,
+                timings: job.timings,
               });
           },
         );
@@ -142,12 +179,14 @@ export class Worker {
             current.status = "completed";
             current.stage = "completed";
             current.finishedAt = Date.now();
+            current.timings = {
+              ...job.timings!,
+              completedAt: current.finishedAt,
+            };
             await this.workflows.repo.saveProduct(tx, product);
           },
         );
-        const saved = (await this.workflows.repo.view()).jobs.find(
-          (item) => item.id === job.id,
-        );
+        const saved = await this.workflows.repo.job(job.id);
         if (saved?.status === "completed")
           this.log({
             event: "prompt.completed",
@@ -159,8 +198,7 @@ export class Worker {
         let prompt = job.prompt!,
           photos = job.referenceImages!;
         if (job.dependsOn) {
-          const state = await this.workflows.repo.view(),
-            set = state.jobs.find((j) => j.id === job.dependsOn)!;
+          const set = (await this.workflows.repo.job(job.dependsOn))!;
           const item = set.prompts!.find((p: any) => p.role === job.role),
             all = productPhotos(set.productSnapshot!);
           prompt = item.prompt;
@@ -185,6 +223,7 @@ export class Worker {
             current.prompt = prompt;
             current.referenceImages = photos;
             current.stage = "polling";
+            current.rateLimitRetries = 0;
             if (current.status !== "cancelled") current.status = "queued";
             return 2500;
           },
@@ -202,6 +241,7 @@ export class Worker {
             async (_tx, _state, current) => {
               current.progress = result.progress || 0;
               current.failures = 0;
+              current.rateLimitRetries = 0;
               if (current.status !== "cancelled") current.status = "queued";
               return 2500;
             },
@@ -284,6 +324,30 @@ export class Worker {
             error instanceof ProviderError ? error.validation : undefined;
           if (transportCode) current.error += ` (${transportCode})`;
           current.failures = (current.failures || 0) + 1;
+          if (job.timings)
+            current.timings = { ...job.timings, completedAt: Date.now() };
+          if (
+            !controller.signal.aborted &&
+            retryableRateLimit(error) &&
+            (current.rateLimitRetries || 0) < 3
+          ) {
+            const delay = Math.max(
+              error.retryAfterMs || 0,
+              5000 * 2 ** (current.rateLimitRetries || 0),
+            );
+            current.rateLimitRetries = (current.rateLimitRetries || 0) + 1;
+            current.rateLimitUntil = Date.now() + delay;
+            current.status = "queued";
+            current.stage = current.remoteId ? "polling" : "pending";
+            const scope = modelScope(current);
+            await this.workflows.repo.deferModel(
+              _tx,
+              scope.provider,
+              scope.model,
+              current.rateLimitUntil,
+            );
+            return delay;
+          }
           if (
             !current.remoteId &&
             ["submitting", "analyzing"].includes(current.stage)
@@ -309,30 +373,41 @@ export class Worker {
       this.workflows.analysisEvents.off("cancel", cancel);
       this.controllers.delete(controller);
       if (job.kind === "prompt-set") {
-        const current = (await this.workflows.repo.view()).jobs.find(
-          (item) => item.id === job.id,
-        );
+        const current = await this.workflows.repo.job(job.id);
         this.workflows.analysisEvents.publish({
           id: job.id,
           finished: true,
           status: current?.status,
           error: current?.error,
+          analysisPhase: current?.analysisPhase,
+          timings: current?.timings,
         });
       }
     }
     return true;
   }
+  launch(lane: ExecutionLane): Promise<boolean> {
+    if (this.stopped) return Promise.resolve(false);
+    this.active[lane]++;
+    const task = this.step(lane)
+      .catch((error) => {
+        this.log(error);
+        return false;
+      })
+      .finally(() => {
+        this.active[lane]--;
+        this.tasks.delete(task);
+      });
+    this.tasks.add(task);
+    return task;
+  }
   start() {
     // Use parallel steps; each step finishes one durable stage, not the entire job.
     const dispatch = () => {
       if (this.stopped) return;
-      while (this.tasks.size < 6) {
-        const task = this.step()
-          .then(() => {})
-          .catch(this.log);
-        this.tasks.add(task);
-        void task.finally(() => this.tasks.delete(task));
-      }
+      for (const lane of ["prompt", "submit", "query"] as ExecutionLane[])
+        while (this.active[lane] < this.workflows.repo.executionLimits[lane])
+          void this.launch(lane);
       this.timer = setTimeout(dispatch, 1000);
     };
     dispatch();

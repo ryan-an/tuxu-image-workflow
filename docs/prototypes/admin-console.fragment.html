@@ -1,0 +1,216 @@
+<style>
+#tuxu-admin-design { --ta-bg:light-dark(#f7f8fc,#151720); --ta-surface:light-dark(#ffffff,#1d202b); --ta-text:light-dark(#25324b,#e2e7f1); --ta-muted:light-dark(#64748b,#a6b2c7); --ta-border:light-dark(#e1e6f0,#353b4e); --ta-brand:light-dark(#5b4fe8,#b5aaff); --ta-soft:light-dark(#eeebff,#332d50); --ta-good:light-dark(#147a42,#8cd5ad); --ta-goodbg:light-dark(#e8f8ee,#233e32); --ta-warn:light-dark(#945b06,#efca83); --ta-warnbg:light-dark(#fff4d6,#433824); --ta-danger:light-dark(#c92f46,#ffabb7); --ta-dangerbg:light-dark(#fff0f2,#482b35); font-family:Inter,'Microsoft YaHei',sans-serif; font-size:13px; line-height:1.55; color:var(--ta-text); background:var(--ta-bg); border:1px solid var(--ta-border); border-radius:14px; overflow:clip; }
+#tuxu-admin-design * { box-sizing:border-box; }
+#tuxu-admin-design button, #tuxu-admin-design input, #tuxu-admin-design select { font:inherit; }
+#tuxu-admin-design button { color:inherit; }
+#tuxu-admin-design button:focus-visible, #tuxu-admin-design input:focus-visible, #tuxu-admin-design select:focus-visible { outline:2px solid var(--ta-brand); outline-offset:3px; }
+#tuxu-admin-design .ta-top { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:15px 22px; padding-right:100px; background:var(--ta-surface); border-bottom:1px solid var(--ta-border); }
+#tuxu-admin-design .ta-logo { background:var(--ta-soft); color:var(--ta-brand); border-radius:8px; width:30px; height:30px; display:grid; place-items:center; font-size:16px; font-weight:500; }
+#tuxu-admin-design .ta-brand { display:flex; align-items:center; gap:10px; font-weight:500; font-size:16px; }
+#tuxu-admin-design .ta-divider { color:var(--ta-border); }
+#tuxu-admin-design .ta-preview { font-size:11px; color:var(--ta-muted); }
+#tuxu-admin-design .ta-top .ta-back { margin-left:auto; }
+#tuxu-admin-design .ta-shell { display:grid; grid-template-columns:160px minmax(0,1fr); min-height:520px; }
+#tuxu-admin-design .ta-sidebar { padding:20px 12px; background:var(--ta-surface); border-right:1px solid var(--ta-border); display:flex; flex-direction:column; gap:5px; }
+#tuxu-admin-design .ta-side-caption { font-size:11px; color:var(--ta-muted); margin:0 10px 9px; }
+#tuxu-admin-design .ta-nav { display:flex; align-items:center; gap:9px; width:100%; background:transparent; border:0; border-radius:7px; padding:9px 10px; text-align:left; }
+#tuxu-admin-design .ta-nav[aria-current=page] { background:var(--ta-soft); color:var(--ta-brand); font-weight:500; }
+#tuxu-admin-design .ta-identity { margin-top:auto; padding:22px 10px 0; }
+#tuxu-admin-design .ta-muted { color:var(--ta-muted); }
+#tuxu-admin-design .ta-small { font-size:11px; }
+#tuxu-admin-design .ta-main { padding:24px; min-width:0; }
+#tuxu-admin-design .ta-heading { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:21px; }
+#tuxu-admin-design h2 { font-size:20px; line-height:1.4; font-weight:500; margin:0 0 5px; color:var(--ta-text); }
+#tuxu-admin-design h3 { font-size:14px; line-height:1.5; font-weight:500; margin:0; }
+#tuxu-admin-design p { margin:5px 0; }
+#tuxu-admin-design .ta-button { display:inline-flex; justify-content:center; align-items:center; gap:6px; border:1px solid var(--ta-border); border-radius:6px; background:var(--ta-surface); padding:6px 11px; min-height:31px; white-space:normal; text-align:center; }
+#tuxu-admin-design .ta-primary { background:light-dark(#5b4fe8,#aa9cf8); border-color:transparent; color:light-dark(#ffffff,#201a39); }
+#tuxu-admin-design .ta-danger { color:var(--ta-danger); background:var(--ta-dangerbg); border-color:transparent; }
+#tuxu-admin-design .ta-link { background:transparent; border:0; color:var(--ta-brand); padding:4px 0; text-align:left; }
+#tuxu-admin-design button:disabled { opacity:.55; }
+#tuxu-admin-design .ta-toolbar { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:14px; }
+#tuxu-admin-design .ta-tabs { display:flex; gap:4px; flex-wrap:wrap; }
+#tuxu-admin-design .ta-tab { border:0; background:transparent; color:var(--ta-muted); padding:6px 9px; border-radius:5px; }
+#tuxu-admin-design .ta-tab[aria-pressed=true] { color:var(--ta-brand); background:var(--ta-soft); }
+#tuxu-admin-design .ta-input, #tuxu-admin-design .ta-select { min-width:0; border:1px solid var(--ta-border); border-radius:6px; color:var(--ta-text); background:var(--ta-surface); padding:7px 10px; }
+#tuxu-admin-design .ta-search { width:216px; max-width:100%; }
+#tuxu-admin-design .ta-table-wrap { background:var(--ta-surface); border:1px solid var(--ta-border); border-radius:10px; overflow:clip; }
+#tuxu-admin-design table { border-collapse:collapse; width:100%; font-size:12px; text-align:left; }
+#tuxu-admin-design th { background:var(--ta-bg); color:var(--ta-muted); font-size:11px; font-weight:400; }
+#tuxu-admin-design th, #tuxu-admin-design td { padding:12px 13px; vertical-align:middle; border-bottom:1px solid var(--ta-border); overflow-wrap:anywhere; }
+#tuxu-admin-design tr:last-child td { border-bottom:0; }
+#tuxu-admin-design .ta-name { font-weight:500; }
+#tuxu-admin-design .ta-badge { display:inline-block; font-size:11px; padding:2px 6px; border-radius:4px; background:var(--ta-bg); color:var(--ta-muted); white-space:nowrap; }
+#tuxu-admin-design .ta-badge.good { background:var(--ta-goodbg); color:var(--ta-good); }
+#tuxu-admin-design .ta-badge.brand { background:var(--ta-soft); color:var(--ta-brand); }
+#tuxu-admin-design .ta-badge.warn { background:var(--ta-warnbg); color:var(--ta-warn); }
+#tuxu-admin-design .ta-badge.bad { background:var(--ta-dangerbg); color:var(--ta-danger); }
+#tuxu-admin-design .ta-foot { margin-top:12px; display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; color:var(--ta-muted); font-size:11px; }
+#tuxu-admin-design .ta-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+#tuxu-admin-design .ta-panel { border:1px solid var(--ta-border); border-radius:10px; padding:17px; background:var(--ta-surface); margin-bottom:15px; }
+#tuxu-admin-design .ta-panel-head { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:12px; }
+#tuxu-admin-design .ta-facts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+#tuxu-admin-design .ta-facts dt { color:var(--ta-muted); font-size:11px; }
+#tuxu-admin-design .ta-facts dd { margin:4px 0 0; overflow-wrap:anywhere; }
+#tuxu-admin-design .ta-banner { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; background:var(--ta-soft); color:var(--ta-brand); border-radius:7px; padding:11px 14px; margin-bottom:18px; }
+#tuxu-admin-design .ta-notice { color:var(--ta-muted); font-size:12px; margin:13px 0; }
+#tuxu-admin-design .ta-notification { color:var(--ta-good); margin-top:14px; min-height:19px; font-size:12px; }
+#tuxu-admin-design dialog { color:var(--ta-text); background:var(--ta-surface); border:1px solid var(--ta-border); border-radius:12px; width:440px; max-width:calc(100% - 28px); padding:22px; }
+#tuxu-admin-design dialog::backdrop { background:light-dark(#25324b66,#00000099); }
+#tuxu-admin-design .ta-form { display:grid; gap:13px; margin:17px 0; }
+#tuxu-admin-design .ta-field { display:grid; gap:5px; }
+#tuxu-admin-design .ta-dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
+#tuxu-admin-design .ta-error { color:var(--ta-danger); min-height:0; font-size:12px; }
+#tuxu-admin-design .ta-return { margin-bottom:14px; }
+#tuxu-admin-design .ta-empty { padding:30px; text-align:center; color:var(--ta-muted); }
+#tuxu-admin-design[data-density=compact] td, #tuxu-admin-design[data-density=compact] th { padding-block:8px; }
+@media (max-width:760px) { #tuxu-admin-design .ta-shell { grid-template-columns:1fr; } #tuxu-admin-design .ta-sidebar { flex-direction:row; flex-wrap:wrap; padding:10px 14px; border-right:0; border-bottom:1px solid var(--ta-border); } #tuxu-admin-design .ta-nav { width:auto; } #tuxu-admin-design .ta-side-caption, #tuxu-admin-design .ta-identity { display:none; } #tuxu-admin-design .ta-main { padding:20px 16px; } #tuxu-admin-design .ta-top { padding-left:16px; gap:8px; } }
+@media (max-width:540px) { #tuxu-admin-design .ta-top { padding-right:16px; } #tuxu-admin-design .ta-preview { flex-basis:100%; } #tuxu-admin-design .ta-top .ta-back { margin-left:0; } #tuxu-admin-design .ta-main { padding:17px 12px; } #tuxu-admin-design .ta-toolbar { align-items:stretch; } #tuxu-admin-design .ta-search { width:100%; } #tuxu-admin-design .ta-facts { grid-template-columns:1fr 1fr; } #tuxu-admin-design thead { display:none; } #tuxu-admin-design tr { display:block; padding:10px 12px; border-bottom:1px solid var(--ta-border); } #tuxu-admin-design tr:last-child { border-bottom:0; } #tuxu-admin-design td { display:grid; grid-template-columns:78px minmax(0,1fr); align-items:start; padding:5px 0; border:0; } #tuxu-admin-design td::before { content:attr(data-label); color:var(--ta-muted); font-size:11px; } #tuxu-admin-design td[data-label=用户], #tuxu-admin-design td[data-label=工作区] { padding-bottom:9px; } }
+@media (pointer:coarse) { #tuxu-admin-design button { min-height:44px; } #tuxu-admin-design input, #tuxu-admin-design select { font-size:16px; min-height:44px; } }
+</style>
+<div id="tuxu-admin-design" data-density="standard" aria-label="图序超级管理台交互预览">
+  <header class="ta-top">
+    <div class="ta-brand"><span class="ta-logo">序</span><span>图序</span><span class="ta-divider">/</span><span>超级管理台</span></div>
+    <span class="ta-preview">交互预览 · 全部为示例数据</span>
+    <button type="button" class="ta-button ta-back cursor-interaction" data-action="my-workbench">我的工作台</button>
+  </header>
+  <div class="ta-shell">
+    <nav class="ta-sidebar" aria-label="超级管理台导航">
+      <p class="ta-side-caption">全局管理</p>
+      <button type="button" class="ta-nav cursor-interaction" data-page="users" aria-current="page"><i data-lucide="users" aria-hidden="true"></i>用户管理</button>
+      <button type="button" class="ta-nav cursor-interaction" data-page="workspaces"><i data-lucide="panels-top-left" aria-hidden="true"></i>工作区管理</button>
+      <button type="button" class="ta-nav cursor-interaction" data-page="logs"><i data-lucide="scroll-text" aria-hidden="true"></i>操作记录</button>
+      <div class="ta-identity"><div class="ta-name">admin</div><span class="ta-badge brand">超级管理员</span></div>
+    </nav>
+    <main class="ta-main"><div id="ta-content"></div><div id="ta-feedback" class="ta-notification" role="status" aria-live="polite"></div></main>
+  </div>
+  <dialog id="ta-dialog" aria-labelledby="ta-dialog-title"><form id="ta-dialog-form"><h3 id="ta-dialog-title"></h3><div id="ta-dialog-body"></div><p id="ta-dialog-error" class="ta-error" role="alert"></p><div class="ta-dialog-actions"><button type="button" class="ta-button cursor-interaction" id="ta-dialog-cancel">取消</button><button type="button" class="ta-button ta-primary cursor-interaction" id="ta-dialog-confirm">确认</button></div></form></dialog>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('tuxu-admin-design');
+  const content = root.querySelector('#ta-content');
+  const feedback = root.querySelector('#ta-feedback');
+  const dialog = root.querySelector('#ta-dialog');
+  const form = root.querySelector('#ta-dialog-form');
+  const users = [
+    {id:'owner',name:'admin',display:'平台管理员',status:'active',date:'2026-10-01',protected:true},
+    {id:'u-lin',name:'lin',display:'林悦',status:'active',date:'2026-10-08'},
+    {id:'u-chen',name:'chen',display:'陈晨',status:'active',date:'2026-10-12'},
+    {id:'u-wang',name:'wang',display:'王可',status:'disabled',date:'2026-10-15'},
+    {id:'u-zhao',name:'zhao',display:'赵宁',status:'pending',date:'2026-10-23'}
+  ];
+  const spaces = [
+    {id:'ws-commerce',name:'电商主图组',owner:'u-lin',status:'active',date:'2026-10-08',products:28,usage:326,adminUsage:4,pending:2,key:true,members:[{id:'u-lin',role:'owner',used:210},{id:'u-chen',role:'editor',used:116},{id:'u-wang',role:'viewer',used:0}]},
+    {id:'ws-brand',name:'品牌视觉组',owner:'u-chen',status:'active',date:'2026-10-12',products:16,usage:184,adminUsage:0,pending:0,key:true,members:[{id:'u-chen',role:'owner',used:142},{id:'u-lin',role:'editor',used:42}]},
+    {id:'ws-archive',name:'秋季活动归档',owner:'u-lin',status:'archived',date:'2026-10-03',products:12,usage:0,adminUsage:0,pending:0,key:false,members:[{id:'u-lin',role:'owner',used:0},{id:'u-wang',role:'viewer',used:0}]}
+  ];
+  const logs = [{time:'10-27 09:42',action:'进入超级管理模式',target:'电商主图组',result:'成功'},{time:'10-26 17:30',action:'全局禁用账号',target:'wang',result:'成功'},{time:'10-25 14:08',action:'归档工作区',target:'秋季活动归档',result:'成功'}];
+  const roles = {owner:'所有者',editor:'编辑者',viewer:'查看者'};
+  const settings = {density:'standard'};
+  let page = 'users', selected = null, filter = 'all', search = '', onConfirm = null;
+  const esc = x => String(x ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const account = id => users.find(u => u.id === id);
+  const space = id => spaces.find(w => w.id === id);
+  const memberSpaces = id => spaces.filter(w => w.members.some(m => m.id === id));
+  const badge = (label,tone='') => `<span class="ta-badge ${tone}">${esc(label)}</span>`;
+  const statusBadge = (status) => status === 'active' ? badge('正常','good') : status === 'disabled' ? badge('已禁用','bad') : status === 'pending' ? badge('待激活','warn') : badge('已归档');
+  const button = (label,action,id='',kind='') => `<button type="button" class="ta-button cursor-interaction ${kind}" data-action="${action}" data-id="${esc(id)}">${label}</button>`;
+  const link = (label,action,id='') => `<button type="button" class="ta-link cursor-interaction" data-action="${action}" data-id="${esc(id)}">${esc(label)}</button>`;
+  const cell = (label,html) => `<td data-label="${label}"><div>${html}</div></td>`;
+  const table = (headers,rows) => `<div class="ta-table-wrap"><table><thead><tr>${headers.map(h=>`<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.join('') : `<tr><td colspan="${headers.length}"><div class="ta-empty">没有匹配的记录</div></td></tr>`}</tbody></table></div>`;
+  const heading = (title,sub,action='') => `<div class="ta-heading"><div><h2>${esc(title)}</h2><p class="ta-muted">${esc(sub)}</p></div>${action}</div>`;
+  const facts = values => `<dl class="ta-facts">${values.map(([k,v])=>`<div><dt>${esc(k)}</dt><dd>${v}</dd></div>`).join('')}</dl>`;
+  const filters = (items,placeholder) => `<div class="ta-toolbar"><div class="ta-tabs" aria-label="状态筛选">${items.map(([value,label])=>`<button type="button" class="ta-tab cursor-interaction" data-filter="${value}" aria-pressed="${filter===value}">${label}</button>`).join('')}</div><input class="ta-input ta-search" type="search" id="ta-search" aria-label="${placeholder}" placeholder="${placeholder}" value="${esc(search)}"></div>`;
+  function saveView() {
+    if (window.openai?.setWidgetState) window.openai.setWidgetState({modelContent:{screen:page,selection:selected,density:settings.density},privateContent:{filter,search}}).catch(()=>{});
+  }
+  function restore(saved) {
+    const s = saved?.modelContent, p = saved?.privateContent;
+    if (s && ['users','workspaces','logs','workbench','mine'].includes(s.screen)) { page=s.screen; selected=typeof s.selection==='string'?s.selection:null; }
+    if (s && ['standard','compact'].includes(s.density)) settings.density=s.density;
+    filter = typeof p?.filter==='string'?p.filter:'all'; search=typeof p?.search==='string'?p.search:'';
+  }
+  function notify(message) { feedback.textContent=message; }
+  function audit(action,target) {
+    const now = new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());
+    logs.unshift({time:now,action,target,result:'成功'});
+  }
+  function navigate(next,id=null) { page=next; selected=id; filter='all'; search=''; feedback.textContent=''; render(); saveView(); }
+  function renderUsers() {
+    const rows = users.filter(u=>(filter==='all'||u.status===filter)&&`${u.name} ${u.display}`.toLowerCase().includes(search.toLowerCase()));
+    content.innerHTML=heading('用户管理','管理平台全部账号及其工作区访问',button('新建账号','create-user','','ta-primary'))+filters([['all',`全部 ${users.length}`],['active','正常'],['disabled','已禁用'],['pending','待激活']],'搜索用户名或个人名称')+table(['用户','账号状态','所属工作区','创建时间','操作'],rows.map(u=>`<tr>${cell('用户',`<div class="ta-name">${esc(u.name)} ${u.protected?badge('超级管理员','brand'):''}</div><div class="ta-small ta-muted">${esc(u.display)}</div>`)}${cell('账号状态',statusBadge(u.status))}${cell('所属工作区',`${memberSpaces(u.id).length} 个`)}${cell('创建时间',esc(u.date))}${cell('操作',link('查看详情','user',u.id))}</tr>`))+`<div class="ta-foot"><span>共 ${rows.length} 个示例账号</span><span>全局禁用会影响全部工作区访问</span></div>`;
+  }
+  function renderUser(u) {
+    const owned=spaces.filter(w=>w.owner===u.id).length;
+    content.innerHTML=`<div class="ta-return">${link('← 用户列表','users')}</div>`+heading(u.display,`用户名：${u.name}`,statusBadge(u.status))+`<section class="ta-panel"><div class="ta-panel-head"><h3>全局账号</h3>${u.protected?badge('内置账号','brand'):button('编辑名称','rename-user',u.id)}</div>${facts([['账号身份',u.protected?'超级管理员':'普通用户'],['加入的工作区',`${memberSpaces(u.id).length} 个`],['拥有的工作区',`${owned} 个`]])}<div class="ta-actions">${u.protected?'<span class="ta-muted">密码由部署配置管理；该账号保持启用。</span>':`${u.status==='active'?button('重置密码','reset-password',u.id):''}${u.status==='pending'?'<span class="ta-muted">待激活账号通过邀请设置密码。</span>':button('强制下线','logout-user',u.id)}${u.status==='pending'?'':button(u.status==='disabled'?'启用账号':'全局禁用账号',u.status==='disabled'?'enable-user':'disable-user',u.id,u.status==='disabled'?'':'ta-danger')}`}</div></section><h3 style="margin-bottom:12px">所属工作区</h3>`+table(['工作区','角色','成员状态','本月成功生图','操作'],memberSpaces(u.id).map(w=>{const m=w.members.find(x=>x.id===u.id);return `<tr>${cell('工作区',`<span class="ta-name">${esc(w.name)}</span>`)}${cell('角色',roles[m.role])}${cell('成员状态',badge('已加入','good'))}${cell('本月成功生图',`${m.used} 张`)}${cell('操作',link('管理工作区','workspace',w.id))}</tr>`;}))+`<p class="ta-notice">账号状态和空间内成员状态分别管理。${u.status==='disabled'?'该账号已全局禁用，即使成员关系仍保留，也无法访问工作区。':'操作不会改变其他成员的个人密码。'}</p>`;
+  }
+  function renderWorkspaces() {
+    const rows=spaces.filter(w=>(filter==='all'||w.status===filter)&&`${w.name} ${w.id} ${account(w.owner).name}`.toLowerCase().includes(search.toLowerCase()));
+    content.innerHTML=heading('工作区管理','查看并管理所有工作区，无需加入成员',button('新建工作区','create-space','','ta-primary'))+filters([['all',`全部 ${spaces.length}`],['active','启用中'],['archived','已归档']],'搜索工作区、ID 或所有者')+table(['工作区','所有者','成员','状态','操作'],rows.map(w=>`<tr>${cell('工作区',`<div class="ta-name">${esc(w.name)}</div><div class="ta-small ta-muted">${esc(w.id)}</div>`)}${cell('所有者',`${esc(account(w.owner).display)}<div class="ta-small ta-muted">${esc(account(w.owner).name)}</div>`)}${cell('成员',`${w.members.length} 人`)}${cell('状态',w.status==='archived'?badge('已归档'):badge('启用中','good'))}${cell('操作',link('管理','workspace',w.id))}</tr>`))+`<div class="ta-foot"><span>共 ${rows.length} 个示例工作区</span><span>admin 保留独立管理身份</span></div>`;
+  }
+  function renderWorkspace(w) {
+    content.innerHTML=`<div class="ta-return">${link('← 全部工作区','workspaces')}</div>`+heading(w.name,`ID：${w.id}`,button(w.status==='archived'?'只读查看工作区':'进入工作区','enter',w.id,'ta-primary'))+`<section class="ta-panel"><div class="ta-panel-head"><h3>基本资料</h3>${w.status==='archived'?badge('已归档'):badge('启用中','good')}</div>${facts([['所有者',esc(account(w.owner).display)],['产品数量',`${w.products} 个`],['创建时间',esc(w.date)]])}<div class="ta-actions">${button('重命名','rename-space',w.id)}${button('转让所有权','transfer',w.id)}${button(w.status==='archived'?'恢复工作区':'归档工作区',w.status==='archived'?'restore':'archive',w.id,w.status==='active'?'ta-danger':'')}</div></section><section class="ta-panel"><div class="ta-panel-head"><h3>配置与用量</h3>${badge('2026 年 10 月')}</div>${facts([['API Key',w.key?badge('已配置 · 不显示明文','good'):badge('未配置','warn')],['成员成功生图',`${w.usage} 张`],['管理员成功生图',`${w.adminUsage} 张`]])}</section><div class="ta-panel-head"><h3>工作区成员</h3>${button('添加成员','add-member',w.id)}</div>`+table(['用户','角色','账号状态','操作'],w.members.map(m=>{const u=account(m.id);return `<tr>${cell('用户',`${esc(u.display)}<div class="ta-small ta-muted">${esc(u.name)}</div>`)}${cell('角色',badge(roles[m.role],m.role==='owner'?'brand':''))}${cell('账号状态',statusBadge(u.status))}${cell('操作',link('查看用户','user',u.id))}</tr>`;}))+`<p class="ta-notice">${w.status==='archived'?'已归档空间可以查看；恢复后才能修改业务资料。':'以 admin 身份进入；原所有者及现有成员关系保持原样。'}</p>`;
+  }
+  function renderLogs() {
+    const rows=logs.filter(l=>`${l.action} ${l.target}`.includes(search));
+    content.innerHTML=heading('操作记录','超级管理操作保留真实操作者与目标')+filters([],'搜索操作或目标')+table(['时间（北京）','操作者','操作','目标','结果'],rows.map(l=>`<tr>${cell('时间（北京）',esc(l.time))}${cell('操作者','admin')}${cell('操作',esc(l.action))}${cell('目标',esc(l.target))}${cell('结果',badge(l.result,'good'))}</tr>`))+`<p class="ta-notice">预览中的操作会写入这里的示例记录；密码和密钥不进入记录。</p>`;
+  }
+  function renderWorkbench(w) {
+    content.innerHTML=`<div class="ta-banner"><div><strong>超级管理模式</strong><div class="ta-small">${esc(w.name)} · 操作者：admin ${w.status==='archived'?'· 归档只读':''}</div></div>${button('返回管理台','workspace',w.id)}</div>`+heading(w.name,w.status==='archived'?'归档工作区 · 当前只读查看':'批量生图工作台 · 拥有当前空间的管理与编辑权限',button('空间设置','space-settings',w.id))+table(['产品','资料状态','任务状态','操作'],[{name:'保温杯 · 简约款',state:'分析完成',job:'生成中'},{name:'帆布包 · 通勤款',state:'分析完成',job:'已完成'},{name:'香薰蜡烛 · 木质调',state:'待分析',job:'未开始'}].map((p,i)=>`<tr>${cell('产品',`<span class="ta-name">${p.name}</span>`)}${cell('资料状态',badge(p.state,i===2?'warn':'good'))}${cell('任务状态',badge(w.status==='archived'?'已归档':p.job,i===0&&w.status==='active'?'brand':''))}${cell('操作',link('查看产品','preview-product',w.id))}</tr>`))+`<p class="ta-notice">${w.status==='archived'?'恢复工作区后可继续编辑和发起任务。':'管理员发起的任务使用本工作区配置，单独记录管理员用量。'}</p>`;
+  }
+  function render() {
+    root.dataset.density=settings.density;
+    root.querySelectorAll('[data-page]').forEach(b=>b.setAttribute('aria-current',b.dataset.page===(page==='workbench'?'workspaces':page)?'page':'false'));
+    if (page==='users') selected&&account(selected)?renderUser(account(selected)):renderUsers();
+    if (page==='workspaces') selected&&space(selected)?renderWorkspace(space(selected)):renderWorkspaces();
+    if (page==='logs') renderLogs();
+    if (page==='workbench') space(selected)?renderWorkbench(space(selected)):navigate('workspaces');
+    if (page==='mine') content.innerHTML=heading('我的工作台','admin 的个人工作区入口')+`<section class="ta-panel"><h3>管理全部工作区</h3><p class="ta-notice">从超级管理台进入任意工作区，持续保留 admin 操作者身份。</p>${button('打开超级管理台','workspaces','','ta-primary')}</section>`;
+  }
+  function openDialog(title,body,confirm,callback,danger=false) {
+    root.querySelector('#ta-dialog-title').textContent=title;
+    root.querySelector('#ta-dialog-body').innerHTML=body;
+    root.querySelector('#ta-dialog-error').textContent='';
+    const submit=root.querySelector('#ta-dialog-confirm'); submit.textContent=confirm; submit.classList.toggle('ta-danger',danger); submit.classList.toggle('ta-primary',!danger);
+    onConfirm=callback; dialog.showModal();
+  }
+  const field=(label,name,value='',type='text',extra='')=>`<label class="ta-field">${label}<input class="ta-input" name="${name}" type="${type}" value="${esc(value)}" required ${extra}></label>`;
+  root.querySelector('#ta-dialog-cancel').addEventListener('click',()=>dialog.close());
+  const applyDialog=()=>{if(!form.reportValidity())return;try{const result=onConfirm(new FormData(form));if(result===false)return;dialog.close();render();notify('示例操作已完成，可在操作记录中查看。');saveView();}catch(error){root.querySelector('#ta-dialog-error').textContent=error.message;}};
+  root.querySelector('#ta-dialog-confirm').addEventListener('click',applyDialog);
+  form.addEventListener('submit',event=>event.preventDefault());
+  form.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.matches('input')){event.preventDefault();applyDialog();}});
+  dialog.addEventListener('close',()=>form.reset());
+  root.addEventListener('click',event=>{
+    const nav=event.target.closest('[data-page]'); if(nav){navigate(nav.dataset.page);return;}
+    const tab=event.target.closest('[data-filter]');if(tab){filter=tab.dataset.filter;render();saveView();return;}
+    const b=event.target.closest('[data-action]');if(!b)return;
+    const a=b.dataset.action,id=b.dataset.id,u=account(id),w=space(id);
+    if(a==='users'||a==='workspaces'){navigate(a);return;}
+    if(a==='user'){navigate('users',id);return;}
+    if(a==='workspace'){navigate('workspaces',id);return;}
+    if(a==='my-workbench'){navigate('mine');return;}
+    if(a==='enter'){audit('进入超级管理模式',w.name);navigate('workbench',id);return;}
+    if(a==='preview-product'){notify('产品详情属于现有工作台，本预览聚焦超级管理流程。');return;}
+    if(a==='space-settings'){openDialog('工作区配置',`<p class="ta-notice">${esc(w.name)}</p><div class="ta-form"><label class="ta-field">生图并发<select class="ta-select" name="concurrency"><option>2</option><option>4</option><option>8</option></select></label><p>API Key：${w.key?'已配置（不显示明文）':'未配置'}</p><p class="ta-muted ta-small">配置修改记录在 admin 名下。</p></div>`,'保存示例配置',()=>{if(w.status==='archived')throw Error('请先恢复工作区，再修改配置。');audit('修改工作区配置',w.name);});return;}
+    if(a==='create-user'){openDialog('新建账号',`<div class="ta-form">${field('用户名','username','','text','minlength="3" maxlength="40" pattern="[A-Za-z0-9_-]+"')}${field('个人名称','display','','text','maxlength="60"')}${field('初始密码','password','','password','minlength="10" maxlength="256" autocomplete="new-password"')}<p class="ta-small ta-muted">先创建全局账号，再从工作区添加成员。</p></div>`,'创建账号',data=>{const name=data.get('username').trim();if(users.some(x=>x.name.toLowerCase()===name.toLowerCase()))throw Error('用户名已存在。');users.push({id:'u-'+Date.now(),name,display:data.get('display').trim(),status:'active',date:'2026-10-27'});audit('新建账号',name);form.reset();});return;}
+    if(a==='rename-user'){openDialog('编辑个人名称',`<div class="ta-form">${field('个人名称','name',u.display,'text','maxlength="60"')}<p class="ta-small ta-muted">工作区内称呼仍由成员设置维护。</p></div>`,'保存名称',data=>{const name=data.get('name').trim();if(!name)throw Error('请填写个人名称。');u.display=name;audit('修改个人名称',u.name);});return;}
+    if(a==='reset-password'){openDialog('重置用户密码',`<p>账号：${esc(u.name)}</p><div class="ta-form">${field('新密码','password','','password','minlength="10" maxlength="256" autocomplete="new-password"')}<p class="ta-small ta-muted">完成后撤销该账号全部会话；不会显示原密码。</p></div>`,'重置并撤销会话',()=>{audit('重置密码并撤销会话',u.name);form.reset();});return;}
+    if(a==='logout-user'){openDialog('强制下线',`<p>撤销 ${esc(u.name)} 的全部登录会话。</p><p class="ta-notice">账号仍可使用原密码重新登录。</p>`,'确认下线',()=>audit('撤销全部登录会话',u.name));return;}
+    if(a==='disable-user'){const own=spaces.filter(x=>x.owner===u.id).length;openDialog('全局禁用账号',`<p>将禁用 <strong>${esc(u.name)}</strong> 的平台登录和全部工作区访问，并撤销登录会话及定向邀请。</p><p class="ta-notice">涉及 ${memberSpaces(u.id).length} 个工作区，其中 ${own} 个由此账号拥有。资料和所有权保留；已有任务继续处理。</p>`,'确认全局禁用',()=>{u.status='disabled';audit('全局禁用账号',u.name);},true);return;}
+    if(a==='enable-user'){openDialog('启用账号',`<p>恢复 ${esc(u.name)} 的全局登录资格。</p><p class="ta-notice">已禁用的成员关系、已撤销的邀请不会自动恢复。</p>`,'确认启用',()=>{u.status='active';audit('启用账号',u.name);});return;}
+    if(a==='rename-space'){openDialog('重命名工作区',`<div class="ta-form">${field('工作区名称','name',w.name,'text','maxlength="60"')}</div>`,'保存名称',data=>{const name=data.get('name').trim();if(!name)throw Error('请填写工作区名称。');w.name=name;audit('重命名工作区',w.name);});return;}
+    if(a==='archive'){openDialog('归档工作区',`<p>归档后，成员将暂停访问 ${esc(w.name)}；产品和图片会保留。</p>${w.pending?`<p class="ta-notice">当前有 ${w.pending} 个未结束任务，需先完成或取消。</p>`:''}`,'确认归档',()=>{if(w.pending)throw Error('请先完成或取消未结束任务，再归档工作区。');w.status='archived';audit('归档工作区',w.name);},true);return;}
+    if(a==='restore'){openDialog('恢复工作区',`<p>恢复 ${esc(w.name)}，有效成员可以继续访问。</p>`,'确认恢复',()=>{w.status='active';audit('恢复工作区',w.name);});return;}
+    if(a==='transfer'){const candidates=w.members.filter(m=>m.id!==w.owner&&account(m.id).status==='active');openDialog('转让工作区所有权',`<p>${esc(w.name)}</p><div class="ta-form"><label class="ta-field">新所有者<select class="ta-select" name="owner" required>${candidates.length?candidates.map(m=>`<option value="${m.id}">${esc(account(m.id).display)} · ${esc(account(m.id).name)}</option>`).join(''):'<option value="">暂无符合条件的成员</option>'}</select></label><p class="ta-small ta-muted">原所有者变为编辑者；admin 不会自动成为所有者。</p></div>`,'确认转让',data=>{const target=data.get('owner');if(!target)throw Error('请先添加一位有效成员。');w.members.find(m=>m.id===w.owner).role='editor';w.members.find(m=>m.id===target).role='owner';w.owner=target;audit('转让工作区所有权',w.name);});return;}
+    if(a==='add-member'){const candidates=users.filter(x=>x.status==='active'&&!x.protected&&!w.members.some(m=>m.id===x.id));openDialog('添加已有账号',`<div class="ta-form"><label class="ta-field">账号<select class="ta-select" name="account" required>${candidates.length?candidates.map(x=>`<option value="${x.id}">${esc(x.display)} · ${esc(x.name)}</option>`).join(''):'<option value="">暂无可添加账号</option>'}</select></label><label class="ta-field">工作区角色<select class="ta-select" name="role"><option value="editor">编辑者</option><option value="viewer">查看者</option></select></label></div>`,'添加成员',data=>{if(w.status==='archived')throw Error('请先恢复工作区，再添加成员。');if(!data.get('account'))throw Error('请先创建一个有效账号。');w.members.push({id:data.get('account'),role:data.get('role'),used:0});audit('添加工作区成员',w.name);});return;}
+    if(a==='create-space'){const candidates=users.filter(x=>x.status==='active');openDialog('新建工作区',`<div class="ta-form">${field('工作区名称','name','','text','maxlength="60"')}<label class="ta-field">指定所有者<select class="ta-select" name="owner">${candidates.map(x=>`<option value="${x.id}" ${x.protected?'':'selected'}>${esc(x.display)} · ${esc(x.name)}</option>`).join('')}</select></label><p class="ta-small ta-muted">创建后仅指定所有者加入，新空间需单独配置密钥。</p></div>`,'创建工作区',data=>{const name=data.get('name').trim();if(!name)throw Error('请填写工作区名称。');const owner=data.get('owner');spaces.push({id:'ws-'+Date.now(),name,owner,status:'active',date:'2026-10-27',products:0,usage:0,adminUsage:0,pending:0,key:false,members:[{id:owner,role:'owner',used:0}]});audit('新建工作区',name);});return;}
+  });
+  root.addEventListener('input',event=>{if(event.target.id!=='ta-search')return;const pos=event.target.selectionStart;search=event.target.value;render();const input=root.querySelector('#ta-search');input.focus();if(input.type!=='search')input.setSelectionRange(pos,pos);saveView();});
+  restore(window.openai?.widgetState);render();
+  if(globalThis.lucide)globalThis.lucide.createIcons({attrs:{width:16,height:16}});
+  window.addEventListener('openai:set_globals',event=>{if(event.detail?.globals?.widgetState){restore(event.detail.globals.widgetState);render();}});
+  if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:()=>{root.dataset.density=settings.density;saveView();}});tweak.addSelect(settings,'density',{label:'列表密度',options:[{label:'标准',value:'standard'},{label:'紧凑',value:'compact'}]});}
+})();
+</script>

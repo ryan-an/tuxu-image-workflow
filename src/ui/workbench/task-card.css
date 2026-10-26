@@ -557,3 +557,11 @@
     padding: 2px 5px;
   }
 }
+.analysis-timing {
+  display: block;
+  margin: 6px 0;
+  color: #70758a;
+  font-size: 11px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}

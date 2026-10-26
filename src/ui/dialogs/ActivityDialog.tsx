@@ -31,7 +31,9 @@ const fields: Record<string, string> = {
   primaryId: "展示版本",
   selectedIds: "下载选图",
   common: "默认生成要求",
-  concurrency: "并发数量",
+  concurrency: "生图提交并发",
+  promptConcurrency: "提示词分析并发",
+  queryConcurrency: "结果查询并发",
   promptTemplates: "提示词模板",
   imports: "导入结果",
 };

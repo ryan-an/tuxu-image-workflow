@@ -102,9 +102,22 @@ export class GenerationQueue {
   }
   pump() {
     if (this.state.paused) return;
-    let free =
-      this.state.concurrency -
-      this.state.jobs.filter((j) => j.status === "running").length;
+    const lane = (job) =>
+      job.kind === "prompt-set" ? "prompt" : job.remoteId ? "query" : "submit";
+    const limits = {
+      prompt: this.state.promptConcurrency ?? 15,
+      submit: this.state.concurrency,
+      query: this.state.queryConcurrency ?? 8,
+    };
+    const free = Object.fromEntries(
+      Object.entries(limits).map(([kind, limit]) => [
+        kind,
+        limit -
+          this.state.jobs.filter(
+            (j) => j.status === "running" && lane(j) === kind,
+          ).length,
+      ]),
+    );
     let updated = false;
     for (const job of this.state.jobs.filter((j) => j.status === "queued")) {
       const dependency =
@@ -120,8 +133,8 @@ export class GenerationQueue {
         continue;
       }
       if (dependency && dependency.status !== "completed") continue;
-      if (free > 0) {
-        free--;
+      if (free[lane(job)] > 0) {
+        free[lane(job)]--;
         void this.run(job);
       }
     }

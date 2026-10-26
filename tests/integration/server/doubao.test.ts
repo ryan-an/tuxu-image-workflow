@@ -266,7 +266,13 @@ test("analysis sends images to Doubao Responses while image generation uses Grsa
       calls[0].body.input[0].content.filter(
         (c: any) => c.type === "input_image",
       ).length,
-      11,
+      1,
+    );
+    assert.ok(
+      calls[0].body.input[0].content.some(
+        (c: any) =>
+          c.text?.includes("产品实拍图 0") && c.text.includes("图片 1"),
+      ),
     );
     assert.equal(calls[1].url, "https://grsai.dakka.com.cn/v1/api/generate");
     assert.equal(calls[1].authorization, "Bearer fake-platform-key");

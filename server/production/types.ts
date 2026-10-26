@@ -31,6 +31,17 @@ export interface Product {
   photoThumbnail?: any;
 }
 export interface Job {
+  rateLimitUntil?: number;
+  rateLimitRetries?: number;
+  analysisPhase?: "preparing" | "requesting" | "streaming";
+  timings?: {
+    attemptStartedAt: number;
+    requestStartedAt?: number;
+    firstTokenAt?: number;
+    completedAt?: number;
+    imageCount?: number;
+    imageBytes?: number;
+  };
   createdBy?: { id: string; username: string; displayName: string };
   lastRetriedBy?: { id: string; username: string; displayName: string };
   id: string;
@@ -78,6 +89,8 @@ export interface Workspace {
   common: string;
   settings: Record<string, any>;
   concurrency: number;
+  promptConcurrency?: number;
+  queryConcurrency?: number;
   paused: boolean;
   activeProductId?: string;
   sheetSnapshot?: any;

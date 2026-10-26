@@ -92,14 +92,40 @@ export class WorkspaceClient {
     this.productLoads = new Map();
   }
   request(path, body, method = body ? "POST" : "GET", view = {}) {
-    if (!this.state.partial) return api(path, body, method);
+    const resultHeaders =
+      path === "/api/workspace" && method === "PATCH"
+        ? { "x-workspace-result": "delta" }
+        : {};
+    if (!this.state.partial) return api(path, body, method, resultHeaders);
     const ids = this.state.products.filter((p) => !p._summary).map((p) => p.id);
     return api(path, body, method, {
+      ...resultHeaders,
       "x-workspace-view": "compact",
       "x-workspace-products":
         view.all || ids.length > 100 ? "all" : JSON.stringify(ids),
       "x-workspace-sheet": (view.sheet ?? this.state.sheetLoaded) ? "1" : "0",
     });
+  }
+  savedWorkspace(result) {
+    if (result.editResult !== "delta") return result;
+    const updates = new Map(
+      result.products.map((product) => [product.id, product]),
+    );
+    const products = this.baseline.products.map((product) => {
+      const next = updates.get(product.id) || product;
+      updates.delete(product.id);
+      return next;
+    });
+    // This acknowledgement only covers our edits, not every entity committed
+    // before result.cursor. Keep the old cursor so the next sync cannot skip
+    // another editor's changes or a background result.
+    return {
+      ...this.baseline,
+      ...result.document,
+      products: [...products, ...updates.values()].sort((a, b) =>
+        a.code.localeCompare(b.code),
+      ),
+    };
   }
   loadProducts(ids) {
     const missing = [...new Set(ids)].filter(
@@ -271,7 +297,9 @@ export class WorkspaceClient {
       const sent = structuredClone(editable(this.state)),
         edits = differences(editable(this.baseline), sent);
       if (!edits.length) return;
-      const remote = await this.request("/api/workspace", { edits }, "PATCH");
+      const remote = this.savedWorkspace(
+        await this.request("/api/workspace", { edits }, "PATCH"),
+      );
       this.capture();
       const pending = differences(sent, editable(this.state));
       await this.accept(remote, pending);
@@ -282,7 +310,9 @@ export class WorkspaceClient {
     return this.serialize(async () => {
       this.capture();
       const before = structuredClone(editable(this.baseline));
-      const remote = await this.request("/api/workspace", { edits }, "PATCH");
+      const remote = this.savedWorkspace(
+        await this.request("/api/workspace", { edits }, "PATCH"),
+      );
       this.capture();
       const pending = differences(before, editable(this.state));
       await this.accept(remote, pending, true);
@@ -423,8 +453,12 @@ export class WorkspaceClient {
           void this.refresh().catch(() => {});
           return;
         }
-        job.promptDrafts = event.drafts;
-        job.receivedChars = event.receivedChars;
+        if (event.drafts !== undefined) job.promptDrafts = event.drafts;
+        if (event.receivedChars !== undefined)
+          job.receivedChars = event.receivedChars;
+        if (event.analysisPhase !== undefined)
+          job.analysisPhase = event.analysisPhase;
+        if (event.timings !== undefined) job.timings = event.timings;
         this.render();
       };
     }

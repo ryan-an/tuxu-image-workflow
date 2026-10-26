@@ -12,6 +12,7 @@ export function PromptPreview({
   failed,
   unvalidated,
   validationFailed,
+  analysisProgress,
 }: {
   text: string;
   streaming: boolean;
@@ -24,6 +25,7 @@ export function PromptPreview({
   failed?: boolean;
   unvalidated?: boolean;
   validationFailed?: boolean;
+  analysisProgress?: { label: string; detail: string };
 }) {
   const { controller, user } = useApplication();
   const canEdit = user.role !== "viewer";
@@ -112,9 +114,8 @@ export function PromptPreview({
                   : "提示词生成失败"
                 : "提示词生成中断"
               : streaming
-                ? received
-                  ? "正在编写提示词"
-                  : "等待平台响应"
+                ? analysisProgress?.label ||
+                  (received ? "正在编写提示词" : "等待平台响应")
                 : waiting
                   ? "等待提示词"
                   : "提示词已就绪"}
@@ -155,6 +156,9 @@ export function PromptPreview({
           </div>
         )}
       </div>
+      {!editing && analysisProgress?.detail && (
+        <small className="analysis-timing">{analysisProgress.detail}</small>
+      )}
       {!editing && analysisError && (
         <p className="prompt-validation-message" role="alert">
           {analysisError}

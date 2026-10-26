@@ -77,3 +77,7 @@ npm run teams -- reset-password team_b
 创建与恢复命令不回显密码；自动化可使用 `TUXU_TEAM_PASSWORD`。`create` 是创建新账号及其首个工作区的部署便利操作，普通用户的其他空间从页面创建。完整数据备份包含身份、成员、会话、邀请与用量；页面工作流 JSON/ZIP 只备份业务资料。
 
 回归覆盖 `multi-workspace.test.ts`、`accounts.test.ts`、`workspace-isolation.test.ts`、`team-migration.test.ts`、`authentication.test.ts` 及 `workspace-management-browser.test.ts` 等。夹具使用隔离 SQLite、素材目录和模拟平台，不访问个人数据或付费接口。
+
+## 后续设计
+
+[admin 超级管理台设计方案](admin-console-design.md) 规划平台级超级管理员、全部用户与工作区管理、跨工作区管理模式及操作记录。目前仅为设计文档，尚未改变本文所述的现有权限。

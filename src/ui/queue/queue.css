@@ -506,6 +506,13 @@
   color: #8589a0;
   font-size: 11px;
 }
+.queue-execution-limits {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+  padding-top: 8px;
+}
 .queue-history-pagination button {
   padding: 7px 12px;
   border: 1px solid #dedfed;

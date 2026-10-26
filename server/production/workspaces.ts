@@ -3,17 +3,26 @@ import { Assets } from "./assets.js";
 import { Credentials } from "./credentials.js";
 import { Workflows } from "./workflows.js";
 import { AppError, type Database } from "./types.js";
+import {
+  DEFAULT_EXECUTION_LIMITS,
+  type ExecutionLimits,
+} from "./execution-limits.js";
+import { AnalysisImagePool } from "./analysis-images.js";
 
 // A runtime has an immutable workspace scope, shared by its HTTP handlers,
 // assistant streams and worker. Never derive this scope from a request body.
 export class Workspaces {
   private instances = new Map<string, Workflows>();
   private pending = new Map<string, Promise<Workflows>>();
+  private analysisPool: AnalysisImagePool;
   constructor(
     private db: Database,
     private assetsDirectory: string,
     private secret: string,
-  ) {}
+    private executionLimits: ExecutionLimits = DEFAULT_EXECUTION_LIMITS,
+  ) {
+    this.analysisPool = new AnalysisImagePool(executionLimits.imagePreparation);
+  }
   async get(id: string) {
     if (this.instances.has(id)) return this.instances.get(id)!;
     if (this.pending.has(id)) return this.pending.get(id)!;
@@ -23,11 +32,11 @@ export class Workspaces {
           .rows.length
       )
         throw new AppError("工作区不存在", 404);
-      const repo = new Repository(this.db, id);
+      const repo = new Repository(this.db, id, this.executionLimits);
       await repo.initialize();
       const workflows = new Workflows(
         repo,
-        new Assets(this.db, this.assetsDirectory, id),
+        new Assets(this.db, this.assetsDirectory, id, this.analysisPool),
         new Credentials(this.secret),
       );
       this.instances.set(id, workflows);

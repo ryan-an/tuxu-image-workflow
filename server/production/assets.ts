@@ -9,6 +9,11 @@ import sharp from "sharp";
 import type { Database } from "./types.js";
 import { AppError } from "./types.js";
 import { WORKSPACE } from "./repository.js";
+import {
+  AnalysisImagePool,
+  defaultAnalysisImagePool,
+  analysisImage,
+} from "./analysis-images.js";
 export const ASSET_PATH = /^\/api\/assets\/([a-f0-9]{64})$/;
 const MAX_IMAGE = 40 * 1024 * 1024;
 export class Assets {
@@ -23,6 +28,7 @@ export class Assets {
     private db: Database,
     root: string,
     private readonly workspaceId = WORKSPACE,
+    private analysisPool: AnalysisImagePool = defaultAnalysisImagePool,
   ) {
     this.root = resolve(root);
   }
@@ -107,6 +113,7 @@ export class Assets {
           }
         };
         await remove(join(this.root, "thumbnails", `${asset.id}.webp`));
+        await remove(join(this.root, "analysis-v1", `${asset.id}.jpg`));
         await remove(join(this.root, asset.id));
         await tx.query("DELETE FROM assets WHERE id=$1 AND workspace_id=$2", [
           asset.id,
@@ -230,6 +237,58 @@ export class Assets {
     if (source.startsWith("data:image/")) return source;
     if (/^https:\/\//.test(source)) return source;
     throw new AppError("无效的素材地址");
+  }
+  async analysisSource(source: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    const match = ASSET_PATH.exec(source);
+    const cached = match
+      ? join(this.root, "analysis-v1", `${match[1]}.jpg`)
+      : undefined;
+    if (match) await this.authorized(match[1]);
+    const readCache = async () => {
+      if (!cached) return;
+      try {
+        return { bytes: await readFile(cached), mime: "image/jpeg" };
+      } catch (error: any) {
+        if (error.code !== "ENOENT") throw error;
+      }
+    };
+    const encode = (result: { bytes: Buffer; mime: string }) =>
+      `data:${result.mime};base64,${result.bytes.toString("base64")}`;
+    const existing = await readCache();
+    if (existing) return encode(existing);
+    return this.analysisPool.run(signal, async () => {
+      const existing = await readCache();
+      if (existing) return encode(existing);
+      let original: { bytes: Buffer; mime: string };
+      if (match) original = await this.get(match[1]);
+      else if (source.startsWith("data:image/")) {
+        const value =
+          /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/.exec(
+            source,
+          );
+        if (!value) throw new AppError("不支持的图片编码");
+        original = { bytes: Buffer.from(value[2], "base64"), mime: value[1] };
+      } else if (/^https:\/\//.test(source))
+        original = await downloadImage(
+          source,
+          signal || AbortSignal.timeout(30000),
+        );
+      else throw new AppError("无效的素材地址");
+      const result = await analysisImage(original.bytes, original.mime);
+      signal?.throwIfAborted();
+      if (cached && result.converted) {
+        await mkdir(join(this.root, "analysis-v1"), { recursive: true });
+        const temporary = `${cached}.${randomUUID()}.tmp`;
+        try {
+          await writeFile(temporary, result.bytes);
+          await rename(temporary, cached);
+        } finally {
+          await unlink(temporary).catch(() => {});
+        }
+      }
+      return encode(result);
+    });
   }
   async download(source: string, signal: AbortSignal) {
     if (source.startsWith("data:image/")) return this.normalize(source);

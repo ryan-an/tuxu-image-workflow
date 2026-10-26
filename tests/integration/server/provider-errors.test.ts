@@ -8,6 +8,7 @@ import { fixture, pairs, loginHeaders } from "../../support/production.js";
 const provider = () =>
   new GrsaiProvider({
     providerSource: async (source: string) => source,
+    analysisSource: async (source: string) => source,
   } as any);
 
 test("Doubao platform reasons reach saved prompt jobs and the workspace response without credentials", async () => {

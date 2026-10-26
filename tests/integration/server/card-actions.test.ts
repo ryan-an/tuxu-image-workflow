@@ -315,7 +315,7 @@ test("single card model request includes only its reference and accepts only its
     assert.equal(
       request.input[0].content.filter((c: any) => c.type === "input_image")
         .length,
-      2,
+      1,
     );
     assert.ok(request.input[0].content[0].text.includes("images必须恰好1项"));
     product.tasks[0].references = [];

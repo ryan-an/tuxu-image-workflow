@@ -24,6 +24,17 @@ npm run test:production   # 生产服务端单测与集成测试
 npm run test:build        # 编译测试和复制 SQL 迁移
 ```
 
+保存接口的本机短测使用独立临时数据库及实际回环 HTTP，不读取用户数据或调用平台：
+
+```powershell
+npm run test:build
+node tests/support/save-load.mjs
+# 可选：与指定 Git 版本的保存实现对照，不切换工作目录或修改源码。
+node tests/support/save-load.mjs --baseline-ref HEAD
+```
+
+固定数据为 100 个产品、501 条历史任务，同一登录会话发出 15 路并发保存，共 30 次请求。报告写入 `artifacts/tests/save-load.json`。对照模式从指定版本读取保存实现，仅替换隔离服务的该方法；其他运行模块使用当前构建，适合比较本次保存链路改动，不代表完整旧版本部署。该测试不包含后台 Worker、SSE、图片上传、反向代理或公网网络，也不等同于客户电脑上 15 个真实用户的长期压力测试。
+
 Windows 便携包完成打包后，可单独验证解压、包内原生依赖、启动、登录和重启后的会话保留（使用隔离测试目录，不调用模型）：
 
 ```powershell

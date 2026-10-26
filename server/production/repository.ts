@@ -1,6 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { JOB_VIEW_COLUMNS, presentJob } from "./workspace-loading.js";
-import { leaseDuration } from "./execution-limits.js";
+import {
+  leaseDuration,
+  DEFAULT_EXECUTION_LIMITS,
+  type ExecutionLimits,
+  type ExecutionLane,
+} from "./execution-limits.js";
+import {
+  executionConcurrency,
+  DEFAULT_PROMPT_CONCURRENCY,
+  DEFAULT_QUERY_CONCURRENCY,
+  CONCURRENCY_FIELDS,
+} from "../../shared/execution-settings.js";
 import { DEFAULT_CONFIG } from "../../shared/provider-config.js";
 import {
   DEFAULT_COMMON,
@@ -16,6 +27,8 @@ export function emptyWorkspace(): Workspace {
     promptTemplates: {},
     settings: { ...DEFAULT_CONFIG, mode: "live" },
     concurrency: 2,
+    promptConcurrency: DEFAULT_PROMPT_CONCURRENCY,
+    queryConcurrency: DEFAULT_QUERY_CONCURRENCY,
     paused: false,
     products: [],
     jobs: [],
@@ -29,6 +42,7 @@ export class Repository {
   constructor(
     public db: Database,
     public readonly workspaceId = WORKSPACE,
+    public readonly executionLimits: ExecutionLimits = DEFAULT_EXECUTION_LIMITS,
   ) {}
   async history(
     page: number,
@@ -162,10 +176,43 @@ export class Repository {
       }
     });
   }
-  async lock(tx: Queryable) {
+  async lock(tx: Queryable, includeSheet = true) {
     return (
-      await tx.query("SELECT * FROM workspace WHERE id=$1", [this.workspaceId])
+      await tx.query(
+        `SELECT ${includeSheet ? "*" : "id,archived_at,json_remove(document,'$.sheetSnapshot') AS document"} FROM workspace WHERE id=$1`,
+        [this.workspaceId],
+      )
     ).rows[0];
+  }
+  async productsById(tx: Queryable, ids: string[]): Promise<Product[]> {
+    if (!ids.length) return [];
+    return (
+      await tx.query(
+        "SELECT document FROM products WHERE workspace_id=$1 AND id IN (SELECT value FROM json_each($2)) ORDER BY code",
+        [this.workspaceId, JSON.stringify(ids)],
+      )
+    ).rows.map((row) => row.document);
+  }
+  async saveWorkspaceFields(tx: Queryable, fields: Record<string, unknown>) {
+    const values: any[] = [this.workspaceId];
+    const paths = Object.entries(fields).map(([key, value]) => {
+      if (
+        ![
+          "common",
+          "promptTemplates",
+          ...CONCURRENCY_FIELDS,
+          "sheetSnapshot",
+        ].includes(key)
+      )
+        throw new AppError("该字段不能通过编辑接口修改");
+      values.push(`$.${key}`, JSON.stringify(value ?? null));
+      return `$${values.length - 1},json($${values.length})`;
+    });
+    if (!paths.length) return;
+    await tx.query(
+      `UPDATE workspace SET document=json_set(document,${paths.join(",")}),updated_at=$${values.length + 1} WHERE id=$1`,
+      [...values, Date.now()],
+    );
   }
   async view(tx: Queryable = this.db): Promise<Workspace> {
     const { rows } = await tx.query(
@@ -234,9 +281,18 @@ export class Repository {
       ],
     );
   }
-  async claim(owner: string, now = Date.now()): Promise<Job | null> {
+  async claim(
+    owner: string,
+    now = Date.now(),
+    lane?: ExecutionLane,
+  ): Promise<Job | null> {
     return this.db.transaction(async (tx) => {
-      const workspace = await this.lock(tx);
+      const workspace = (
+        await tx.query(
+          "SELECT archived_at,json_object('paused',json_extract(document,'$.paused'),'concurrency',json_extract(document,'$.concurrency'),'promptConcurrency',json_extract(document,'$.promptConcurrency'),'queryConcurrency',json_extract(document,'$.queryConcurrency')) AS document FROM workspace WHERE id=$1",
+          [this.workspaceId],
+        )
+      ).rows[0];
       if (workspace.archived_at !== null) return null;
       // An expired paid submission is uncertain. Never resubmit it automatically.
       const expired = (
@@ -253,6 +309,7 @@ export class Repository {
           job.status === "interrupted"
             ? "执行进程中断，平台受理状态未知；请核对平台后处理，禁止盲目重试"
             : "";
+        if (job.status === "interrupted") job.finishedAt = now;
         await this.saveJob(tx, job);
         if (job.attemptId)
           await tx.query(
@@ -260,36 +317,71 @@ export class Repository {
             [job.attemptId, now],
           );
       }
-      const state = await this.view(tx);
-      if (
-        state.paused ||
-        state.jobs.filter((j) => j.status === "running").length >=
-          state.concurrency
-      )
-        return null;
+      if (workspace.document.paused) return null;
+      const laneSql =
+        "CASE WHEN j.kind='prompt-set' THEN 'prompt' WHEN j.remote_id IS NULL THEN 'submit' ELSE 'query' END";
+      const counts = (
+        await tx.query(
+          `SELECT ${laneSql} AS lane,COUNT(*) AS total,SUM(j.workspace_id=$1) AS local FROM jobs j WHERE j.status='running' AND (j.lease_until IS NULL OR j.lease_until>=$2) GROUP BY 1`,
+          [this.workspaceId, now],
+        )
+      ).rows;
+      const requested = executionConcurrency(workspace.document);
+      const available = (
+        ["prompt", "submit", "query"] as ExecutionLane[]
+      ).filter((kind) => {
+        const count = counts.find((item) => item.lane === kind);
+        return (
+          (!lane || lane === kind) &&
+          (count?.local || 0) < requested[kind] &&
+          (count?.total || 0) < this.executionLimits[kind]
+        );
+      });
+      if (!available.length) return null;
+      // Resolve failed dependencies with indexed joins, never a full workspace snapshot.
       for (const row of (
         await tx.query(
-          "SELECT * FROM jobs WHERE status='queued' AND due_at <= $1 AND workspace_id=$2 ORDER BY due_at,created_at,id",
+          "SELECT j.* FROM jobs j LEFT JOIN jobs d ON d.id=j.depends_on AND d.workspace_id=j.workspace_id WHERE j.status='queued' AND j.due_at<=$1 AND j.workspace_id=$2 AND j.depends_on IS NOT NULL AND (d.id IS NULL OR d.status IN ('failed','cancelled','interrupted'))",
           [new Date(now), this.workspaceId],
         )
       ).rows) {
-        const job = hydrateJob(row),
-          dependency = state.jobs.find((j) => j.id === job.dependsOn);
-        if (
-          job.dependsOn &&
-          (!dependency ||
-            ["failed", "cancelled", "interrupted"].includes(dependency.status))
-        ) {
-          job.status = "failed";
-          job.error = "整套提示词未完成，请先处理整套分析任务";
-          await this.saveJob(tx, job);
-          continue;
-        }
-        if (dependency && dependency.status !== "completed") continue;
+        const job = hydrateJob(row);
+        job.status = "failed";
+        job.finishedAt = now;
+        job.error = "整套提示词未完成，请先处理整套分析任务";
+        await this.saveJob(tx, job);
+      }
+      const memberSql =
+        "COALESCE(json_extract(j.payload,'$.createdBy.id'),'legacy')";
+      const providerSql =
+        "CASE WHEN j.kind='prompt-set' AND json_extract(j.payload,'$.config.promptProvider')='doubao' THEN 'doubao' ELSE 'grsai:'||COALESCE(json_extract(j.payload,'$.config.baseUrl'),'') END";
+      const modelSql =
+        "CASE WHEN j.kind='prompt-set' THEN json_extract(j.payload,'$.config.promptModel') ELSE json_extract(j.payload,'$.config.imageModel') END";
+      const row = (
+        await tx.query(
+          `SELECT j.* FROM jobs j LEFT JOIN jobs d ON d.id=j.depends_on AND d.workspace_id=j.workspace_id
+         LEFT JOIN scheduler_turns t ON t.workspace_id=j.workspace_id AND t.lane=(${laneSql}) AND t.member_id=(${memberSql})
+         LEFT JOIN model_cooldowns c ON c.provider=(${providerSql}) AND c.model=(${modelSql})
+         WHERE j.workspace_id=$1 AND j.status='queued' AND j.due_at<=$2
+           AND (${laneSql}) IN (SELECT value FROM json_each($3))
+           AND (j.depends_on IS NULL OR d.status='completed') AND COALESCE(c.retry_until,0)<=$2
+         ORDER BY COALESCE(t.sequence,0),j.due_at,j.created_at,j.id LIMIT 1`,
+          [this.workspaceId, now, JSON.stringify(available)],
+        )
+      ).rows[0];
+      if (row) {
+        const job = hydrateJob(row);
         job.owner = owner;
         job.status = "running";
         job.startedAt ||= now;
         job.attemptId = randomUUID();
+        delete job.rateLimitUntil;
+        if (job.kind === "prompt-set") {
+          job.analysisPhase = "preparing";
+          job.timings = { attemptStartedAt: now };
+          job.receivedChars = 0;
+          job.promptDrafts = {};
+        }
         await tx.query(
           `UPDATE jobs SET status='running',owner=$2,lease_until=$3,payload=$4 WHERE id=$1`,
           [job.id, owner, new Date(now + leaseDuration(job.kind)), job],
@@ -297,6 +389,20 @@ export class Repository {
         await tx.query(
           "INSERT INTO job_attempts(id,job_id,stage,outcome) VALUES($1,$2,$3,'running')",
           [job.attemptId, job.id, job.stage],
+        );
+        await tx.query(
+          `INSERT INTO scheduler_turns(workspace_id,lane,member_id,sequence)
+           VALUES($1,$2,$3,(SELECT COALESCE(MAX(sequence),0)+1 FROM scheduler_turns WHERE workspace_id=$1 AND lane=$2))
+           ON CONFLICT(workspace_id,lane,member_id) DO UPDATE SET sequence=excluded.sequence`,
+          [
+            this.workspaceId,
+            job.kind === "prompt-set"
+              ? "prompt"
+              : job.remoteId
+                ? "query"
+                : "submit",
+            job.createdBy?.id || "legacy",
+          ],
         );
         return job;
       }
@@ -312,7 +418,7 @@ export class Repository {
     ) => Promise<number | void>,
   ) {
     return this.db.transaction(async (tx) => {
-      await this.lock(tx);
+      const workspace = await this.lock(tx, false);
       const row = (
         await tx.query("SELECT * FROM jobs WHERE id=$1 AND workspace_id=$2", [
           job.id,
@@ -326,8 +432,12 @@ export class Repository {
         row.payload.attemptId !== job.attemptId
       )
         return;
-      const current = hydrateJob(row),
-        state = await this.view(tx);
+      const current = hydrateJob(row);
+      const state: Workspace = {
+        ...workspace.document,
+        products: await this.productsById(tx, [job.productId]),
+        jobs: [],
+      };
       const delay = await work(tx, state, current);
       await this.saveJob(tx, current, delay || 0);
       await tx.query(
@@ -335,6 +445,51 @@ export class Repository {
         [job.attemptId, current.status, current.error || null, Date.now()],
       );
     });
+  }
+  async job(id: string, tx: Queryable = this.db): Promise<Job | undefined> {
+    const row = (
+      await tx.query("SELECT * FROM jobs WHERE id=$1 AND workspace_id=$2", [
+        id,
+        this.workspaceId,
+      ])
+    ).rows[0];
+    return row ? hydrateJob(row) : undefined;
+  }
+  async saveAnalysisTiming(job: Job) {
+    return this.db.transaction(async (tx) => {
+      const current = await this.job(job.id, tx);
+      if (
+        !current ||
+        current.owner !== job.owner ||
+        current.attemptId !== job.attemptId ||
+        current.status !== "running"
+      )
+        return false;
+      await tx.query(
+        "UPDATE jobs SET payload=$2 WHERE id=$1 AND workspace_id=$3",
+        [
+          job.id,
+          {
+            ...current,
+            timings: job.timings,
+            analysisPhase: job.analysisPhase,
+          },
+          this.workspaceId,
+        ],
+      );
+      return true;
+    });
+  }
+  async deferModel(
+    tx: Queryable,
+    provider: string,
+    model: string,
+    until: number,
+  ) {
+    await tx.query(
+      "INSERT INTO model_cooldowns(provider,model,retry_until) VALUES($1,$2,$3) ON CONFLICT(provider,model) DO UPDATE SET retry_until=MAX(retry_until,excluded.retry_until)",
+      [provider, model, until],
+    );
   }
   async markStage(job: Job, stage: string) {
     return this.db.transaction(async (tx) => {

@@ -25,7 +25,9 @@ import {
   type TransportSecurityOptions,
 } from "./transport-security.js";
 import { registerSheetImports } from "./sheet-imports.js";
+import type { ExecutionLimits } from "./execution-limits.js";
 export interface AppOptions {
+  executionLimits?: ExecutionLimits;
   db: Database;
   assetDirectory: string;
   credentialSecret: string;
@@ -40,6 +42,7 @@ export async function createApp(options: AppOptions) {
     options.db,
     options.assetDirectory,
     options.credentialSecret,
+    options.executionLimits,
   );
   const workflows = await workspaces.initialize();
   const app = Fastify({
@@ -113,6 +116,10 @@ export async function createApp(options: AppOptions) {
     return { status: "ok" };
   });
   app.get("/api/workflow/settings", (request) => request.workspace.settings());
+  app.get("/api/execution/limits", (request) => {
+    const { prompt, submit, query } = request.workspace.repo.executionLimits;
+    return { prompt, submit, query };
+  });
   app.delete<{ Params: { id: string } }>(
     "/api/products/:id",
     {
@@ -332,10 +339,18 @@ export async function createApp(options: AppOptions) {
       const edits = (request.body as any).edits;
       if (
         request.user?.role !== "owner" &&
-        edits.some((edit: any) => edit.path[0] === "concurrency")
+        edits.some((edit: any) =>
+          ["concurrency", "promptConcurrency", "queryConcurrency"].includes(
+            edit.path[0],
+          ),
+        )
       )
         throw new AppError("仅所有者可修改并发上限", 403);
-      return request.workspace.edit(edits, request.user!);
+      return request.workspace.edit(
+        edits,
+        request.user!,
+        request.headers["x-workspace-result"] === "delta",
+      );
     },
   );
   app.post(

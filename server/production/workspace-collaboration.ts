@@ -11,6 +11,11 @@ export interface SheetPresence {
   updatedAt: number;
 }
 export class WorkspaceCollaboration extends EventEmitter {
+  constructor() {
+    super();
+    this.setMaxListeners(128);
+  }
+  private changeTimer?: ReturnType<typeof setTimeout>;
   peers = new Map<string, SheetPresence>();
   connections = new Map<string, object>();
   update(
@@ -40,6 +45,11 @@ export class WorkspaceCollaboration extends EventEmitter {
     return [...this.peers.values()];
   }
   changed() {
-    this.emit("event", { type: "changed" });
+    if (this.changeTimer || !this.listenerCount("event")) return;
+    this.changeTimer = setTimeout(() => {
+      this.changeTimer = undefined;
+      this.emit("event", { type: "changed" });
+    }, 100);
+    this.changeTimer.unref();
   }
 }

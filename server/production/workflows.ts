@@ -5,6 +5,10 @@ import {
   equal,
 } from "../../shared/workspace-edits.js";
 import { recordWorkspaceActivity } from "./workspace-activity.js";
+import {
+  CONCURRENCY_FIELDS,
+  validConcurrency,
+} from "../../shared/execution-settings.js";
 import { WorkspaceCollaboration } from "./workspace-collaboration.js";
 import { normalizePromptTemplates } from "../../shared/prompt-templates.js";
 import type { CurrentUser } from "../../shared/access.js";
@@ -299,23 +303,44 @@ export class Workflows {
     }
     return result;
   }
-  async edit(raw: any[], actor?: CurrentUser) {
+  async edit(raw: any[], actor?: CurrentUser, delta = false) {
     const edits = await this.assets.normalize(raw);
+    const ids = [
+      ...new Set<string>(
+        edits
+          .filter((edit: any) => edit.path?.[0] === "products")
+          .map((edit: any) => edit.path[1]),
+      ),
+    ];
+    if (
+      ids.some(
+        (id) => typeof id !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(id),
+      )
+    )
+      throw new AppError("产品 ID 无效");
+    const fields = new Set<string>(edits.map((edit: any) => edit.path?.[0]));
+    let changed = false;
     return this.repo.db
       .transaction(async (tx) => {
-        const row = await this.repo.lock(tx);
+        const row = await this.repo.lock(tx, fields.has("sheetSnapshot"));
         if (row.archived_at !== null) throw new AppError("工作区已归档", 409);
         if (actor)
           await requireMembership(
             tx,
             this.repo.workspaceId,
             actor.id,
-            raw.some((edit) => edit.path?.[0] === "concurrency")
+            raw.some((edit) => CONCURRENCY_FIELDS.includes(edit.path?.[0]))
               ? "manage"
               : "edit",
           );
-        const state = await this.repo.view(tx),
-          projection = editable(state);
+        // Edit only the aggregates named by the patch. Execution snapshots and
+        // unrelated products must never be loaded or rewritten by an editor.
+        const state: Workspace = {
+          ...row.document,
+          products: await this.repo.productsById(tx, ids),
+          jobs: [],
+        };
+        const projection = editable(state);
         const before = structuredClone(state);
         for (const e of edits) {
           const path = e.path;
@@ -332,7 +357,9 @@ export class Workflows {
                     !["__proto__", "constructor", "prototype"].includes(part),
                 )) ||
               (path.length === 1 &&
-                ["common", "concurrency", "sheetSnapshot"].includes(path[0])) ||
+                ["common", ...CONCURRENCY_FIELDS, "sheetSnapshot"].includes(
+                  path[0],
+                )) ||
               (path[0] === "promptTemplates" &&
                 (path.length === 2 ||
                   (path.length === 3 &&
@@ -378,9 +405,7 @@ export class Workflows {
         if (
           typeof projection.common !== "string" ||
           projection.common.length > 100000 ||
-          !Number.isInteger(projection.concurrency) ||
-          projection.concurrency < 1 ||
-          projection.concurrency > 6
+          !validConcurrency(projection)
         )
           throw new AppError("无效规则或并发数量");
         const products: Product[] = [];
@@ -461,12 +486,44 @@ export class Workflows {
         }
         if (new Set(products.map((p) => p.code)).size !== products.length)
           throw new AppError("产品编号重复");
-        for (const product of products)
+        const originals = new Map(before.products.map((p) => [p.id, p]));
+        const changedProducts = products.filter(
+          (p) => !equal(originals.get(p.id), p),
+        );
+        const renamed = changedProducts.filter(
+          (p) => originals.get(p.id)?.code !== p.code,
+        );
+        if (
+          renamed.length &&
+          (
+            await tx.query(
+              "SELECT id FROM products WHERE workspace_id=$1 AND code IN (SELECT value FROM json_each($2)) AND id NOT IN (SELECT value FROM json_each($3)) LIMIT 1",
+              [
+                this.repo.workspaceId,
+                JSON.stringify(renamed.map((p) => p.code)),
+                JSON.stringify(products.map((p) => p.id)),
+              ],
+            )
+          ).rows.length
+        )
+          throw new AppError("产品编号重复");
+        for (const product of changedProducts)
           await this.repo.saveProduct(tx, product);
-        state.common = projection.common;
-        state.promptTemplates = projection.promptTemplates;
-        state.concurrency = projection.concurrency;
-        state.sheetSnapshot = projection.sheetSnapshot;
+        state.products = products;
+        const document: Record<string, unknown> = {};
+        for (const key of [
+          "common",
+          "promptTemplates",
+          "concurrency",
+          "promptConcurrency",
+          "queryConcurrency",
+          "sheetSnapshot",
+        ] as const) {
+          if (!fields.has(key)) continue;
+          if (!equal(before[key] ?? null, projection[key] ?? null))
+            document[key] = projection[key];
+        }
+        Object.assign(state, document);
         await recordWorkspaceActivity(
           tx,
           this.repo.workspaceId,
@@ -474,11 +531,29 @@ export class Workflows {
           state,
           actor,
         );
-        await this.repo.saveWorkspace(tx, state);
+        await this.repo.saveWorkspaceFields(tx, document);
+        changed =
+          changedProducts.length > 0 || Object.keys(document).length > 0;
+        if (delta)
+          return {
+            editResult: "delta" as const,
+            // A retry or another editor may already have saved the same value.
+            // Acknowledge every touched entity even when no write was needed,
+            // so the client never restores its older baseline after success.
+            products,
+            document: Object.fromEntries(
+              [...fields]
+                .filter((key) => key !== "products")
+                .map((key) => [key, state[key] ?? null]),
+            ),
+            cursor: await this.repo.cursor(tx),
+          };
+        // Existing open pages still expect a full workspace. New clients opt
+        // into the acknowledgement above and avoid this compatibility read.
         return this.repo.view(tx);
       })
       .then((state) => {
-        this.collaboration.changed();
+        if (changed) this.collaboration.changed();
         return state;
       });
   }
@@ -879,6 +954,12 @@ export class Workflows {
           throw new AppError((error as Error).message);
         }
         state.sheetSnapshot = imported.sheetSnapshot ?? null;
+        const restoredConcurrency = Object.fromEntries(
+          CONCURRENCY_FIELDS.map((key) => [key, imported[key] ?? state[key]]),
+        );
+        if (!validConcurrency(restoredConcurrency))
+          throw new AppError("备份中的并发设置无效");
+        Object.assign(state, restoredConcurrency);
         state.paused = true;
         for (const key of configuration)
           if (typeof imported.settings?.[key] === "string")

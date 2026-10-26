@@ -2,6 +2,7 @@ import { database, migrate } from "./database.js";
 import { createApp } from "./app.js";
 import { WorkspaceWorkers } from "./workspace-workers.js";
 import { loadTransportSecurity } from "./transport-security.js";
+import { executionLimitsFromEnv } from "./execution-limits.js";
 const mode = process.argv[2] || "all";
 if (!["all", "migrate"].includes(mode))
   throw new Error("SQLite 运行方式为 all（API 与队列同进程）或 migrate");
@@ -20,6 +21,7 @@ const { app, workspaces } = await createApp({
   password: process.env.APP_PASSWORD || "",
   staticDirectory: process.env.NODE_ENV === "production" ? "./dist" : undefined,
   transport,
+  executionLimits: executionLimitsFromEnv(process.env),
 });
 const worker = new WorkspaceWorkers(
   workspaces,

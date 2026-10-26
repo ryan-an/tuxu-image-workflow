@@ -404,8 +404,10 @@ export function createCommands(context) {
       change();
       if (el.checked) await syncTask(p, t, "result");
     }
-    if (el.id === "concurrency") {
-      state.concurrency = Number(el.value);
+    if (
+      ["concurrency", "promptConcurrency", "queryConcurrency"].includes(el.id)
+    ) {
+      state[el.id] = Number(el.value);
       change();
       await queue.pump();
     }

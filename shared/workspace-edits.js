@@ -1,10 +1,17 @@
 // Only these fields are editable. Worker-owned history and execution state never
 // travel back through the editor's save endpoint.
+import {
+  DEFAULT_PROMPT_CONCURRENCY,
+  DEFAULT_QUERY_CONCURRENCY,
+} from "./execution-settings.js";
 export function editable(workspace) {
   return {
     common: workspace.common,
     promptTemplates: workspace.promptTemplates ?? {},
     concurrency: workspace.concurrency,
+    promptConcurrency:
+      workspace.promptConcurrency ?? DEFAULT_PROMPT_CONCURRENCY,
+    queryConcurrency: workspace.queryConcurrency ?? DEFAULT_QUERY_CONCURRENCY,
     ...(workspace.sheetLoaded === false
       ? {}
       : { sheetSnapshot: workspace.sheetSnapshot ?? null }),
@@ -250,6 +257,8 @@ export function mergeView(state, remote, pending = []) {
     common: projection.common,
     promptTemplates: projection.promptTemplates,
     concurrency: projection.concurrency,
+    promptConcurrency: projection.promptConcurrency,
+    queryConcurrency: projection.queryConcurrency,
     sheetSnapshot: projection.sheetSnapshot,
     activeProductId,
   });

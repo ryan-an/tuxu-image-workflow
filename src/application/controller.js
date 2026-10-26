@@ -318,7 +318,12 @@ export function createApplicationController(
         render();
         return;
       }
-      if (event.target.id === "concurrency" && !context.canManage)
+      if (
+        ["concurrency", "promptConcurrency", "queryConcurrency"].includes(
+          event.target.id,
+        ) &&
+        !context.canManage
+      )
         throw new Error("仅所有者可修改并发上限");
       await context.onChange(event);
     }),

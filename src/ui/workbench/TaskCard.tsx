@@ -6,6 +6,7 @@ import { currentProduct, formatTime } from "../selectors";
 import { PromptPreview } from "./PromptPreview.tsx";
 import { GenerationProgress } from "./GenerationProgress.tsx";
 import { imageGeneration } from "../../view-models/image-generation.js";
+import { analysisProgress } from "../../../shared/analysis-progress.js";
 import "./task-card.css";
 import { ProductStatusBadge } from "../ProductStatusBadge";
 import { Badge } from "../design-system/Badge";
@@ -240,6 +241,9 @@ export function TaskCard({ task }: { task: ImageTask }) {
       </div>
       <div className="task-prompt-area">
         <PromptPreview
+          analysisProgress={
+            analysis ? analysisProgress(analysis, state.paused) : undefined
+          }
           text={draft || (!streaming ? task.prompt : "")}
           streaming={streaming}
           waiting={!task.prompt}
