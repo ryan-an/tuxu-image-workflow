@@ -12,6 +12,344 @@ import {
   counts,
 } from "../support/production.js";
 import { Worker } from "../../server/production/worker.js";
+import { newProduct, addVersion } from "../../shared/model.js";
+import type { Product } from "../../server/production/types.js";
+
+test(
+  "product progress keeps the table, pages globally, filters without changing totals and loads details only on opening",
+  { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 60000 },
+  async () => {
+    const { chromium } = createRequire(import.meta.url)(
+      process.env.PLAYWRIGHT_MODULE!,
+    );
+    const f = await fixture(resolve("dist"));
+    const browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.CHROME_PATH,
+    });
+    try {
+      await f.db.transaction(async (tx) => {
+        await tx.query("DELETE FROM products");
+        for (let i = 0; i < 65; i++) {
+          const product = newProduct(
+            `Q${String(i).padStart(3, "0")}`,
+            `产品${i}`,
+          ) as Product;
+          if (i === 64) addVersion(product.tasks[0], f.product.photo, "ready");
+          await f.workflows.repo.saveProduct(tx, product);
+        }
+      });
+      await f.app.listen({ host: "127.0.0.1", port: 0 });
+      const root = `http://127.0.0.1:${(f.app.server.address() as { port: number }).port}`;
+      const page = await browser.newPage({
+        viewport: { width: 1440, height: 1100 },
+      });
+      const errors: string[] = [];
+      let fullReads = 0,
+        detailReads = 0,
+        submissions = 0;
+      page.on("pageerror", (error: Error) => errors.push(error.message));
+      page.on("request", (request: any) => {
+        const url = new URL(request.url());
+        if (url.pathname === "/api/workspace") fullReads++;
+        if (url.pathname === "/api/workspace/products") detailReads++;
+        if (url.pathname === "/api/jobs" && request.method() === "POST")
+          submissions++;
+      });
+      await page.goto(root);
+      await page.fill("#login-password", password);
+      await page.click('#login-form button[type="submit"]');
+      await page.locator(".task-card").first().waitFor();
+      const baselineDetails = detailReads;
+      await page.locator('[data-action="view"][data-view="queue"]').click();
+      const rows = page.locator(
+        ".batch-queue-table tbody tr[data-product-row]",
+      );
+      const pager = page.getByRole("navigation", { name: "产品进度分页" });
+      await page.waitForFunction(
+        () => document.querySelectorAll("tr[data-product-row]").length === 30,
+      );
+      const overview = page.getByRole("region", {
+        name: "全局统计",
+        exact: true,
+      });
+      assert.equal(await overview.locator(".queue-metric").count(), 4);
+      await overview.getByText("有异常", { exact: true }).click();
+      assert.equal(
+        await page.getByRole("combobox", { name: "产品进度筛选" }).inputValue(),
+        "attention",
+      );
+      await page.getByText("没有符合条件的产品", { exact: true }).waitFor();
+      const attentionCard = page.getByRole("button", {
+        name: "查看异常产品",
+        exact: true,
+      });
+      assert.equal(await attentionCard.getAttribute("aria-pressed"), "true");
+      assert.match(await attentionCard.innerText(), /已筛选/);
+      const refreshed = page.waitForRequest(
+        (request: any) =>
+          request.url().includes("/api/queue/products?") &&
+          new URL(request.url()).searchParams.get("status") === "attention",
+      );
+      await attentionCard.focus();
+      await page.keyboard.press("Enter");
+      await refreshed;
+      await page
+        .getByRole("combobox", { name: "产品进度筛选" })
+        .selectOption("all");
+      await page.waitForFunction(
+        () => document.querySelectorAll("tr[data-product-row]").length === 30,
+      );
+      assert.equal(
+        await overview.getByText("历史图片", { exact: true }).count(),
+        0,
+      );
+      assert.equal(
+        await page
+          .getByRole("columnheader", { name: "历史图 / 已选", exact: true })
+          .count(),
+        0,
+      );
+      assert.match(
+        await page.locator("#queue-complete").innerText(),
+        /0\s*\/\s*65/,
+      );
+      await page
+        .getByRole("button", { name: "查看图已齐的产品", exact: true })
+        .click();
+      await page.getByText("没有符合条件的产品", { exact: true }).waitFor();
+      assert.equal(
+        await page.getByRole("combobox", { name: "产品进度筛选" }).inputValue(),
+        "complete",
+      );
+      await page
+        .getByRole("combobox", { name: "产品进度筛选" })
+        .selectOption("all");
+      await page.waitForFunction(
+        () => document.querySelectorAll("tr[data-product-row]").length === 30,
+      );
+      assert.ok(
+        (await page
+          .locator("#queue-generated")
+          .evaluate((element: Element) =>
+            parseFloat(getComputedStyle(element).fontSize),
+          )) >= 24,
+      );
+      const overviewBox = await overview.boundingBox();
+      assert.ok(
+        overviewBox && overviewBox.height <= 150,
+        "statistics stay in a compact desktop row",
+      );
+      const toolbar = page.getByRole("group", { name: "队列操作" });
+      assert.equal(await toolbar.locator("button:visible").count(), 2);
+      const toolbarBox = await toolbar.boundingBox();
+      assert.ok(toolbarBox && toolbarBox.height <= 40);
+      assert.equal(
+        await page
+          .locator("#queue-tab-products")
+          .evaluate(
+            (element: Element) => getComputedStyle(element).backgroundColor,
+          ),
+        "rgba(0, 0, 0, 0)",
+      );
+      const filterBox = await page
+        .locator(".queue-product-filter")
+        .boundingBox();
+      assert.ok(filterBox && filterBox.height <= 40);
+      const manager = page.getByRole("button", {
+        name: "队列管理",
+        exact: true,
+      });
+      const managerPanel = page.getByRole("dialog", { name: "全局队列管理" });
+      assert.equal(await managerPanel.isVisible(), false);
+      const tableTop = (await page
+        .locator(".batch-queue-table-wrap")
+        .boundingBox())!.y;
+      await manager.focus();
+      await page.keyboard.press("ArrowDown");
+      await managerPanel.waitFor();
+      await page.screenshot({
+        path: artifactPath("queue-manager-desktop.png"),
+      });
+      assert.match(await managerPanel.innerText(), /作用于当前工作区全部任务/);
+      assert.equal(
+        await managerPanel.locator('[data-action="retry-failed"]').isDisabled(),
+        true,
+      );
+      assert.ok(
+        Math.abs(
+          (await page.locator(".batch-queue-table-wrap").boundingBox())!.y -
+            tableTop,
+        ) < 1,
+        "management opens without pushing the table down",
+      );
+      await page.keyboard.press("Escape");
+      assert.equal(await managerPanel.isVisible(), false);
+      await manager.click();
+      await managerPanel.waitFor();
+      await page
+        .getByRole("heading", { name: "执行队列", exact: true })
+        .click();
+      assert.equal(await managerPanel.isVisible(), false);
+      assert.equal(
+        await page.locator('[data-action="generate-remaining"]').count(),
+        0,
+      );
+      assert.equal(
+        await page
+          .getByRole("button", { name: /补齐缺图|批量生成剩余/ })
+          .count(),
+        0,
+      );
+      assert.match(
+        await page.locator("#queue-generated").innerText(),
+        /1\s*\/\s*650/,
+      );
+      assert.match(await pager.innerText(), /当前第 1 \/ 3 页/);
+      assert.match(await rows.first().innerText(), /Q000/);
+      await pager.getByRole("button", { name: "下一页" }).click();
+      await page.waitForFunction(() =>
+        document
+          .querySelector("tr[data-product-row]")
+          ?.textContent?.includes("Q030"),
+      );
+      assert.equal(await rows.count(), 30);
+      await pager.getByRole("button", { name: "下一页" }).click();
+      await page.waitForFunction(
+        () => document.querySelectorAll("tr[data-product-row]").length === 5,
+      );
+      assert.match(await pager.innerText(), /当前第 3 \/ 3 页/);
+      await page
+        .getByRole("combobox", { name: "产品进度筛选" })
+        .selectOption("ready");
+      await page.waitForFunction(
+        () => document.querySelectorAll("tr[data-product-row]").length === 1,
+      );
+      assert.match(await rows.first().innerText(), /Q064/);
+      assert.match(await pager.innerText(), /当前第 1 \/ 1 页/);
+      assert.match(
+        await page.locator("#queue-generated").innerText(),
+        /1\s*\/\s*650/,
+      );
+      await page.getByRole("tab", { name: /任务明细/ }).click();
+      await page
+        .getByText("尚无执行记录，可在图片工作台发起生成。", { exact: true })
+        .waitFor();
+      await page.getByRole("tab", { name: /产品进度/ }).click();
+      assert.equal(
+        await page.getByRole("combobox", { name: "产品进度筛选" }).inputValue(),
+        "ready",
+      );
+      await page
+        .getByRole("combobox", { name: "产品进度筛选" })
+        .selectOption("all");
+      await page.getByRole("textbox", { name: "搜索产品进度" }).fill("Q061");
+      await page.waitForFunction(() =>
+        document
+          .querySelector("tr[data-product-row]")
+          ?.textContent?.includes("Q061"),
+      );
+      assert.equal(await rows.count(), 1);
+      assert.equal(detailReads, baselineDetails);
+      assert.equal(fullReads, 0);
+      await page
+        .getByRole("heading", { name: "执行队列", exact: true })
+        .click();
+      await page
+        .locator(".batch-queue")
+        .screenshot({ path: artifactPath("queue-overview-redesign.png") });
+      await page.screenshot({
+        path: artifactPath("queue-product-progress-desktop.png"),
+      });
+      await page.setViewportSize({ width: 390, height: 1100 });
+      assert.equal(
+        await page
+          .locator(".queue-product-filter")
+          .evaluate(
+            (element: Element) => element.scrollWidth > element.clientWidth + 1,
+          ),
+        false,
+      );
+      for (const width of [390, 320]) {
+        await page.setViewportSize({ width, height: 1100 });
+        for (const selector of [
+          ".queue-overview",
+          ".queue-nav-row",
+          ".queue-product-filter",
+        ])
+          assert.equal(
+            await page
+              .locator(selector)
+              .evaluate(
+                (element: Element) =>
+                  element.scrollWidth > element.clientWidth + 1,
+              ),
+            false,
+            `${selector} fits at ${width}px`,
+          );
+        await manager.click();
+        await managerPanel.waitFor();
+        const box = (await managerPanel.boundingBox())!;
+        assert.ok(
+          box.x >= 0 &&
+            box.x + box.width <= width &&
+            box.y >= 0 &&
+            box.y + box.height <= 1100,
+        );
+        if (width === 390)
+          await page.screenshot({
+            path: artifactPath("queue-manager-mobile.png"),
+          });
+        await page.keyboard.press("Escape");
+      }
+      await page.setViewportSize({ width: 390, height: 1100 });
+      await page
+        .getByRole("heading", { name: "执行队列", exact: true })
+        .click();
+      await page.screenshot({
+        path: artifactPath("queue-product-progress-mobile.png"),
+      });
+      await page.setViewportSize({ width: 1440, height: 1100 });
+      await page.route(
+        "**/api/queue/products?**",
+        (route: any) => route.abort(),
+        { times: 1 },
+      );
+      await page
+        .getByRole("textbox", { name: "搜索产品进度" })
+        .fill("missing-product");
+      await page.getByRole("button", { name: "重试加载产品进度" }).waitFor();
+      await page.getByRole("button", { name: "重试加载产品进度" }).click();
+      await page.getByText("没有符合条件的产品", { exact: true }).waitFor();
+      assert.match(
+        await page.locator("#queue-generated").innerText(),
+        /1\s*\/\s*650/,
+      );
+      await page.getByRole("textbox", { name: "搜索产品进度" }).fill("Q061");
+      await page.waitForFunction(() =>
+        document
+          .querySelector("tr[data-product-row]")
+          ?.textContent?.includes("Q061"),
+      );
+      await rows.first().locator('[data-action="queue-open-product"]').click();
+      await page
+        .getByRole("heading", { name: "产品61", exact: true })
+        .waitFor();
+      assert.match(
+        await page
+          .getByRole("navigation", { name: "产品分页", exact: true })
+          .innerText(),
+        /第 3 \/ 3 页/,
+      );
+      assert.equal(detailReads, baselineDetails + 1);
+      assert.equal(submissions, 0);
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await f.close();
+    }
+  },
+);
 
 test(
   "queue exception cards keep long messages, statuses and actions readable across viewport sizes",
@@ -89,8 +427,35 @@ test(
       await page.fill("#login-password", password);
       await page.click('#login-form button[type="submit"]');
       await page.locator('[data-action="view"][data-view="queue"]').click();
-      await page.getByRole("region", { name: "异常任务提醒" }).waitFor();
-      await page.getByRole("button", { name: "查看异常任务" }).click();
+      await page.waitForFunction(() =>
+        document
+          .getElementById("queue-attention")
+          ?.textContent?.trim()
+          .startsWith("1"),
+      );
+      await page
+        .getByRole("textbox", { name: "搜索产品进度" })
+        .fill("不存在的产品");
+      await page.getByText("没有符合条件的产品", { exact: true }).waitFor();
+      await page.locator("#queue-attention").click();
+      assert.equal(
+        await page.getByRole("combobox", { name: "产品进度筛选" }).inputValue(),
+        "attention",
+      );
+      assert.equal(
+        await page.getByRole("textbox", { name: "搜索产品进度" }).inputValue(),
+        "",
+      );
+      assert.equal(
+        await page
+          .getByRole("button", { name: "查看异常产品" })
+          .getAttribute("aria-pressed"),
+        "true",
+      );
+      await page.waitForFunction(
+        () => document.querySelectorAll("tr[data-product-row]").length === 1,
+      );
+      await page.getByRole("tab", { name: /任务明细/ }).click();
       assert.equal(
         await page
           .getByRole("tab", { name: /任务明细/ })
@@ -101,7 +466,9 @@ test(
         await page.getByRole("combobox", { name: "任务状态" }).inputValue(),
         "attention",
       );
-      await page.waitForFunction(() => document.querySelectorAll(".queue-row").length === 2);
+      await page.waitForFunction(
+        () => document.querySelectorAll(".queue-row").length === 2,
+      );
       for (const width of [1440, 768, 390]) {
         await page.setViewportSize({ width, height: 1100 });
         for (const selector of [".queue-attention", ".queue-row"]) {
@@ -155,6 +522,8 @@ test(
       });
       await page.setViewportSize({ width: 1440, height: 1100 });
       await page.getByRole("tab", { name: /产品进度/ }).click();
+      assert.equal(await page.locator("#concurrency").isVisible(), false);
+      await page.getByRole("button", { name: "队列管理", exact: true }).click();
       assert.equal(await page.locator("#concurrency").isVisible(), true);
       await page.locator(".queue-product-state .status-badge.error").waitFor();
       assert.equal(
@@ -175,6 +544,7 @@ test(
         await page.locator('[data-action="retry-failed"]').isVisible(),
         true,
       );
+      await page.keyboard.press("Escape");
       assert.equal(
         await page.getByText("产品执行管理", { exact: true }).count(),
         0,
@@ -333,8 +703,14 @@ test(
       await page.getByRole("textbox", { name: "搜索队列任务" }).fill("");
       assert.equal(await page.locator(".batch-queue [data-action]").count(), 0);
       await productTab.click();
+      await page.getByRole("button", { name: "队列管理", exact: true }).click();
       await page.locator("#concurrency").selectOption("3");
       await page.locator('[data-action="pause-queue"]').click();
+      await page
+        .locator(".queue-overview-heading .ui-badge")
+        .filter({ hasText: "队列已暂停" })
+        .waitFor();
+      await page.getByRole("button", { name: "队列管理", exact: true }).click();
       await page
         .getByRole("button", { name: "继续队列", exact: true })
         .waitFor();

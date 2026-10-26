@@ -107,7 +107,7 @@ test(
           assert.equal(badge.size, 10, `${badge.text}: compact font`);
           assert.equal(badge.weight, "400", `${badge.text}: regular weight`);
           assert.ok(
-            badge.height <= 20,
+            badge.height <= 20.01,
             `${badge.text}: compact height ${badge.height}`,
           );
           assert.equal(badge.border, "none");

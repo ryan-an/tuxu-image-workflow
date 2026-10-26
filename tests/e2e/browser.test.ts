@@ -371,6 +371,7 @@ test(
       await page.goto(`${root}/login`);
       await page.locator("#app").waitFor();
       assert.equal(new URL(page.url()).pathname, "/");
+      await page.getByRole("button", { name: "账号菜单", exact: true }).click();
       await page.locator("#logout").click();
       await page.waitForURL(`${root}/login`);
       await page.locator("#login-form").waitFor();
@@ -570,7 +571,11 @@ test(
         .first()
         .elementHandle();
       await reopened.click('[data-action="view"][data-view="queue"]');
+      await reopened
+        .getByRole("button", { name: "队列管理", exact: true })
+        .click();
       await reopened.selectOption("#concurrency", "2");
+      await reopened.keyboard.press("Escape");
       await reopened.click("#queue-tab-jobs");
       await Promise.all([
         reopened.waitForResponse(

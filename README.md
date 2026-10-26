@@ -69,6 +69,37 @@ npm run test:e2e
 
 ## 可选 Docker
 
-先运行 `npm run setup` 生成配置，再运行 `docker compose up --build -d`，默认通过 `http://服务器IP:3001` 访问，不要求证书。`REQUIRE_HTTPS` 默认 `false`；`PUBLISH_HOST` 默认 `0.0.0.0`，可改为 `127.0.0.1` 只允许本机访问。只有一个应用容器和一个数据卷。以后需要 HTTPS 时可选用 [证书或代理配置](docs/transport-security.md)，证书目录以只读方式挂载。
+完整的打包、备份、更新、故障处理和首次部署步骤见 [部署说明](部署说明.md)。已有服务器更新请先按说明备份，再执行更新命令。
+
+本机无需安装 Docker，安装好项目依赖后，可以直接编译并生成程序部署包：
+
+```powershell
+npm run pack:deploy
+```
+
+需要系统提供 `tar` 命令（Windows 10/11 和常见 Linux 系统一般自带）。生成项目上一级目录的 `tuxu-app.tar.gz`，包含当前代码编译后的前后端程序、数据库迁移和 Docker 构建文件；不包含项目源码、本机 `.env`、数据库、图片或本机依赖目录。解压后只有 `build-mirror/` 程序目录、`compose.yaml`、`changelog.md` 和 `DEPLOY.md`（部署说明，使用英文文件名避免跨系统乱码）。
+
+将压缩包上传到 Linux 服务器，在部署目录解压。首次部署的配置生成步骤见 [部署说明](部署说明.md)，无需在服务器单独安装 Node。已有部署在完成备份后执行：
+
+```bash
+cd /opt/tuxu
+tar -xzf tuxu-app.tar.gz && docker compose up --build -d app
+docker compose logs -f --tail=100 app
+```
+
+服务器构建镜像时只下载并安装运行依赖（原生模块必要时编译），不再构建前端或 TypeScript。后续更新先备份数据卷和 `.env`，在原部署目录解压新包，再执行 `docker compose up --build -d`。保留原 `.env` 和数据卷，不要执行 `docker compose down -v`；新版启动时自动迁移数据库。
+
+对于现有 `/opt/tuxu` 部署，确认已备份后执行：
+
+```bash
+cd /opt/tuxu
+tar -xzf tuxu-app.tar.gz && docker compose up --build -d app
+```
+
+包中的 Compose 固定使用项目名 `tuxu`、镜像名 `tuxu-image:0.1.0`、数据卷 `workspace` 和端口 `80:3001`，与现有部署一致。不要额外指定其他 `-p` 项目名或更改 `COMPOSE_PROJECT_NAME`，否则可能连接到其他数据卷。更新不运行旧 `configure.mjs`，避免重写端口配置。压缩包不会覆盖原 `.env` 或携带本机业务数据。
+
+低带宽服务器的首屏分步加载、响应压缩、浏览器缓存与更新部署方式见 [加载性能说明](docs/loading-performance.md)。
+
+先运行 `npm run setup` 生成配置，再运行 `docker compose up --build -d`，通过 `http://服务器IP` 访问，对外端口固定为 80，不要求证书。`REQUIRE_HTTPS` 默认 `false`；本机 Node 服务的 `PORT` 不改变 Docker 的对外端口。只有一个应用容器和一个数据卷。以后需要 HTTPS 时可选用 [证书或代理配置](docs/transport-security.md)，证书目录以只读方式挂载。
 
 模块职责见 [架构文档](docs/architecture.md)，前端维护见 [前端架构](docs/frontend.md)。旧原型记录见 [原型记录](docs/legacy-prototype.md)。`npm run dev:demo` 仅用于旧原型兼容验证。

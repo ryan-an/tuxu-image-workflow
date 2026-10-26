@@ -118,7 +118,7 @@ test(
       await generate();
       await page.locator('[data-action="view"][data-view="workbench"]').click();
       await page
-        .locator('[data-action="filter-tasks"][data-filter="all"]')
+        .getByRole("button", { name: "全部", exact: true })
         .click();
       await page.waitForFunction(
         () =>

@@ -1,3 +1,4 @@
+import { queueJobWorking } from "../../../shared/job-status.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GenerationQueue } from "../../../src/demo/queue.js";
@@ -13,9 +14,7 @@ import {
   latestQueueJobs,
   productQueueInfo,
   retryableQueueJobs,
-  remainingQueuePairs,
-  queueJobWorking,
-} from "../../../src/view-models/queue-view.js";
+} from "../../../shared/queue-progress.js";
 const photo = "data:image/png;base64,real-product";
 function setup() {
   const product = newProduct(
@@ -265,15 +264,6 @@ test("bulk retry excludes uncertain requests and failed dependency children", ()
   assert.equal(retryableQueueJobs(state).length, 0);
   parent.status = "completed";
   assert.equal(retryableQueueJobs(state).length, 10);
-});
-
-test("remaining generation skips queued and interrupted positions", () => {
-  const { state, queue, product, pairs } = setup();
-  state.paused = true;
-  product.tasks.forEach((t) => (t.prompt = "ready"));
-  queue.enqueue(pairs.slice(0, 2), "image");
-  state.jobs[1].status = "interrupted";
-  assert.equal(remainingQueuePairs(state).length, 8);
 });
 
 test("bulk cancellation does not dispatch between cancellations and preserves polling jobs", () => {

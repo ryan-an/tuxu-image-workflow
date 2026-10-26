@@ -4,13 +4,19 @@ import {
   mergeView,
 } from "../../shared/workspace-edits.js";
 import { sessionHeaders, analysisEventsUrl } from "./session-scope.js";
-export async function api(path, body, method = body ? "POST" : "GET") {
+export async function api(
+  path,
+  body,
+  method = body ? "POST" : "GET",
+  headers = {},
+) {
   const response = await fetch(path, {
     method,
     credentials: "same-origin",
     cache: "no-store",
     headers: {
       ...sessionHeaders(),
+      ...headers,
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     ...(body
@@ -20,6 +26,39 @@ export async function api(path, body, method = body ? "POST" : "GET") {
       : {}),
   });
   const data = await response.json();
+  if (Array.isArray(data.products))
+    data.products = data.products.map((product) => {
+      if (!product._summary) return product;
+      return {
+        ...product,
+        facts: "",
+        photos: product.photo ? [product.photo] : [],
+        promptSets: [],
+        tasks: product.tasks.map((task) => ({
+          ...task,
+          references: [],
+          prompt: "",
+          promptHistory: [],
+          revision: 0,
+          versions: [
+            ...new Set(
+              [
+                task.primaryId,
+                ...task.selectedIds,
+                ...(task.versionCount ? ["__summary"] : []),
+              ].filter(Boolean),
+            ),
+          ].map((id) => ({
+            id,
+            source: "",
+            prompt: "",
+            number: 0,
+            origin: "summary",
+            createdAt: 0,
+          })),
+        })),
+      };
+    });
   if (response.status === 401 && typeof window !== "undefined")
     window.dispatchEvent(new Event("tuxu:authentication-required"));
   if (!response.ok)
@@ -49,6 +88,102 @@ export class WorkspaceClient {
       syncSheet,
     });
     this.chain = Promise.resolve();
+    this.cursor = state.syncCursor;
+    this.productLoads = new Map();
+  }
+  request(path, body, method = body ? "POST" : "GET", view = {}) {
+    if (!this.state.partial) return api(path, body, method);
+    const ids = this.state.products.filter((p) => !p._summary).map((p) => p.id);
+    return api(path, body, method, {
+      "x-workspace-view": "compact",
+      "x-workspace-products":
+        view.all || ids.length > 100 ? "all" : JSON.stringify(ids),
+      "x-workspace-sheet": (view.sheet ?? this.state.sheetLoaded) ? "1" : "0",
+    });
+  }
+  loadProducts(ids) {
+    const missing = [...new Set(ids)].filter(
+      (id) => this.state.products.find((p) => p.id === id)?._summary,
+    );
+    if (!missing.length) return Promise.resolve();
+    const key = missing.sort().join(",");
+    if (this.productLoads.has(key)) return this.productLoads.get(key);
+    const work = this.serialize(async () => {
+      this.capture();
+      const result = await this.request(
+        `/api/workspace/products?ids=${encodeURIComponent(key)}`,
+      );
+      this.capture();
+      const pending = differences(
+        editable(this.baseline),
+        editable(this.state),
+      );
+      const updates = new Map(result.products.map((p) => [p.id, p]));
+      // A detail read does not cover changes to other products, so it must not
+      // advance the workspace cursor. The next delta may safely replay it.
+      await this.accept(
+        {
+          ...this.baseline,
+          products: this.baseline.products.map((p) => updates.get(p.id) || p),
+          jobs: result.jobs
+            ? [
+                ...this.baseline.jobs.filter(
+                  (job) => !updates.has(job.productId),
+                ),
+                ...result.jobs,
+              ].sort(
+                (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
+              )
+            : this.baseline.jobs,
+        },
+        pending,
+        true,
+        new Set(),
+      );
+    }).finally(() => this.productLoads.delete(key));
+    this.productLoads.set(key, work);
+    return work;
+  }
+  loadSheet() {
+    if (!this.state.partial || this.state.sheetLoaded) return Promise.resolve();
+    if (this.sheetLoading) return this.sheetLoading;
+    this.sheetLoading = this.serialize(async () => {
+      const { sheetSnapshot } = await this.request("/api/workspace/sheet");
+      this.state.sheetSnapshot = structuredClone(sheetSnapshot);
+      this.baseline.sheetSnapshot = structuredClone(sheetSnapshot);
+      this.state.sheetLoaded = this.baseline.sheetLoaded = true;
+      await this.syncSheet(null);
+      this.render();
+    }).finally(() => {
+      this.sheetLoading = null;
+    });
+    return this.sheetLoading;
+  }
+  loadAll() {
+    if (
+      !this.state.partial ||
+      (this.state.sheetLoaded && this.state.products.every((p) => !p._summary))
+    )
+      return Promise.resolve();
+    if (this.allLoading) return this.allLoading;
+    this.allLoading = this.serialize(async () => {
+      this.capture();
+      const remote = await this.request("/api/workspace", undefined, "GET", {
+        all: true,
+        sheet: true,
+      });
+      this.capture();
+      await this.accept(
+        remote,
+        differences(editable(this.baseline), editable(this.state)),
+        true,
+        new Set(),
+      );
+      this.cursor = remote.syncCursor;
+    }).finally(() => {
+      this.allLoading = null;
+    });
+    return this.allLoading;
   }
   serialize(work) {
     const result = this.chain.catch(() => {}).then(work);
@@ -64,7 +199,12 @@ export class WorkspaceClient {
     const previousSheet = structuredClone(this.state.sheetSnapshot);
     const oldProducts = new Map(this.state.products.map((p) => [p.id, p]));
     const changes = remote.products
-      .filter((p) => !changedIds || changedIds.has(p.id))
+      .filter(
+        (p) =>
+          !p._summary &&
+          !oldProducts.get(p.id)?._summary &&
+          (!changedIds || changedIds.has(p.id)),
+      )
       .flatMap((p) =>
         p.tasks.map((t) => {
           const old = oldProducts.get(p.id)?.tasks.find((v) => v.id === t.id);
@@ -104,11 +244,11 @@ export class WorkspaceClient {
           );
     }
     mergeView(this.state, remote, pending);
-    await this.syncSheet(previousSheet);
+    if (this.state.sheetLoaded !== false) await this.syncSheet(previousSheet);
     const changed = changes.filter(
       (change) => change.reference || change.prompt || change.result,
     );
-    if (changed.length)
+    if (changed.length && this.state.sheetLoaded !== false)
       await this.syncBatch(async () => {
         for (const change of changed) {
           const p = this.state.products.find((p) => p.id === change.productId),
@@ -131,7 +271,7 @@ export class WorkspaceClient {
       const sent = structuredClone(editable(this.state)),
         edits = differences(editable(this.baseline), sent);
       if (!edits.length) return;
-      const remote = await api("/api/workspace", { edits }, "PATCH");
+      const remote = await this.request("/api/workspace", { edits }, "PATCH");
       this.capture();
       const pending = differences(sent, editable(this.state));
       await this.accept(remote, pending);
@@ -142,7 +282,7 @@ export class WorkspaceClient {
     return this.serialize(async () => {
       this.capture();
       const before = structuredClone(editable(this.baseline));
-      const remote = await api("/api/workspace", { edits }, "PATCH");
+      const remote = await this.request("/api/workspace", { edits }, "PATCH");
       this.capture();
       const pending = differences(before, editable(this.state));
       await this.accept(remote, pending, true);
@@ -155,17 +295,22 @@ export class WorkspaceClient {
       let remote,
         changedIds = null;
       if (this.cursor === undefined) this.cursor = this.state.syncCursor;
-      if (this.cursor === undefined) remote = await api("/api/workspace");
+      if (this.cursor === undefined)
+        remote = await this.request("/api/workspace");
       else {
-        const delta = await api(`/api/workspace/changes?since=${this.cursor}`);
-        if (delta.reset) remote = await api("/api/workspace");
+        const delta = await this.request(
+          `/api/workspace/changes?since=${this.cursor}`,
+        );
+        if (delta.reset) remote = await this.request("/api/workspace");
         else {
           if (
             !delta.products.length &&
             !delta.jobs.length &&
             !delta.document &&
             !delta.deletedProducts.length &&
-            !delta.deletedJobs.length
+            !delta.deletedJobs.length &&
+            (delta.jobTotal === undefined ||
+              delta.jobTotal === this.baseline.jobTotal)
           ) {
             this.cursor = delta.cursor;
             return;
@@ -186,13 +331,18 @@ export class WorkspaceClient {
           remote = {
             ...this.baseline,
             ...delta.document,
+            ...(delta.jobTotal !== undefined
+              ? { jobTotal: delta.jobTotal }
+              : {}),
             syncCursor: delta.cursor,
             products: merge(
               this.baseline.products,
               delta.products,
               delta.deletedProducts,
             ).sort((a, b) => a.code.localeCompare(b.code)),
-            jobs: merge(this.baseline.jobs, delta.jobs, delta.deletedJobs),
+            jobs: delta.replaceJobs
+              ? delta.jobs
+              : merge(this.baseline.jobs, delta.jobs, delta.deletedJobs),
           };
         }
       }

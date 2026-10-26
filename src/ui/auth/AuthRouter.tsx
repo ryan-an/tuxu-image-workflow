@@ -7,7 +7,7 @@ import {
   HttpsRequiredError,
 } from "../../services/authentication";
 import { Application } from "../Application";
-import { StatusSpinner } from "../StatusSpinner";
+import { WorkspaceLoading } from "../WorkspaceLoading";
 import { LoginPage } from "./LoginPage";
 import { InvitationPage } from "./InvitationPage";
 import type { CurrentUser, UserIdentity } from "../../../shared/access";
@@ -101,13 +101,7 @@ function SessionRouter() {
       status === "anonymous" ? "登录 · 图序" : "图序 · 批量生图工作台";
   }, [status]);
 
-  if (status === "checking")
-    return (
-      <div className="startup" role="status">
-        <StatusSpinner />
-        正在打开图序…
-      </div>
-    );
+  if (status === "checking") return <WorkspaceLoading title="正在打开图序" />;
   if (status === "error")
     return (
       <div className="startup">

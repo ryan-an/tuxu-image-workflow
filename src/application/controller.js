@@ -41,6 +41,30 @@ export function createApplicationController(
     ready = false,
     disposed = false;
   let cleanupEvents = () => {};
+  let loadingProduct, failedProduct;
+  function loadActiveProduct() {
+    const product = currentProduct();
+    if (
+      !repository ||
+      !product?._summary ||
+      loadingProduct === product.id ||
+      failedProduct === product.id
+    )
+      return;
+    loadingProduct = product.id;
+    ui.productError = "";
+    void repository
+      .loadProducts([product.id])
+      .catch((error) => {
+        failedProduct = product.id;
+        if (currentProduct()?.id === product.id)
+          ui.productError = error.message;
+      })
+      .finally(() => {
+        if (loadingProduct === product.id) loadingProduct = null;
+        if (!disposed) publish();
+      });
+  }
   function currentProduct() {
     return (
       state.products.find(
@@ -52,6 +76,7 @@ export function createApplicationController(
     if (ready && !disposed) {
       bridge?.setProducts(productPage(state, ui).products);
       context.prepareThumbnails();
+      loadActiveProduct();
       publish();
     }
   }
@@ -102,6 +127,8 @@ export function createApplicationController(
     currentPairs,
     render,
     change,
+    ensureSheet: () => repository?.loadSheet(),
+    ensureAll: () => repository?.loadAll(),
     editPrompt: (product, task) =>
       showModal({ type: "prompt", productId: product.id, taskId: task.id }),
     editProduct: (isNew = false) =>
@@ -173,7 +200,10 @@ export function createApplicationController(
       repository = new WorkspaceClient(state, {
         render,
         capture: () => bridge?.capture(),
-        syncSheet: (previous) => bridge?.acceptRemoteSnapshot(previous),
+        syncSheet: (previous) => {
+          if (!previous) bridge?.initializeSnapshot();
+          bridge?.acceptRemoteSnapshot(previous);
+        },
         sync: context.syncTask,
         syncBatch: async (work) => {
           await bridge.batch(work);
@@ -190,7 +220,8 @@ export function createApplicationController(
     );
     bridge.setProducts(productPage(state, ui).products);
     if (loaded.production) {
-      const errors = await bridge.reconcile();
+      const errors =
+        state.sheetLoaded === false ? [] : await bridge.reconcile();
       if (errors.length) notify("结果已保留，表格回填失败：" + errors[0]);
       queue = new RemoteQueue(state, repository, notify);
       if (context.canEdit) {
@@ -249,6 +280,10 @@ export function createApplicationController(
     dispatch: safe(async (action, data) => {
       if (!actionAllowed(user.role, action))
         throw new Error("当前账号没有此操作权限");
+      if (["open-product", "queue-open-product"].includes(action)) {
+        failedProduct = null;
+        ui.productError = "";
+      }
       await context.action(action, data);
     }),
     flush: persistence.persist,
@@ -262,6 +297,7 @@ export function createApplicationController(
     },
     submit: safe(async (event) => {
       if (!context.canEdit) throw new Error("查看者不能修改资料");
+      if (event.target.id === "product-form") await context.ensureSheet();
       await context.submit(event);
     }),
     changeField: safe(async (event) => {

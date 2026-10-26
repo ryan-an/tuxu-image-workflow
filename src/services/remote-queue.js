@@ -1,4 +1,3 @@
-import { api } from "./workspace-client.js";
 import { uid } from "../../shared/model.js";
 export class RemoteQueue {
   constructor(state, repository, notify) {
@@ -6,7 +5,7 @@ export class RemoteQueue {
   }
   async enqueue(pairs, kind = "workflow") {
     await this.repository.save();
-    const result = await api("/api/jobs", {
+    const result = await this.repository.request("/api/jobs", {
       commandId: uid(),
       kind,
       pairs: pairs.map(({ product, task }) => ({
@@ -18,11 +17,14 @@ export class RemoteQueue {
     return result.count;
   }
   async control(id, action, fields = {}) {
-    await api(`/api/jobs/${encodeURIComponent(id)}/control`, {
-      commandId: uid(),
-      action,
-      ...fields,
-    });
+    await this.repository.request(
+      `/api/jobs/${encodeURIComponent(id)}/control`,
+      {
+        commandId: uid(),
+        action,
+        ...fields,
+      },
+    );
     await this.repository.refresh();
   }
   cancel(id) {

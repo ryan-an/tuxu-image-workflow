@@ -91,6 +91,7 @@ test(
         role: "editor",
         monthlyLimit: null,
       });
+      await page.getByRole("button", { name: "账号菜单", exact: true }).click();
       await page.getByRole("button", { name: "退出登录", exact: true }).click();
       await page.goto(`${root}/invite#token=${invitation.token}`);
       await page.fill("#invite-password", "http-member-password");
@@ -99,6 +100,7 @@ test(
         .getByRole("button", { name: "加入工作区", exact: true })
         .click();
       await page.locator("#app").waitFor();
+      await page.getByRole("button", { name: "账号菜单", exact: true }).click();
       await page.getByRole("button", { name: "修改密码", exact: true }).click();
       await page
         .locator('.password-form [name="currentPassword"]')
@@ -181,6 +183,7 @@ test(
         role: "editor",
         monthlyLimit: null,
       });
+      await page.getByRole("button", { name: "账号菜单", exact: true }).click();
       await page.getByRole("button", { name: "退出登录", exact: true }).click();
       await page.goto(`${root}/invite#token=${invitation.token}`);
       await page.fill("#invite-password", "encrypted-member-password");
@@ -189,6 +192,7 @@ test(
         .getByRole("button", { name: "加入工作区", exact: true })
         .click();
       await page.locator("#app").waitFor();
+      await page.getByRole("button", { name: "账号菜单", exact: true }).click();
       await page.getByRole("button", { name: "修改密码", exact: true }).click();
       await page
         .locator('.password-form [name="currentPassword"]')

@@ -5,37 +5,41 @@ export function editable(workspace) {
     common: workspace.common,
     promptTemplates: workspace.promptTemplates ?? {},
     concurrency: workspace.concurrency,
-    sheetSnapshot: workspace.sheetSnapshot ?? null,
+    ...(workspace.sheetLoaded === false
+      ? {}
+      : { sheetSnapshot: workspace.sheetSnapshot ?? null }),
     products: Object.fromEntries(
-      workspace.products.map((p) => [
-        p.id,
-        {
-          id: p.id,
-          code: p.code,
-          name: p.name,
-          facts: p.facts,
-          promptRequirements: p.promptRequirements ?? null,
-          photo: p.photo || "",
-          photos: p.photos || [],
-          photoThumbnail: p.photoThumbnail ?? null,
-          tasks: Object.fromEntries(
-            p.tasks.map((t) => [
-              t.id,
-              {
-                id: t.id,
-                role: t.role,
-                references: t.references,
-                prompt: t.prompt,
-                primaryId: t.primaryId,
-                selectedIds: t.selectedIds,
-                imports: t.versions.filter(
-                  (version) => version.origin === "imported",
-                ),
-              },
-            ]),
-          ),
-        },
-      ]),
+      workspace.products
+        .filter((p) => !p._summary)
+        .map((p) => [
+          p.id,
+          {
+            id: p.id,
+            code: p.code,
+            name: p.name,
+            facts: p.facts,
+            promptRequirements: p.promptRequirements ?? null,
+            photo: p.photo || "",
+            photos: p.photos || [],
+            photoThumbnail: p.photoThumbnail ?? null,
+            tasks: Object.fromEntries(
+              p.tasks.map((t) => [
+                t.id,
+                {
+                  id: t.id,
+                  role: t.role,
+                  references: t.references,
+                  prompt: t.prompt,
+                  primaryId: t.primaryId,
+                  selectedIds: t.selectedIds,
+                  imports: t.versions.filter(
+                    (version) => version.origin === "imported",
+                  ),
+                },
+              ]),
+            ),
+          },
+        ]),
     ),
   };
 }

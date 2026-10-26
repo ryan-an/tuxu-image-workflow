@@ -64,6 +64,7 @@ export function createSheet(context) {
   async function syncTask(p, t, kind, force = false) {
     const { bridge, notify } = context;
     try {
+      await context.ensureSheet?.();
       await bridge.sync(p, t, kind, force);
     } catch (error) {
       notify(`结果已保留，表格回填失败：${error.message}`);
@@ -71,7 +72,12 @@ export function createSheet(context) {
     }
   }
 
-  function updateMetadata(product, oldCode = product.code, force = false) {
+  async function updateMetadata(
+    product,
+    oldCode = product.code,
+    force = false,
+  ) {
+    await context.ensureSheet?.();
     const { state, bridge } = context;
     const snap = bridge.snapshot(),
       sheet = snap.sheets.preview,
@@ -134,8 +140,16 @@ export function createSheet(context) {
       );
     }
     render();
+    if (next === "sheet") {
+      await context.ensureAll?.();
+      const errors = await bridge.reconcile();
+      if (errors.length)
+        context.notify("结果已保留，表格回填失败：" + errors[0]);
+      render();
+    }
     if (next === "sheet" && context.canEdit !== false) await bridge.mount();
     else bridge.capture();
+    if (next === "sheet") context.saveSoon();
   }
 
   async function openParser() {
@@ -238,7 +252,7 @@ export function createSheet(context) {
           if (!needsUpdate) {
             // Still repair missing rows and acknowledge a reverted draft, but
             // do not rewrite an unchanged product or include it in the count.
-            updateMetadata(p, p.code, true);
+            await updateMetadata(p, p.code, true);
             for (const t of p.tasks)
               for (const k of ["reference", "prompt", "result"])
                 await syncTask(p, t, k, true);
@@ -300,7 +314,7 @@ export function createSheet(context) {
           if (isNew && parseContext.source.id !== "preview")
             bridge.appendProduct(p);
           else {
-            updateMetadata(p, p.code, true);
+            await updateMetadata(p, p.code, true);
           }
           for (const t of p.tasks)
             for (const k of ["reference", "prompt", "result"])

@@ -1,0 +1,320 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  height: 70px;
+  gap: 16px;
+  padding: 0 24px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+.topbar nav {
+  display: flex;
+  align-self: stretch;
+  flex-shrink: 0;
+  gap: 24px;
+}
+.topbar nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.topbar nav button:hover,
+.topbar nav button.active {
+  color: var(--color-brand);
+}
+.topbar nav button.active {
+  border-bottom-color: var(--color-brand);
+  font-weight: 600;
+}
+.topbar .top-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 12px;
+}
+.topbar-save,
+.topbar #save-status,
+.topbar-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.topbar #save-status {
+  color: var(--color-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.topbar-save[data-failed] #save-status {
+  color: var(--color-danger);
+}
+.topbar #retry-save {
+  color: var(--color-danger);
+}
+.topbar #save-status svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.settings-key-dot,
+.save-status-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+.save-status-dot {
+  background: var(--color-success);
+}
+.topbar-tools {
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 1px solid var(--color-border);
+}
+.topbar .topbar-icon-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+}
+.topbar .topbar-icon-button svg,
+.topbar #settings-button > svg {
+  width: 17px;
+  height: 17px;
+}
+.topbar .topbar-icon-button.active {
+  color: var(--color-brand);
+  background: var(--color-brand-soft);
+}
+.topbar #settings-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 8px;
+  color: var(--color-text);
+}
+.topbar-account {
+  display: flex;
+  padding-left: 12px;
+  border-left: 1px solid var(--color-border);
+}
+.topbar .current-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: none;
+  padding: 4px 6px 4px 4px;
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+}
+.account-avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-brand-soft);
+  color: var(--color-brand);
+  font-size: 12px;
+}
+.account-summary {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  line-height: 1.3;
+}
+.account-name {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.account-role {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+.current-account > svg {
+  width: 14px;
+  height: 14px;
+  color: var(--color-muted);
+  transition: transform 150ms;
+}
+.current-account[aria-expanded="true"] > svg {
+  transform: rotate(180deg);
+}
+.account-popover {
+  position: fixed;
+  left: auto;
+  bottom: auto;
+  width: min(240px, calc(100vw - 24px));
+  max-height: calc(100dvh - 150px);
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 8px 32px #25324b14;
+}
+.account-popover-heading {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding: 10px 10px 14px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+.account-popover-heading strong,
+.account-popover-heading > span:not(.ui-badge) {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-popover-heading strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.account-popover-heading > span:not(.ui-badge) {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.account-popover .ui-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 12px;
+  text-align: left;
+}
+.account-popover .ui-button svg {
+  width: 16px;
+  height: 16px;
+  color: var(--color-muted);
+}
+.account-popover #logout:hover:not(:disabled) {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-color: transparent;
+}
+.account-popover #logout:hover svg {
+  color: inherit;
+}
+.account-logout-error {
+  margin: 6px 10px;
+  color: var(--color-danger);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1280px) {
+  .topbar {
+    gap: 12px;
+    padding-inline: 20px;
+  }
+  .topbar nav {
+    gap: 16px;
+  }
+  .topbar #save-status > span {
+    display: none;
+  }
+}
+@media (max-width: 1100px) {
+  .topbar .top-actions {
+    gap: 8px;
+  }
+  .topbar .account-summary {
+    display: none;
+  }
+  .topbar-tools,
+  .topbar-account {
+    padding-left: 8px;
+  }
+}
+@media (max-width: 900px) {
+  .topbar {
+    height: auto;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 0 16px 8px;
+  }
+  .topbar nav {
+    width: 100%;
+    height: 40px;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .topbar nav button {
+    font-size: 12px;
+  }
+  .topbar .top-actions {
+    width: 100%;
+    gap: 8px;
+  }
+  .topbar-save {
+    margin-right: auto;
+  }
+  .topbar #save-status > span {
+    display: inline;
+  }
+  .topbar-tools {
+    border-left: 0;
+    padding-left: 0;
+  }
+}
+@media (max-width: 480px) {
+  .topbar {
+    padding-inline: 12px;
+  }
+  .topbar .top-actions {
+    gap: 4px;
+  }
+  .topbar #save-status > span,
+  .topbar #settings-button > .settings-label,
+  .current-account > svg {
+    display: none;
+  }
+  .topbar .current-account {
+    padding: 3px;
+  }
+  .topbar #settings-button {
+    gap: 5px;
+    padding-inline: 5px;
+  }
+  .topbar-account {
+    padding-left: 6px;
+  }
+  .topbar-save[data-failed] {
+    flex-wrap: wrap;
+    max-width: 72px;
+    gap: 0;
+  }
+}
+@media (pointer: coarse) {
+  .topbar .topbar-icon-button,
+  .topbar #settings-button {
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .current-account > svg {
+    transition: none;
+  }
+}

@@ -4,10 +4,8 @@ import { api } from "../services/workspace-client.js";
 import { portableBackup } from "../services/backup.js";
 
 import { clipboardImageFiles } from "../integrations/media-upload.js";
-import {
-  remainingQueuePairs,
-  retryableQueueJobs,
-} from "../view-models/queue-view.js";
+import { retryableQueueJobs } from "../../shared/queue-progress.js";
+import { PRODUCT_PAGE_SIZE } from "../view-models/product-page.js";
 
 import { productPhotos } from "../../shared/prompt-suite.js";
 
@@ -73,8 +71,21 @@ export function createCommands(context) {
         break;
       case "open-product":
       case "queue-open-product":
+        if (a === "queue-open-product") {
+          const index = state.products.findIndex(
+            (product) => product.id === data.id,
+          );
+          if (index < 0) {
+            notify("产品已不存在，请刷新列表");
+            break;
+          }
+          ui.search = "";
+          ui.productPage = Math.floor(index / PRODUCT_PAGE_SIZE) + 1;
+        }
         state.activeProductId = data.id;
         setFilter("all");
+        render();
+        await repository?.loadProducts([data.id]);
         await switchView("workbench");
         saveSoon();
         break;
@@ -147,7 +158,7 @@ export function createCommands(context) {
         p.photos = photos;
         p.photo = photos[0] || "";
         for (const task of p.tasks) delete task.realPhotoIndices;
-        updateMetadata(p);
+        await updateMetadata(p);
         change();
         openMedia(p);
         break;
@@ -186,11 +197,6 @@ export function createCommands(context) {
       case "cancel-pending":
         await queue.cancelPending();
         break;
-      case "generate-remaining": {
-        const pairs = remainingQueuePairs(state);
-        await queuePairs(pairs, "workflow");
-        break;
-      }
       case "retry-failed":
       case "retry-product-failed": {
         const failures = retryableQueueJobs(state).filter(
@@ -285,9 +291,18 @@ export function createCommands(context) {
         if (repository && context.canEdit !== false) await persist();
         bridge.capture();
         downloadBlob(
-          new Blob([JSON.stringify(await portableBackup(state))], {
-            type: "application/json",
-          }),
+          new Blob(
+            [
+              JSON.stringify(
+                await portableBackup(
+                  repository ? await api("/api/workspace") : state,
+                ),
+              ),
+            ],
+            {
+              type: "application/json",
+            },
+          ),
           "图序-工作流备份.json",
         );
         break;

@@ -10,12 +10,28 @@ import { SuitePromptButton } from "./SuitePromptButton.tsx";
 import { WorkspaceTitle } from "./WorkspaceTitle.tsx";
 import "./requirements.css";
 import { Badge } from "../design-system/Badge";
+import { PreviewImage } from "../PreviewImage";
+import { WorkspaceLoading } from "../WorkspaceLoading";
+import { WorkspaceEmpty, EmptyCollectionIcon } from "../WorkspaceEmpty";
 
 export function Workbench() {
   const { state, ui, user } = useApplication(),
     product = currentProduct(state);
-  if (!product)
-    return <div className="empty-page">从表格解析产品，或添加第一个产品。</div>;
+  if (!product) return <WorkspaceEmpty />;
+  if (product._summary && !ui.productError)
+    return <WorkspaceLoading product={product} />;
+  if (product._summary)
+    return (
+      <div className="empty-page" role="status" aria-busy={!ui.productError}>
+        <strong>{product.name}</strong>
+        <p>{ui.productError || "正在加载产品图片和提示词…"}</p>
+        {ui.productError && (
+          <ActionButton action="open-product" data={{ id: product.id }}>
+            重试加载
+          </ActionButton>
+        )}
+      </div>
+    );
   const stats = productStats(product),
     photoCount = productPhotos(product).length,
     requirements = productRequirements(product, state.common),
@@ -29,7 +45,7 @@ export function Workbench() {
             : t.versions.length > 1),
     );
   return (
-    <>
+    <div className="workbench-ready" key={product.id}>
       <div className="page-heading">
         <div className="workspace-heading-text">
           <span className="eyebrow">PRODUCT WORKSPACE</span>
@@ -54,7 +70,7 @@ export function Workbench() {
               aria-label={photoCount ? "查看产品实拍图" : "上传产品实拍图"}
             >
               {product.photo ? (
-                <img src={product.photo} alt="产品实拍" />
+                <PreviewImage src={product.photo} alt="产品实拍" />
               ) : (
                 "＋实拍"
               )}
@@ -183,10 +199,21 @@ export function Workbench() {
           <TaskCard key={t.id} task={t} />
         ))}
         {!tasks.length && (
-          <div className="empty-page">当前筛选没有图片位置</div>
+          <div className="workspace-filter-empty">
+            <EmptyCollectionIcon />
+            <strong>当前筛选下还没有图片位置</strong>
+            <p>切换到全部图片，继续查看这套产品。</p>
+            <ActionButton
+              action="filter-tasks"
+              data={{ filter: "all" }}
+              variant="secondary"
+            >
+              查看全部图片
+            </ActionButton>
+          </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
 export function BatchBar() {
@@ -200,7 +227,7 @@ export function BatchBar() {
           ) || 0
         : selectedCount(product);
   return (
-    <footer id="batch-bar" hidden={ui.view !== "workbench"}>
+    <footer id="batch-bar" hidden={ui.view !== "workbench" || !product}>
       <div id="batch-label">
         <strong>当前产品 · 已勾选 {count} 张下载图片</strong>
         <span>勾选图片后下载，生成操作在顶部切换</span>
@@ -210,7 +237,7 @@ export function BatchBar() {
           id="download-current"
           className="result-action-button"
           action="download-selected"
-          disabled={!count}
+          disabled={!count || !!product?._summary}
         >
           下载本套选中图片
         </ActionButton>

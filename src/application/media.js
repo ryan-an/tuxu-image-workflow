@@ -60,6 +60,8 @@ export function createMedia(context) {
     reading.catch(() => {});
     mediaFeedback(target, "正在读取图片…");
     const run = mediaUploadChain.then(async () => {
+      await context.repository?.loadProducts([target.productId]);
+      await context.ensureSheet?.();
       const sources = await mediaSources(await reading);
       const { product, task } = findTask(
         state,
@@ -80,7 +82,7 @@ export function createMedia(context) {
         product.photos = next;
         product.photo = next[0] || "";
         for (const item of product.tasks) delete item.realPhotoIndices;
-        updateMetadata(product);
+        await updateMetadata(product);
       }
       change();
       if (task) await syncTask(product, task, "reference");

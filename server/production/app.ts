@@ -1,6 +1,14 @@
 import Fastify, { LogController } from "fastify";
 import staticFiles from "@fastify/static";
-import { extname, resolve } from "node:path";
+import compress from "@fastify/compress";
+import { constants as zlibConstants } from "node:zlib";
+import { basename, extname, resolve } from "node:path";
+import {
+  requestedWorkspaceView,
+  readWorkspace,
+  presentWorkspace,
+  readWorkspaceJobs,
+} from "./workspace-loading.js";
 import { downloadImage } from "./assets.js";
 import { AppError, type Database } from "./types.js";
 import { registerAuthentication } from "./authentication.js";
@@ -11,6 +19,7 @@ import { Workspaces } from "./workspaces.js";
 import { WorkspaceDirectory } from "./workspace-directory.js";
 import { registerWorkspaceRoutes } from "./workspace-routes.js";
 import { registerCollaborationRoutes } from "./collaboration-routes.js";
+import { registerQueueProgress } from "./queue-progress.js";
 import {
   registerTransportSecurity,
   type TransportSecurityOptions,
@@ -42,6 +51,17 @@ export async function createApp(options: AppOptions) {
       ? options.transport.trustedProxies
       : false,
   });
+  await app.register(compress, {
+    globalDecompression: false,
+    encodings: ["br", "gzip"],
+    threshold: 1024,
+    brotliOptions: { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 4 } },
+    zlibOptions: { level: 6 },
+    customTypes: (type) =>
+      /^(application\/(json|javascript)|text\/(javascript|css|html))(?:;|$)/i.test(
+        type,
+      ),
+  });
   registerTransportSecurity(app, options.transport);
   const accounts = new Accounts(options.db);
   await accounts.initialize(options.password);
@@ -49,9 +69,21 @@ export async function createApp(options: AppOptions) {
   const auth = registerAuthentication(app, accounts, directory);
   app.decorateRequest("workspace");
   app.addHook("onRequest", async (request) => {
+    requestedWorkspaceView(request);
     if (request.user) {
       request.workspace = await workspaces.get(request.user.workspaceId);
     }
+  });
+  app.addHook("preSerialization", async (request, _reply, payload: any) => {
+    if (
+      payload?.schema !== 2 ||
+      !Array.isArray(payload.products) ||
+      !Array.isArray(payload.jobs) ||
+      payload.partial
+    )
+      return payload;
+    const view = requestedWorkspaceView(request);
+    return view ? presentWorkspace(payload, view) : payload;
   });
   registerMemberRoutes(app, options.db);
   registerWorkspaceRoutes(app, directory);
@@ -151,9 +183,69 @@ export async function createApp(options: AppOptions) {
     (request) =>
       request.workspace.updateSettings(request.body as any, request.user!),
   );
+  app.get("/api/workspace/startup", (request) => {
+    const repo = request.workspace.repo;
+    return repo.db.transaction((tx) =>
+      readWorkspace(tx, repo.workspaceId, {
+        products: new Set(),
+        sheet: false,
+      }),
+    );
+  });
+  registerQueueProgress(app);
+  app.get<{ Querystring: { ids: string } }>(
+    "/api/workspace/products",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["ids"],
+          additionalProperties: false,
+          properties: { ids: { type: "string", maxLength: 10100 } },
+        },
+      },
+    },
+    async (request) => {
+      const ids = request.query.ids.split(",");
+      if (
+        ids.length > 100 ||
+        ids.some((id) => !/^[A-Za-z0-9_-]{1,100}$/.test(id))
+      )
+        throw new AppError("产品加载参数无效");
+      const repo = request.workspace.repo;
+      const products = (
+        await repo.db.query(
+          "SELECT document FROM products WHERE workspace_id=$1 AND id IN (SELECT value FROM json_each($2)) ORDER BY code",
+          [repo.workspaceId, JSON.stringify(ids)],
+        )
+      ).rows.map((row) => row.document);
+      if (products.length !== new Set(ids).size)
+        throw new AppError("产品已不存在，请刷新列表", 404);
+      const selected = new Set(ids);
+      const jobs = await repo.db.transaction((tx) =>
+        readWorkspaceJobs(tx, repo.workspaceId, selected),
+      );
+      return {
+        products,
+        jobs: jobs.filter((job) => selected.has(job.productId)),
+      };
+    },
+  );
+  app.get("/api/workspace/sheet", async (request) => {
+    const repo = request.workspace.repo;
+    const row = (
+      await repo.db.query(
+        "SELECT json_extract(document,'$.sheetSnapshot') AS document FROM workspace WHERE id=$1",
+        [repo.workspaceId],
+      )
+    ).rows[0];
+    return { sheetSnapshot: row.document };
+  });
   app.get("/api/workspace", (request) => {
     const repo = request.workspace.repo;
     return repo.db.transaction(async (tx) => {
+      const view = requestedWorkspaceView(request);
+      if (view) return readWorkspace(tx, repo.workspaceId, view);
       await repo.lock(tx);
       return { ...(await repo.view(tx)), syncCursor: await repo.cursor(tx) };
     });
@@ -176,10 +268,15 @@ export async function createApp(options: AppOptions) {
         },
       },
     },
-    (request) =>
-      request.workspace.repo.db.transaction((tx) =>
-        request.workspace.repo.changes(tx, request.query.since),
-      ),
+    (request) => {
+      const repo = request.workspace.repo;
+      const view = requestedWorkspaceView(request);
+      return repo.db.transaction((tx) =>
+        view
+          ? readWorkspace(tx, repo.workspaceId, view, request.query.since)
+          : repo.changes(tx, request.query.since),
+      );
+    },
   );
   app.patch(
     "/api/workspace",
@@ -460,6 +557,11 @@ export async function createApp(options: AppOptions) {
       setHeaders(reply, filename) {
         if (extname(filename) === ".html")
           reply.header("Cache-Control", "no-store");
+        else if (
+          filename.startsWith(resolve(options.staticDirectory!, "assets")) &&
+          /-[\w-]{8}\.[\w]+$/.test(basename(filename))
+        )
+          reply.header("Cache-Control", "public, max-age=31536000, immutable");
       },
     });
     app.setNotFoundHandler((request, reply) => {

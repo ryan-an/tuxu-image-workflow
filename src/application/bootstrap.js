@@ -16,7 +16,7 @@ export async function loadWorkspace({ canImport = true } = {}) {
 
   const production = import.meta.env.MODE !== "demo";
   if (production) {
-    state = await api("/api/workspace");
+    state = await api("/api/workspace/startup");
     if (canImport && !state.products.length) {
       const local = await loadSnapshot(APP_KEY);
       if (local?.schema === 2) {
@@ -24,7 +24,7 @@ export async function loadWorkspace({ canImport = true } = {}) {
           commandId: uid(),
           workspace: local,
         });
-        state = await api("/api/workspace");
+        state = await api("/api/workspace/startup");
       }
     }
     state.activeProductId = state.products[0]?.id;
@@ -69,7 +69,15 @@ export async function loadWorkspace({ canImport = true } = {}) {
     for (const j of unfinished) j.status = "interrupted";
     if (unfinished.length) state.paused = true;
   }
-  const server = await api("/api/workflow/settings");
+  const server = production
+    ? {
+        ...state.settings,
+        hasKey: state.hasKey,
+        hasPromptKey: state.hasPromptKey,
+      }
+    : await api("/api/workflow/settings");
+  delete state.hasKey;
+  delete state.hasPromptKey;
   const hasKey = server.hasKey;
   const hasPromptKey = server.hasPromptKey;
   delete server.hasKey;

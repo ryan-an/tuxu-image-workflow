@@ -1346,13 +1346,6 @@ export class SheetBridge {
    */
   constructor(state, onChange, notify, onConflicts = () => {}) {
     this.state = state;
-    ensureTrailingPhotos(state.sheetSnapshot, state.products);
-    applyDefaultRowLayout(state.sheetSnapshot);
-    preserveSheetRowHeights(state.sheetSnapshot);
-    if (!state.sheetMetadataMergeVersion) {
-      mergeProductMetadata(state.sheetSnapshot);
-      state.sheetMetadataMergeVersion = 1;
-    }
     this.onChange = onChange;
     this.notify = notify;
     this.api = null;
@@ -1360,6 +1353,17 @@ export class SheetBridge {
     this.knownProducts = new Set(state.products.map((p) => p.id));
     this.onConflicts = onConflicts;
     this.conflicts = new Map();
+    this.initializeSnapshot();
+  }
+  initializeSnapshot() {
+    const state = this.state;
+    ensureTrailingPhotos(state.sheetSnapshot, state.products);
+    applyDefaultRowLayout(state.sheetSnapshot);
+    preserveSheetRowHeights(state.sheetSnapshot);
+    if (!state.sheetMetadataMergeVersion) {
+      mergeProductMetadata(state.sheetSnapshot);
+      state.sheetMetadataMergeVersion = 1;
+    }
     this.bindProductRows();
     this.migrateDrafts();
   }
@@ -1973,14 +1977,15 @@ export class SheetBridge {
     if (!this.state.sheetSnapshot) return [];
     await this.batch(async () => {
       for (const product of this.state.products)
-        for (const task of product.tasks) {
-          try {
-            for (const kind of ["reference", "prompt", "result"])
-              await this.sync(product, task, kind);
-          } catch (error) {
-            errors.add(error.message);
+        if (!product._summary)
+          for (const task of product.tasks) {
+            try {
+              for (const kind of ["reference", "prompt", "result"])
+                await this.sync(product, task, kind);
+            } catch (error) {
+              errors.add(error.message);
+            }
           }
-        }
     });
     return [...errors];
   }
