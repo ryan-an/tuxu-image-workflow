@@ -14,7 +14,6 @@ import { Badge } from "../design-system/Badge";
 import { WorkspaceEmpty } from "../WorkspaceEmpty";
 import { Button } from "../design-system/Button";
 import { QueueManager } from "./QueueManager";
-import { analysisProgress } from "../../../shared/analysis-progress.js";
 
 function QueueProductRow({
   product,
@@ -199,11 +198,6 @@ function JobRow({ job }: { job: Job }) {
             <span>平台 ID</span>
             <code>{job.remoteId}</code>
           </div>
-        )}
-        {job.kind === "prompt-set" && (
-          <p className="analysis-timing">
-            {analysisProgress(job, state.paused).detail}
-          </p>
         )}
         {working && (
           <div className="queue-card-progress">

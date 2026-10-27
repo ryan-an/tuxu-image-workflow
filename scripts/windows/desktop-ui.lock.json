@@ -1,0 +1,10 @@
+{
+  "name": "AntdUI",
+  "version": "2.4.16",
+  "url": "https://api.nuget.org/v3-flatcontainer/antdui/2.4.16/antdui.2.4.16.nupkg",
+  "sha256": "c380c0e329f34a2d7d21e904cee464068a0fccd1eeb615a7db3521c067254326",
+  "assembly": "lib/net40/AntdUI.dll",
+  "repository": "https://github.com/AntdUI/AntdUI",
+  "commit": "3167b26361e161cb26d628be5bd0532b9e6e92ce",
+  "license": "Apache-2.0"
+}

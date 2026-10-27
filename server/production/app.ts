@@ -116,10 +116,12 @@ export async function createApp(options: AppOptions) {
     return { status: "ok" };
   });
   app.get("/api/workflow/settings", (request) => request.workspace.settings());
-  app.get("/api/execution/limits", (request) => {
-    const { prompt, submit, query } = request.workspace.repo.executionLimits;
-    return { prompt, submit, query };
-  });
+  // Compatibility for already open clients; null explicitly means no cap.
+  app.get("/api/execution/limits", () => ({
+    prompt: null,
+    submit: null,
+    query: null,
+  }));
   app.delete<{ Params: { id: string } }>(
     "/api/products/:id",
     {
@@ -177,7 +179,7 @@ export async function createApp(options: AppOptions) {
   app.post(
     "/api/workflow/settings",
     {
-      config: { permission: "manage" },
+      config: { permission: "edit" },
       schema: {
         body: {
           type: "object",

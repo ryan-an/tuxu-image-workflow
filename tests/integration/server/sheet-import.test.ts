@@ -18,7 +18,10 @@ import {
   validateSheetParse,
   completeProductRows,
 } from "../../../src/integrations/sheet-bridge.js";
-import { fixture, png } from "../../support/production.js";
+import { fixture, png, loginHeaders } from "../../support/production.js";
+import { WorkspaceClient } from "../../../src/services/workspace-client.js";
+import { createPersistence } from "../../../src/application/persistence.js";
+import type { Product } from "../../../server/production/types.js";
 import {
   createSheet,
   parsedProductNeedsUpdate,
@@ -42,7 +45,7 @@ test("imported sheet results survive server persistence without replacing genera
       /^\/api\/assets\//,
     );
     const next = structuredClone(saved);
-    next.products.push(newProduct("NEW-RESULT", "新产品") as any);
+    next.products.push(newProduct("NEW * RESULT / 01", "新产品") as any);
     addVersion(next.products[1].tasks[0], png, "新产品结果", "imported");
     const created = await f.workflows.edit(
       differences(editable(saved), editable(next)),
@@ -139,6 +142,151 @@ function parserHarness(
     },
   };
 }
+
+test("new sheet products commit complete records with business codes and stay staged when saving fails", async (t) => {
+  const f = await fixture();
+  try {
+    const initial = await f.workflows.repo.view();
+    const incoming = newProduct(
+      "SKU * 01 / A:B? <C>|D\\E",
+      "完整新产品",
+      "完整资料",
+    ) as Product;
+    incoming.photo = png;
+    incoming.photos = [png];
+    for (const task of incoming.tasks) {
+      task.references = [png];
+      task.prompt = `完整提示词 ${task.role}`;
+      addVersion(task, png, task.prompt, "imported");
+    }
+    const source = structuredClone(initial);
+    source.sheetSnapshot = workflowSnapshot({
+      products: [...initial.products, incoming],
+    });
+    for (const row of [4, 5, 6])
+      delete source.sheetSnapshot.sheets.preview.rowData[row].custom
+        .workflowProductId;
+    await f.workflows.edit(differences(editable(initial), editable(source)));
+    const saved = await f.workflows.repo.view();
+    const h = parserHarness(saved.products, saved.sheetSnapshot);
+    Object.assign(h.state, saved);
+    const client = new WorkspaceClient(h.state, {
+      render() {},
+      sync() {},
+      notify() {},
+      capture: () => h.bridge.capture(),
+    });
+    Object.assign(h.context, { repository: client, setSaveStatus() {} });
+    const persistence = createPersistence(h.context);
+    h.context.persist = persistence.persist;
+    const headers = await loginHeaders(f.app);
+    let rejectCreation = true,
+      createRequests = 0;
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async (url: string, options: any = {}) => {
+        const body = options.body ? JSON.parse(options.body) : undefined;
+        const creation = body?.edits?.find(
+          (edit: any) =>
+            edit.path[0] === "products" &&
+            edit.path.length === 2 &&
+            edit.value?.code === incoming.code,
+        );
+        if (creation) {
+          createRequests++;
+          assert.equal(creation.before, null);
+          assert.equal(Object.keys(creation.value.tasks).length, 10);
+          assert.ok(
+            Object.values(creation.value.tasks).every(
+              (task: any) =>
+                task.references.length === 1 &&
+                task.prompt &&
+                task.imports.length === 1,
+            ),
+          );
+          assert.ok(
+            body.edits.some((edit: any) => edit.path[0] === "sheetSnapshot"),
+          );
+          assert.equal(
+            h.state.products.some(
+              (product: any) => product.code === incoming.code,
+            ),
+            false,
+            "uncommitted products must not appear in the workbench",
+          );
+          if (rejectCreation)
+            return Response.json({ error: "模拟保存失败" }, { status: 400 });
+        }
+        const response = await f.app.inject({
+          url,
+          method: options.method || "GET",
+          headers: { ...headers, ...options.headers },
+          payload: options.body,
+        });
+        if (creation) h.state.products[0].facts = "保存期间继续输入的资料";
+        return new Response(response.body, { status: response.statusCode });
+      },
+    );
+    await h.open();
+    await assert.rejects(h.sheet.confirmParse(), /模拟保存失败/);
+    assert.equal(h.closed(), false);
+    assert.equal(h.state.products.length, 1);
+    assert.equal((await f.workflows.repo.view()).products.length, 1);
+    assert.equal(
+      h.state.sheetSnapshot.sheets.preview.cellData[4][0].v,
+      incoming.code,
+    );
+    assert.equal(
+      cellImages(h.state.sheetSnapshot.sheets.preview.cellData[4][4]).length,
+      1,
+    );
+    rejectCreation = false;
+    await h.sheet.confirmParse();
+    assert.equal(h.closed(), true);
+    assert.equal(createRequests, 2);
+    const remote = await f.workflows.repo.view();
+    const created = remote.products.find(
+      (product) => product.code === incoming.code,
+    )!;
+    assert.ok(created);
+    assert.equal(created.name, incoming.name);
+    assert.equal(created.facts, incoming.facts);
+    assert.equal(created.photos.length, 1);
+    assert.equal(created.tasks.length, 10);
+    assert.ok(
+      created.tasks.every(
+        (task) =>
+          task.references.length === 1 &&
+          task.prompt &&
+          task.versions.length === 1 &&
+          task.primaryId,
+      ),
+    );
+    assert.equal(h.state.activeProductId, created.id);
+    assert.equal(
+      h.state.products.find((product: any) => product.id === f.product.id)
+        .facts,
+      "保存期间继续输入的资料",
+    );
+    for (const row of [4, 5, 6])
+      assert.equal(
+        remote.sheetSnapshot.sheets.preview.rowData[row].custom
+          .workflowProductId,
+        created.id,
+      );
+    await f.reopen();
+    assert.deepEqual(
+      (await f.workflows.repo.view()).products.find(
+        (product) => product.id === created.id,
+      ),
+      created,
+    );
+    persistence.dispose();
+  } finally {
+    await f.close();
+  }
+});
 
 test("parsing a reference-only product inserts missing rows without erasing saved outputs or following products", async () => {
   const first = newProduct("ONLY-REFERENCE", "首产品", "资料"),

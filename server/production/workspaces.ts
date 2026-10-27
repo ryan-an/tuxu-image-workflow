@@ -19,7 +19,7 @@ export class Workspaces {
     private db: Database,
     private assetsDirectory: string,
     private secret: string,
-    private executionLimits: ExecutionLimits = DEFAULT_EXECUTION_LIMITS,
+    executionLimits: ExecutionLimits = DEFAULT_EXECUTION_LIMITS,
   ) {
     this.analysisPool = new AnalysisImagePool(executionLimits.imagePreparation);
   }
@@ -32,7 +32,7 @@ export class Workspaces {
           .rows.length
       )
         throw new AppError("工作区不存在", 404);
-      const repo = new Repository(this.db, id, this.executionLimits);
+      const repo = new Repository(this.db, id);
       await repo.initialize();
       const workflows = new Workflows(
         repo,
@@ -52,6 +52,17 @@ export class Workspaces {
   async all() {
     const rows = await this.db.query(
       "SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY id",
+    );
+    return Promise.all(rows.rows.map((row) => this.get(row.id)));
+  }
+  async ready(now = Date.now()) {
+    const rows = await this.db.query(
+      `SELECT DISTINCT j.workspace_id AS id FROM jobs j
+       JOIN workspace w ON w.id=j.workspace_id
+       WHERE w.archived_at IS NULL AND (
+         (j.status='queued' AND j.due_at<=$1 AND COALESCE(json_extract(w.document,'$.paused'),0)=0)
+         OR (j.status='running' AND j.lease_until<$1))`,
+      [now],
     );
     return Promise.all(rows.rows.map((row) => this.get(row.id)));
   }

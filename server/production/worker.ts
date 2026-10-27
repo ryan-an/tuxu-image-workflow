@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { scheduler } from "node:timers/promises";
 import { productPhotos } from "../../shared/prompt-suite.js";
 import { savePrompt, selectVersion } from "../../shared/model.js";
 import {
@@ -20,19 +21,21 @@ export class Worker {
   private stopped = false;
   private timer?: ReturnType<typeof setTimeout>;
   private tasks = new Set<Promise<boolean>>();
-  private active = { prompt: 0, submit: 0, query: 0 };
-  private controllers = new Set<AbortController>();
+  private dispatching?: Promise<void>;
+  private started = false;
+  private controllers = new Map<string, AbortController>();
+  private cancel = (id: string) => this.controllers.get(id)?.abort();
   constructor(
     private workflows: Workflows,
     private provider: Provider,
     private log: (error: unknown) => void = console.error,
   ) {}
-  get limits() {
-    return this.workflows.repo.executionLimits;
-  }
   async step(lane?: ExecutionLane): Promise<boolean> {
     const job = await this.workflows.repo.claim(this.owner, Date.now(), lane);
     if (!job) return false;
+    return this.execute(job);
+  }
+  private async execute(job: Job): Promise<boolean> {
     if (this.stopped) {
       await this.workflows.repo.updateClaim(
         job,
@@ -44,22 +47,23 @@ export class Worker {
     }
     const controller = new AbortController();
     const stageStarted = Date.now();
-    this.controllers.add(controller);
-    const cancel = (id: string) => {
-      if (id === job.id) controller.abort();
-    };
-    this.workflows.analysisEvents.on("cancel", cancel);
+    if (!this.controllers.size)
+      this.workflows.analysisEvents.on("cancel", this.cancel);
+    this.controllers.set(job.id, controller);
     const signal = AbortSignal.any([
       controller.signal,
       AbortSignal.timeout(stageTimeout(job.kind)),
     ]);
     let key = "";
+    let credentialScope = "";
     try {
-      key = await this.workflows.key(
+      const credential = await this.workflows.executionCredential(
         job.kind === "prompt-set" && job.config.promptProvider === "doubao"
           ? "doubao"
           : "image",
       );
+      key = credential.key;
+      credentialScope = credential.version;
       if (job.kind === "prompt-set") {
         if (!(await this.workflows.repo.markStage(job, "analyzing")))
           return true;
@@ -345,6 +349,7 @@ export class Worker {
               scope.provider,
               scope.model,
               current.rateLimitUntil,
+              credentialScope,
             );
             return delay;
           }
@@ -370,8 +375,9 @@ export class Worker {
         },
       );
     } finally {
-      this.workflows.analysisEvents.off("cancel", cancel);
-      this.controllers.delete(controller);
+      this.controllers.delete(job.id);
+      if (!this.controllers.size)
+        this.workflows.analysisEvents.off("cancel", this.cancel);
       if (job.kind === "prompt-set") {
         const current = await this.workflows.repo.job(job.id);
         this.workflows.analysisEvents.publish({
@@ -386,36 +392,53 @@ export class Worker {
     }
     return true;
   }
-  launch(lane: ExecutionLane): Promise<boolean> {
-    if (this.stopped) return Promise.resolve(false);
-    this.active[lane]++;
-    const task = this.step(lane)
+  private launch(job: Job) {
+    const task = this.execute(job)
       .catch((error) => {
         this.log(error);
         return false;
       })
       .finally(() => {
-        this.active[lane]--;
         this.tasks.delete(task);
       });
     this.tasks.add(task);
-    return task;
+  }
+  private async drain() {
+    while (!this.stopped) {
+      const job = await this.workflows.repo.claim(this.owner);
+      if (!job) return;
+      this.launch(job);
+      // Yield CPU between durable claims, without waiting for network requests
+      // or imposing a count/rate limit on ready tasks.
+      await scheduler.yield();
+    }
+  }
+  dispatch(): Promise<void> {
+    if (this.stopped) return Promise.resolve();
+    if (this.dispatching) return this.dispatching;
+    this.dispatching = this.drain()
+      .catch(this.log)
+      .finally(() => {
+        this.dispatching = undefined;
+      });
+    return this.dispatching;
   }
   start() {
-    // Use parallel steps; each step finishes one durable stage, not the entire job.
+    if (this.started || this.stopped) return;
+    this.started = true;
     const dispatch = () => {
       if (this.stopped) return;
-      for (const lane of ["prompt", "submit", "query"] as ExecutionLane[])
-        while (this.active[lane] < this.workflows.repo.executionLimits[lane])
-          void this.launch(lane);
-      this.timer = setTimeout(dispatch, 1000);
+      void this.dispatch().finally(() => {
+        if (!this.stopped) this.timer = setTimeout(dispatch, 1000);
+      });
     };
     dispatch();
   }
   async stop() {
     this.stopped = true;
     clearTimeout(this.timer);
-    for (const controller of this.controllers) controller.abort();
+    await this.dispatching;
+    for (const controller of this.controllers.values()) controller.abort();
     await Promise.allSettled([...this.tasks]);
   }
 }

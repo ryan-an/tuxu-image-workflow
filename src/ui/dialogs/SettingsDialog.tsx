@@ -101,8 +101,9 @@ function ProviderKeys() {
   );
 }
 export function SettingsDialog() {
-  const { state, ui, isRemote } = useApplication(),
-    config = state.settings;
+  const { state, ui, isRemote, user } = useApplication(),
+    config = state.settings,
+    canManageKeys = user.role === "owner";
   const [imageModel, setImageModel] = useState(config.imageModel),
     [promptModel, setPromptModel] = useState(config.promptModel),
     [quality, setQuality] = useState(config.quality);
@@ -113,13 +114,14 @@ export function SettingsDialog() {
       <h2>对话与生图设置</h2>
       <p className="modal-subtitle">
         对话与提示词分析使用火山引擎豆包；图片生成使用 Grsai。
-        {isRemote
-          ? "密钥由服务端加密保存。"
-          : "密钥只保留在本次本地服务运行中。"}
+        {canManageKeys &&
+          (isRemote
+            ? "密钥由服务端加密保存。"
+            : "密钥只保留在本次本地服务运行中。")}
       </p>
       <ApplicationForm id="settings-form">
         <input type="hidden" name="promptProvider" value="doubao" />
-        <ProviderKeys />
+        {canManageKeys && <ProviderKeys />}
         <label>
           豆包对话模型
           <select
@@ -146,18 +148,20 @@ export function SettingsDialog() {
             placeholder="doubao-… 或 ep-…"
           />
         </label>
-        <p className="field-note">
-          豆包服务地址：https://ark.cn-beijing.volces.com/api/v3。 API Key
-          所属账号需先
-          <a
-            href="https://ark.volcengine.com/region:cn-beijing/openManagement"
-            target="_blank"
-            rel="noreferrer"
-          >
-            开通所选模型服务
-          </a>
-          ，仅创建 API Key 不会自动开通模型。
-        </p>
+        {canManageKeys && (
+          <p className="field-note">
+            豆包服务地址：https://ark.cn-beijing.volces.com/api/v3。 API Key
+            所属账号需先
+            <a
+              href="https://ark.volcengine.com/region:cn-beijing/openManagement"
+              target="_blank"
+              rel="noreferrer"
+            >
+              开通所选模型服务
+            </a>
+            ，仅创建 API Key 不会自动开通模型。
+          </p>
+        )}
         <div className="form-grid">
           <label>
             运行方式

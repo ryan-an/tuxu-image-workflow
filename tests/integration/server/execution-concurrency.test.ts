@@ -12,7 +12,10 @@ import { newProduct } from "../../../shared/model.js";
 import { Worker } from "../../../server/production/worker.js";
 import { WorkspaceWorkers } from "../../../server/production/workspace-workers.js";
 import { ProviderError } from "../../../server/production/provider.js";
-import { DEFAULT_EXECUTION_LIMITS } from "../../../server/production/execution-limits.js";
+import {
+  executionLimitsFromEnv,
+  type ExecutionLane,
+} from "../../../server/production/execution-limits.js";
 import { emptyWorkspace } from "../../../server/production/repository.js";
 import { Members } from "../../../server/production/members.js";
 import type { Workflows } from "../../../server/production/workflows.js";
@@ -83,16 +86,15 @@ async function waitFor(
     await delay(10);
   }
 }
-function blockedProvider(onStart: () => void) {
+function blockedProvider(onStart: (lane: ExecutionLane) => void) {
   const provider = fakeProvider(counts());
-  const analyze = provider.analyze;
+  const { analyze, submit, query } = provider;
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  provider.analyze = async (...args) => {
-    onStart();
-    const signal = args[4];
+  const block = async (lane: ExecutionLane, signal: AbortSignal) => {
+    onStart(lane);
     await new Promise<void>((resolve, reject) => {
       const abort = () => {
         signal.removeEventListener("abort", abort);
@@ -105,61 +107,91 @@ function blockedProvider(onStart: () => void) {
       });
       if (signal.aborted) abort();
     });
+  };
+  provider.analyze = async (...args) => {
+    await block("prompt", args[4]);
     return analyze(...args);
+  };
+  provider.submit = async (...args) => {
+    await block("submit", args[4]);
+    return submit(...args);
+  };
+  provider.query = async (...args) => {
+    await block("query", args[3]);
+    return query(...args);
   };
   return { provider, release };
 }
 
-test("15 analyses start together while image submissions and accepted result queries retain independent slots", async (t) => {
-  const f = await fixture();
-  let started = 0;
-  const blocked = blockedProvider(() => started++);
+test("all ready analyses, submissions and queries start without server or legacy workspace caps", async (t) => {
+  const f = await fixture(
+    undefined,
+    undefined,
+    executionLimitsFromEnv({
+      EXECUTION_PROFILE: "small",
+      PROMPT_CONCURRENCY_LIMIT: "1",
+      IMAGE_SUBMIT_CONCURRENCY_LIMIT: "1",
+      IMAGE_QUERY_CONCURRENCY_LIMIT: "1",
+    }),
+  );
+  const started = { prompt: 0, submit: 0, query: 0 };
+  const blocked = blockedProvider((lane) => started[lane]++);
   const worker = new Worker(f.workflows, blocked.provider, () => {});
   try {
-    const jobs = await seed(f.workflows, 16);
-    const template = jobs[15];
+    await f.workflows.edit(
+      ["concurrency", "promptConcurrency", "queryConcurrency"].map((field) => ({
+        path: [field],
+        before: 2,
+        value: 1,
+      })),
+    );
+    const jobs = await seed(f.workflows, 40);
     await f.db.transaction(async (tx) => {
-      for (let i = 0; i < 2; i++)
-        await f.workflows.repo.insertJob(tx, {
-          ...template,
-          id: `image-${i}`,
-          kind: "image",
-          taskId: template.productSnapshot!.tasks[i].id,
-          prompt: "ready",
-          referenceImages: [f.product.photo],
-          dependsOn: undefined,
-          ...(i === 1
-            ? { remoteId: "accepted-remote-id", stage: "polling" }
-            : {}),
-        });
+      for (const [i, template] of jobs.entries()) {
+        for (let slot = 0; slot < 2; slot++)
+          await f.workflows.repo.insertJob(tx, {
+            ...template,
+            id: `image-${i}-${slot}`,
+            kind: "image",
+            taskId: template.productSnapshot!.tasks[slot].id,
+            prompt: "ready",
+            referenceImages: [f.product.photo],
+            dependsOn: undefined,
+            ...(slot === 1
+              ? { remoteId: `accepted-${i}`, stage: "polling" }
+              : {}),
+          });
+      }
     });
     t.mock.method(f.workflows.repo, "view", async () => {
       throw Error("worker must not load full snapshots");
     });
     worker.start();
-    await waitFor(() => started === 15);
     await waitFor(
-      async () =>
-        (await f.workflows.repo.job("image-1"))?.status === "completed",
+      () => Object.values(started).every((count) => count === 40),
+      10000,
     );
-    assert.equal((await f.workflows.repo.job("image-0"))?.remoteId, "remote-1");
     assert.equal(
       (
         await f.db.query(
-          "SELECT COUNT(*) AS count FROM jobs WHERE kind='prompt-set' AND status='running'",
+          "SELECT COUNT(*) AS count FROM jobs WHERE status='running'",
         )
       ).rows[0].count,
-      15,
+      120,
     );
+    // Cancellation uses one listener per worker even with many network requests.
+    assert.equal(f.workflows.analysisEvents.listenerCount("cancel"), 1);
     blocked.release();
     await waitFor(
       async () =>
         (
           await f.db.query(
-            "SELECT COUNT(*) AS count FROM jobs WHERE kind='prompt-set' AND status='completed'",
+            "SELECT COUNT(*) AS count FROM jobs WHERE status='completed'",
           )
-        ).rows[0].count === 16,
+        ).rows[0].count === 120,
+      10000,
     );
+    assert.equal(f.workflows.analysisEvents.listenerCount("cancel"), 0);
   } finally {
     blocked.release();
     await worker.stop();
@@ -167,45 +199,46 @@ test("15 analyses start together while image submissions and accepted result que
   }
 });
 
-test("server limits are atomic across workspace workers and the manager interleaves teams", async () => {
-  const f = await fixture(undefined, undefined, {
-    ...DEFAULT_EXECUTION_LIMITS,
-    prompt: 4,
-  });
-  const b = await other(f);
+test("workspace workers drain ready work independently of idle teams and preserve interruption on restart", async (t) => {
+  const f = await fixture();
+  // More empty teams than the old server cap must not consume dispatch turns.
+  for (let i = 0; i < 7; i++) await other(f, `empty-${i}`);
+  const b = await other(f, "last-team");
   let aStarted = 0,
     bStarted = 0;
+  const createdWorkers: string[] = [];
   const aBlock = blockedProvider(() => aStarted++),
     bBlock = blockedProvider(() => bStarted++);
   const workers = new WorkspaceWorkers(
     f.workspaces,
     () => {},
     () => {},
-    (workflows) =>
-      workflows.repo.workspaceId === "default"
+    (workflows) => {
+      createdWorkers.push(workflows.repo.workspaceId);
+      return workflows.repo.workspaceId === "default"
         ? aBlock.provider
-        : bBlock.provider,
+        : bBlock.provider;
+    },
   );
   try {
-    await seed(f.workflows, 6, "a");
-    await seed(b, 6, "b");
+    t.mock.method(f.workspaces, "all", async () => {
+      throw Error("must not poll idle workspaces");
+    });
     await workers.start();
-    await waitFor(() => aStarted + bStarted === 4);
-    await delay(1100);
-    assert.equal(aStarted + bStarted, 4);
-    assert.ok(aStarted > 0 && bStarted > 0);
-    // A second process/Worker instance still cannot claim above the persisted cap.
-    assert.equal(
-      await b.repo.claim("another-process", Date.now(), "prompt"),
-      null,
-    );
+    assert.deepEqual(createdWorkers, []);
+    await seed(f.workflows, 20, "a");
+    await seed(b, 20, "b");
+    await waitFor(() => aStarted === 20 && bStarted === 20, 10000);
+    assert.deepEqual(createdWorkers.sort(), ["default", "last-team"]);
     await workers.stop();
-    const interrupted = (
-      await f.db.query(
-        "SELECT COUNT(*) AS count FROM jobs WHERE status='interrupted'",
-      )
-    ).rows[0].count;
-    assert.equal(interrupted, 4);
+    assert.equal(
+      (
+        await f.db.query(
+          "SELECT COUNT(*) AS count FROM jobs WHERE status='interrupted'",
+        )
+      ).rows[0].count,
+      40,
+    );
     await f.reopen();
     assert.equal(
       (
@@ -213,7 +246,7 @@ test("server limits are atomic across workspace workers and the manager interlea
           "SELECT COUNT(*) AS count FROM jobs WHERE status='interrupted'",
         )
       ).rows[0].count,
-      4,
+      40,
     );
   } finally {
     aBlock.release();
@@ -304,7 +337,7 @@ test("quota exhaustion and unknown acceptance never enter automatic rate-limit r
   }
 });
 
-test("concurrency settings persist, reject invalid values, and require ownership", async () => {
+test("legacy concurrency fields remain compatible but the limits endpoint reports no caps", async () => {
   const f = await fixture();
   try {
     const owner = await loginHeaders(f.app);
@@ -317,7 +350,8 @@ test("concurrency settings persist, reject invalid values, and require ownership
       });
     assert.equal((await edit(owner, "promptConcurrency", 20)).statusCode, 200);
     assert.equal((await edit(owner, "queryConcurrency", 12)).statusCode, 200);
-    assert.equal((await edit(owner, "promptConcurrency", 31)).statusCode, 400);
+    assert.equal((await edit(owner, "concurrency", 10000)).statusCode, 200);
+    assert.equal((await edit(owner, "promptConcurrency", 0)).statusCode, 400);
     await new Members(f.db).create({
       username: "editor",
       displayName: "editor",
@@ -338,13 +372,87 @@ test("concurrency settings persist, reject invalid values, and require ownership
     const state = await f.workflows.repo.view();
     assert.equal(state.promptConcurrency, 20);
     assert.equal(state.queryConcurrency, 12);
-    assert.equal(state.concurrency, 2);
+    assert.equal(state.concurrency, 10000);
     assert.deepEqual(
       (
         await f.app.inject({ url: "/api/execution/limits", headers: owner })
       ).json(),
-      { prompt: 15, submit: 6, query: 8 },
+      { prompt: null, submit: null, query: null },
     );
+  } finally {
+    await f.close();
+  }
+});
+
+test("429 cooldown is isolated by workspace and credential version, including key rotation during a request", async () => {
+  const f = await fixture();
+  try {
+    const b = await other(f);
+    await b.updateSettings({ promptApiKey: "independent-key" });
+    const jobs = await seed(f.workflows, 3, "limited");
+    const otherJobs = await seed(b, 2, "independent");
+    const provider = fakeProvider(counts());
+    provider.analyze = async () => {
+      throw new ProviderError(
+        "rate limited",
+        true,
+        true,
+        { status: 429, code: "RateLimitExceeded" },
+        10000,
+      );
+    };
+    await new Worker(f.workflows, provider, () => {}).step("prompt");
+    assert.equal(
+      await f.workflows.repo.claim("blocked", Date.now(), "prompt"),
+      null,
+    );
+    assert.equal(
+      (await b.repo.claim("independent", Date.now(), "prompt"))?.id,
+      otherJobs[0].id,
+    );
+    // The limited job keeps its own retry delay, but new work can use the new key.
+    await f.workflows.updateSettings({ promptApiKey: "replacement-key" });
+    assert.equal(
+      (await f.workflows.repo.claim("replacement", Date.now(), "prompt"))?.id,
+      jobs[1].id,
+    );
+    // A late 429 from the previous key must not put the newly configured key on cooldown.
+    provider.analyze = async () => {
+      await f.workflows.updateSettings({
+        promptApiKey: "rotated-during-request",
+      });
+      throw new ProviderError(
+        "late limit",
+        true,
+        true,
+        { status: 429, code: "RateLimitExceeded" },
+        10000,
+      );
+    };
+    await new Worker(f.workflows, provider, () => {}).step("prompt");
+    await f.due();
+    assert.ok(
+      await f.workflows.repo.claim("new-key-unaffected", Date.now(), "prompt"),
+    );
+    await f.reopen();
+    assert.ok(
+      await f.workflows.repo.claim("after-restart", Date.now(), "prompt"),
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("concurrent claims never execute the same job twice even without a concurrency cap", async () => {
+  const f = await fixture();
+  try {
+    await seed(f.workflows, 1, "exclusive");
+    const claims = await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        f.workflows.repo.claim(`owner-${i}`),
+      ),
+    );
+    assert.equal(claims.filter(Boolean).length, 1);
   } finally {
     await f.close();
   }

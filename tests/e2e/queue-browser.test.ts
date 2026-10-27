@@ -524,7 +524,7 @@ test(
       await page.getByRole("tab", { name: /产品进度/ }).click();
       assert.equal(await page.locator("#concurrency").isVisible(), false);
       await page.getByRole("button", { name: "队列管理", exact: true }).click();
-      assert.equal(await page.locator("#concurrency").isVisible(), true);
+      assert.equal(await page.locator("#concurrency").count(), 0);
       await page.locator(".queue-product-state .status-badge.error").waitFor();
       assert.equal(
         await page
@@ -704,7 +704,6 @@ test(
       assert.equal(await page.locator(".batch-queue [data-action]").count(), 0);
       await productTab.click();
       await page.getByRole("button", { name: "队列管理", exact: true }).click();
-      await page.locator("#concurrency").selectOption("3");
       await page.locator('[data-action="pause-queue"]').click();
       await page
         .locator(".queue-overview-heading .ui-badge")

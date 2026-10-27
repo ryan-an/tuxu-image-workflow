@@ -25,7 +25,7 @@ export function PromptPreview({
   failed?: boolean;
   unvalidated?: boolean;
   validationFailed?: boolean;
-  analysisProgress?: { label: string; detail: string };
+  analysisProgress?: { label: string };
 }) {
   const { controller, user } = useApplication();
   const canEdit = user.role !== "viewer";
@@ -156,9 +156,6 @@ export function PromptPreview({
           </div>
         )}
       </div>
-      {!editing && analysisProgress?.detail && (
-        <small className="analysis-timing">{analysisProgress.detail}</small>
-      )}
       {!editing && analysisError && (
         <p className="prompt-validation-message" role="alert">
           {analysisError}

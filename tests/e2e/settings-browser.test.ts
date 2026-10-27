@@ -4,6 +4,91 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { fixture, password } from "../support/production.js";
 import { artifactPath } from "../support/artifacts.cjs";
+import { Members } from "../../server/production/members.js";
+
+test(
+  "editors can save settings without API key controls while viewers have no settings entry",
+  { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 45000 },
+  async () => {
+    const { chromium } = createRequire(import.meta.url)(
+      process.env.PLAYWRIGHT_MODULE!,
+    );
+    const f = await fixture(resolve("dist"));
+    const browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.CHROME_PATH,
+    });
+    try {
+      for (const role of ["editor", "viewer"] as const)
+        await new Members(f.db).create({
+          username: `settings-${role}`,
+          displayName: role,
+          password,
+          role,
+          monthlyLimit: null,
+        });
+      await f.app.listen({ host: "127.0.0.1", port: 0 });
+      const root = `http://127.0.0.1:${(f.app.server.address() as { port: number }).port}`;
+      const keys = [await f.workflows.key(), await f.workflows.key("doubao")];
+      for (const role of ["editor", "viewer"] as const) {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        await page.goto(root);
+        await page.fill("#login-username", `settings-${role}`);
+        await page.fill("#login-password", password);
+        await page.click('#login-form button[type="submit"]');
+        await page.locator(".task-card").first().waitFor();
+        const button = page.locator("#settings-button");
+        if (role === "viewer") {
+          assert.equal(await button.count(), 0);
+        } else {
+          assert.equal(await button.getAttribute("aria-label"), "设置");
+          assert.equal(await button.locator(".settings-key-status").count(), 0);
+          await button.click();
+          const form = page.locator("#settings-form");
+          assert.equal(
+            await form
+              .locator('input[type="password"], .api-key-field, .api-key-clear')
+              .count(),
+            0,
+          );
+          assert.equal((await form.textContent()).includes("API Key"), false);
+          await form.locator('[name="imageSize"]').selectOption("2K");
+          const request = page.waitForRequest(
+            (request: any) =>
+              request.method() === "POST" &&
+              request.url().endsWith("/api/workflow/settings"),
+          );
+          await form.locator('button[type="submit"]').click();
+          const payload = (await request).postDataJSON();
+          for (const name of [
+            "apiKey",
+            "promptApiKey",
+            "clearKey",
+            "clearPromptKey",
+          ])
+            assert.equal(Object.hasOwn(payload, name), false);
+          await form.waitFor({ state: "detached" });
+          await page.reload();
+          await button.click();
+          assert.equal(
+            await page.locator('[name="imageSize"]').inputValue(),
+            "2K",
+          );
+          assert.deepEqual(
+            [await f.workflows.key(), await f.workflows.key("doubao")],
+            keys,
+          );
+          await page.screenshot({ path: artifactPath("settings-editor.png") });
+        }
+        await context.close();
+      }
+    } finally {
+      await browser.close();
+      await f.close();
+    }
+  },
+);
 
 test(
   "settings button reports saved API keys after save, clear and reload at desktop and mobile widths",

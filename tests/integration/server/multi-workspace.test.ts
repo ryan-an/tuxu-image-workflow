@@ -62,6 +62,10 @@ test("business write transactions reject revoked roles even when the request cap
     );
     assert.equal((await f.workflows.repo.view()).jobs.length, 0);
     await assert.rejects(
+      f.workflows.updateSettings({ imageSize: "2K" }, actor),
+      /不能发起任务/,
+    );
+    await assert.rejects(
       f.workflows.edit(
         [
           {

@@ -4,9 +4,13 @@
 
 ## 本机启动
 
-Windows 局域网免安装部署可使用内置 Node.js 的便携 ZIP：解压后双击「启动图序.cmd」，其他电脑通过浏览器访问。便携版固定将 SQLite、素材、日志和证书放在程序旁的 `data/`，将密码、加密主密钥和运行配置放在 `.env`；升级或改成 EXE 时只需完整保留这两个位置。打包命令为 `npm run windows:pack`（先测试并构建），使用与升级步骤见 [Windows 便携部署](docs/windows-portable.md)。
+Windows 局域网免安装部署可使用内置 Node.js 的便携 ZIP：解压后双击带图标的「图序.exe」（也保留「启动图序.cmd」），其他电脑通过浏览器访问。启动入口需与包内运行文件放在一起。便携版固定将 SQLite、素材、日志和证书放在程序旁的 `data/`，将密码、加密主密钥和运行配置放在 `.env`；升级时完整保留这两个位置。打包命令为 `npm run windows:pack`（先测试并构建），使用与升级步骤见 [Windows 便携部署](docs/windows-portable.md)。
 
 Docker、Windows ZIP/EXE 之间的数据备份、恢复和迁移步骤见 [数据备份与迁移指南](docs/data-migration.md)。
+
+Windows 日常更新使用每次发布的离线更新 EXE：关闭图序，运行更新工具并选择原程序目录，自动备份后替换程序文件，保留原 `data/` 和 `.env`。完整步骤见 [Windows 更新说明](docs/windows-update.md)。
+
+Windows 启动与更新均使用窗口界面，不弹命令行窗口。精简服务窗口提供访问地址和首次密码，日志与数据目录收进「更多」；关闭或最小化会隐藏到右下角托盘继续运行。双击托盘图标恢复窗口，右键选择「退出图序并停止服务」才会等待数据库关闭后退出。
 
 需要 Node.js 24。首次安装和构建：
 

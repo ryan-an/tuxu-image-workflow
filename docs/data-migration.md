@@ -11,6 +11,8 @@ data/   # SQLite、WAL/SHM、图片素材、日志、HTTPS 证书
 
 ## Windows 便携版升级
 
+已有 Windows 程序推荐运行新版离线更新 EXE，自动备份后只替换程序文件，保留原 data 和 .env，无需搬移数据；见 [Windows 更新说明](windows-update.md)。下面是手动更换程序目录时的迁移方法。
+
 先在启动窗口按 Ctrl+C 停止旧程序，然后复制完整的 `data/` 目录和 `.env`。将新版程序解压到新的目录，再把这两个项目复制到新版程序目录，最后双击启动脚本。
 
 不要只复制 `workspace.sqlite`。SQLite 运行时可能还有 `workspace.sqlite-wal` 和 `workspace.sqlite-shm`，图片也保存在 `data/assets/` 中。

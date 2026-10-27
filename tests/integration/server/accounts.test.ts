@@ -53,7 +53,74 @@ async function member(
   };
 }
 
-test("only owner manages accounts and settings; viewers can read assets and data but cannot mutate any API", async () => {
+test("editors save generation settings but credential fields remain owner-only and atomic", async () => {
+  const f = await fixture();
+  try {
+    const editor = await member(f, "editor"),
+      viewer = await member(f, "viewer");
+    const update = (headers: Record<string, string>, payload: object) =>
+      f.app.inject({
+        method: "POST",
+        url: "/api/workflow/settings",
+        headers,
+        payload,
+      });
+    const beforeKeys = [
+      await f.workflows.key(),
+      await f.workflows.key("doubao"),
+    ];
+    const saved = await update(editor.headers, {
+      imageModel: "nano-banana-2",
+      imageSize: "2K",
+      aspectRatio: "4:3",
+      promptModel: "ep-editor-model",
+      baseUrl: "https://grsaiapi.com",
+      mode: "live",
+    });
+    assert.equal(saved.statusCode, 200, saved.body);
+    assert.equal(saved.json().imageSize, "2K");
+    assert.equal(saved.json().promptModel, "ep-editor-model");
+    const settings = await f.workflows.settings();
+    for (const payload of [
+      { apiKey: "replacement" },
+      { promptApiKey: "replacement" },
+      { clearKey: true },
+      { clearPromptKey: true },
+      { apiKey: "" },
+      { clearKey: false },
+    ]) {
+      const response = await update(editor.headers, {
+        imageSize: "4K",
+        ...payload,
+      });
+      assert.equal(response.statusCode, 403, response.body);
+      assert.deepEqual(await f.workflows.settings(), settings);
+      assert.deepEqual(
+        [await f.workflows.key(), await f.workflows.key("doubao")],
+        beforeKeys,
+      );
+    }
+    assert.equal(
+      (await update(viewer.headers, { imageSize: "4K" })).statusCode,
+      403,
+    );
+    assert.equal(
+      (await update(editor.owner, { apiKey: "owner-replacement" })).statusCode,
+      200,
+    );
+    assert.equal(await f.workflows.key(), "owner-replacement");
+    const read = await f.app.inject({
+      url: "/api/workflow/settings",
+      headers: editor.headers,
+    });
+    assert.ok(!read.body.includes("owner-replacement"));
+    assert.ok(!read.body.includes(beforeKeys[1]));
+  } finally {
+    await f.close();
+  }
+});
+
+test("only owner manages accounts and credentials; viewers can read assets and data but cannot mutate any API", async () => {
   const f = await fixture();
   try {
     const editor = await member(f, "editor"),
@@ -668,7 +735,10 @@ test("public signup is absent, cross-site activation and password changes are re
     assert.equal(status, 429);
     assert.equal(actionAllowed("viewer", "choose-version"), false);
     assert.equal(actionAllowed("viewer", "download-version"), true);
-    assert.equal(actionAllowed("editor", "settings"), false);
+    assert.equal(actionAllowed("editor", "settings"), true);
+    assert.equal(actionAllowed("viewer", "settings"), false);
+    assert.equal(actionAllowed("editor", "clear-key"), false);
+    assert.equal(actionAllowed("editor", "clear-prompt-key"), false);
   } finally {
     await f.close();
   }

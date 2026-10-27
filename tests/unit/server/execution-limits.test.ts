@@ -2,31 +2,23 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { executionLimitsFromEnv } from "../../../server/production/execution-limits.js";
 import { analysisProgress } from "../../../shared/analysis-progress.js";
-test("local and small deployment profiles have separate configurable server caps", () => {
-  assert.deepEqual(executionLimitsFromEnv({}), {
-    prompt: 15,
-    submit: 6,
-    query: 8,
-    imagePreparation: 2,
-  });
+test("deployment profiles only protect image decoding and legacy network caps are ignored", () => {
+  assert.deepEqual(executionLimitsFromEnv({}), { imagePreparation: 2 });
   assert.deepEqual(executionLimitsFromEnv({ EXECUTION_PROFILE: "small" }), {
-    prompt: 5,
-    submit: 2,
-    query: 4,
     imagePreparation: 1,
   });
-  assert.equal(
+  assert.deepEqual(
     executionLimitsFromEnv({
       EXECUTION_PROFILE: "small",
-      PROMPT_CONCURRENCY_LIMIT: "15",
-    }).prompt,
-    15,
-  );
-  assert.throws(() =>
-    executionLimitsFromEnv({ PROMPT_CONCURRENCY_LIMIT: "0" }),
+      PROMPT_CONCURRENCY_LIMIT: "1",
+      IMAGE_SUBMIT_CONCURRENCY_LIMIT: "1",
+      IMAGE_QUERY_CONCURRENCY_LIMIT: "1",
+    }),
+    { imagePreparation: 1 },
   );
   assert.throws(() => executionLimitsFromEnv({ EXECUTION_PROFILE: "invalid" }));
 });
+
 test("analysis progress distinguishes queue, image preparation, first output and generation durations", () => {
   const job = {
     createdAt: 1000,

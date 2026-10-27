@@ -2,7 +2,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import { can } from "../../../shared/access";
 import { ActionButton, useApplication } from "../context";
 import { Button } from "../design-system/Button";
-import { api } from "../../services/workspace-client.js";
 
 export function QueueManager({
   retryable,
@@ -11,28 +10,11 @@ export function QueueManager({
   retryable: number;
   pending: number;
 }) {
-  const { state, controller, user } = useApplication();
+  const { state, user } = useApplication();
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [limits, setLimits] = useState<{
-    prompt: number;
-    submit: number;
-    query: number;
-  }>();
-  useEffect(() => {
-    if (!open || state.settings.mode === "demo") return;
-    let cancelled = false;
-    void api("/api/execution/limits")
-      .then((value) => {
-        if (!cancelled) setLimits(value);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [open, state.settings.mode]);
   const [position, setPosition] = useState({
     left: 0,
     top: 0,
@@ -155,43 +137,6 @@ export function QueueManager({
             取消待执行{pending ? `（${pending}）` : ""}
           </ActionButton>
         </div>
-        {(
-          [
-            [
-              "promptConcurrency",
-              "提示词分析并发",
-              state.promptConcurrency ?? 15,
-              30,
-            ],
-            ["concurrency", "生图提交并发", state.concurrency, 6],
-            [
-              "queryConcurrency",
-              "结果查询并发",
-              state.queryConcurrency ?? 8,
-              16,
-            ],
-          ] as const
-        ).map(([field, label, value, maximum]) => (
-          <label key={field} className="queue-concurrency" htmlFor={field}>
-            {label}
-            <select
-              id={field}
-              value={value}
-              disabled={user.role !== "owner"}
-              onChange={controller.changeField}
-            >
-              {Array.from({ length: maximum }, (_, i) => i + 1).map((n) => (
-                <option key={n}>{n}</option>
-              ))}
-            </select>
-          </label>
-        ))}
-        {limits && (
-          <small className="queue-execution-limits">
-            服务器总上限：分析 {limits.prompt} · 提交 {limits.submit} · 查询{" "}
-            {limits.query}，各工作区合计。
-          </small>
-        )}
       </div>
     </>
   );

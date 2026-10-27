@@ -17,7 +17,7 @@ export function createPersistence(context) {
         void persist().catch(() => {});
       }, 250);
   }
-  async function persist() {
+  async function persist(options) {
     if (context.canEdit === false) return;
     clearTimeout(saveTimer);
     saveTimer = null;
@@ -25,7 +25,7 @@ export function createPersistence(context) {
     bridge?.capture();
     dirty = false;
     try {
-      if (repository) await repository.save();
+      if (repository) await repository.save(options);
       else {
         const snapshot = structuredClone(state);
         saveChain = saveChain

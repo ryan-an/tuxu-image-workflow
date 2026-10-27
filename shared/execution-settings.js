@@ -5,21 +5,12 @@ export const CONCURRENCY_FIELDS = [
   "promptConcurrency",
   "queryConcurrency",
 ];
-export function executionConcurrency(state) {
-  return {
-    prompt: state.promptConcurrency ?? DEFAULT_PROMPT_CONCURRENCY,
-    submit: state.concurrency ?? 2,
-    query: state.queryConcurrency ?? DEFAULT_QUERY_CONCURRENCY,
-  };
-}
+// Retained only for old clients and portable backups. These fields no longer
+// control execution; no historical UI maximum is enforced.
 export function validConcurrency(state) {
-  const values = executionConcurrency(state);
-  return [
-    [values.prompt, 30],
-    [values.submit, 6],
-    [values.query, 16],
-  ].every(
-    ([value, maximum]) =>
-      Number.isInteger(value) && value >= 1 && value <= maximum,
+  return CONCURRENCY_FIELDS.every(
+    (field) =>
+      state[field] == null ||
+      (Number.isSafeInteger(state[field]) && state[field] >= 1),
   );
 }

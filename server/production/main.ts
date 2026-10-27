@@ -86,6 +86,12 @@ async function close() {
   await worker?.stop();
   await app.close();
   await db.close();
+  if (process.connected) process.disconnect?.();
 }
 process.once("SIGINT", () => void close());
 process.once("SIGTERM", () => void close());
+process.on("message", (message) => {
+  if ((message as { type?: string })?.type === "shutdown") void close();
+});
+process.once("disconnect", () => void close());
+if (process.connected && process.send) process.send({ type: "ready" });

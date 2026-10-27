@@ -1,13 +1,14 @@
 import { saveSnapshot } from "../integrations/storage.js";
 import { APP_KEY, validBackup, uid } from "../../shared/model.js";
 import { api } from "../services/workspace-client.js";
+import { safeFileComponent } from "../integrations/file-names.js";
 
 export function createFiles(context) {
   function downloadBlob(blob, name) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = name;
+    link.download = safeFileComponent(name);
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -33,6 +34,18 @@ export function createFiles(context) {
     if (!images.length) return notify("请先勾选要下载的历史图片");
     const { default: JSZip } = await import("jszip"),
       zip = new JSZip();
+    const folders = new Map(),
+      usedFolders = new Set();
+    for (const { p } of images) {
+      if (folders.has(p.id)) continue;
+      const base = safeFileComponent(p.code);
+      let folder = base,
+        suffix = 1;
+      while (usedFolders.has(folder.toLowerCase()))
+        folder = `${base} (${++suffix})`;
+      folders.set(p.id, folder);
+      usedFolders.add(folder.toLowerCase());
+    }
     for (const { p, t, v } of images) {
       const response = await fetch(v.source);
       if (!response.ok) throw new Error(`图片下载失败 (${response.status})`);
@@ -42,10 +55,9 @@ export function createFiles(context) {
           ? "jpg"
           : meta.includes("webp")
             ? "webp"
-            : "png",
-        safe = (s) => s.replace(/[\\/:*?"<>|]/g, "_");
+            : "png";
       zip.file(
-        `${safe(p.code)}/${safe(t.role)}-V${v.number}.${ext}`,
+        `${folders.get(p.id)}/${safeFileComponent(t.role)}-V${v.number}.${ext}`,
         await blob.arrayBuffer(),
       );
     }

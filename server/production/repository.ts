@@ -1,13 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { JOB_VIEW_COLUMNS, presentJob } from "./workspace-loading.js";
+import { leaseDuration, type ExecutionLane } from "./execution-limits.js";
+import { credentialVersion } from "./credentials.js";
 import {
-  leaseDuration,
-  DEFAULT_EXECUTION_LIMITS,
-  type ExecutionLimits,
-  type ExecutionLane,
-} from "./execution-limits.js";
-import {
-  executionConcurrency,
   DEFAULT_PROMPT_CONCURRENCY,
   DEFAULT_QUERY_CONCURRENCY,
   CONCURRENCY_FIELDS,
@@ -42,7 +37,6 @@ export class Repository {
   constructor(
     public db: Database,
     public readonly workspaceId = WORKSPACE,
-    public readonly executionLimits: ExecutionLimits = DEFAULT_EXECUTION_LIMITS,
   ) {}
   async history(
     page: number,
@@ -289,7 +283,7 @@ export class Repository {
     return this.db.transaction(async (tx) => {
       const workspace = (
         await tx.query(
-          "SELECT archived_at,json_object('paused',json_extract(document,'$.paused'),'concurrency',json_extract(document,'$.concurrency'),'promptConcurrency',json_extract(document,'$.promptConcurrency'),'queryConcurrency',json_extract(document,'$.queryConcurrency')) AS document FROM workspace WHERE id=$1",
+          "SELECT archived_at,credential,prompt_credential,json_object('paused',json_extract(document,'$.paused')) AS document FROM workspace WHERE id=$1",
           [this.workspaceId],
         )
       ).rows[0];
@@ -320,24 +314,6 @@ export class Repository {
       if (workspace.document.paused) return null;
       const laneSql =
         "CASE WHEN j.kind='prompt-set' THEN 'prompt' WHEN j.remote_id IS NULL THEN 'submit' ELSE 'query' END";
-      const counts = (
-        await tx.query(
-          `SELECT ${laneSql} AS lane,COUNT(*) AS total,SUM(j.workspace_id=$1) AS local FROM jobs j WHERE j.status='running' AND (j.lease_until IS NULL OR j.lease_until>=$2) GROUP BY 1`,
-          [this.workspaceId, now],
-        )
-      ).rows;
-      const requested = executionConcurrency(workspace.document);
-      const available = (
-        ["prompt", "submit", "query"] as ExecutionLane[]
-      ).filter((kind) => {
-        const count = counts.find((item) => item.lane === kind);
-        return (
-          (!lane || lane === kind) &&
-          (count?.local || 0) < requested[kind] &&
-          (count?.total || 0) < this.executionLimits[kind]
-        );
-      });
-      if (!available.length) return null;
       // Resolve failed dependencies with indexed joins, never a full workspace snapshot.
       for (const row of (
         await tx.query(
@@ -361,12 +337,19 @@ export class Repository {
         await tx.query(
           `SELECT j.* FROM jobs j LEFT JOIN jobs d ON d.id=j.depends_on AND d.workspace_id=j.workspace_id
          LEFT JOIN scheduler_turns t ON t.workspace_id=j.workspace_id AND t.lane=(${laneSql}) AND t.member_id=(${memberSql})
-         LEFT JOIN model_cooldowns c ON c.provider=(${providerSql}) AND c.model=(${modelSql})
+         LEFT JOIN model_cooldowns c ON c.workspace_id=j.workspace_id AND c.provider=(${providerSql}) AND c.model=(${modelSql})
+           AND c.credential_version=CASE WHEN j.kind='prompt-set' AND json_extract(j.payload,'$.config.promptProvider')='doubao' THEN $5 ELSE $4 END
          WHERE j.workspace_id=$1 AND j.status='queued' AND j.due_at<=$2
-           AND (${laneSql}) IN (SELECT value FROM json_each($3))
+           AND ($3 IS NULL OR (${laneSql})=$3)
            AND (j.depends_on IS NULL OR d.status='completed') AND COALESCE(c.retry_until,0)<=$2
          ORDER BY COALESCE(t.sequence,0),j.due_at,j.created_at,j.id LIMIT 1`,
-          [this.workspaceId, now, JSON.stringify(available)],
+          [
+            this.workspaceId,
+            now,
+            lane ?? null,
+            credentialVersion(workspace.credential),
+            credentialVersion(workspace.prompt_credential),
+          ],
         )
       ).rows[0];
       if (row) {
@@ -485,10 +468,11 @@ export class Repository {
     provider: string,
     model: string,
     until: number,
+    version: string,
   ) {
     await tx.query(
-      "INSERT INTO model_cooldowns(provider,model,retry_until) VALUES($1,$2,$3) ON CONFLICT(provider,model) DO UPDATE SET retry_until=MAX(retry_until,excluded.retry_until)",
-      [provider, model, until],
+      "INSERT INTO model_cooldowns(workspace_id,credential_version,provider,model,retry_until) VALUES($1,$2,$3,$4,$5) ON CONFLICT(workspace_id,credential_version,provider,model) DO UPDATE SET retry_until=MAX(retry_until,excluded.retry_until)",
+      [this.workspaceId, version, provider, model, until],
     );
   }
   async markStage(job: Job, stage: string) {

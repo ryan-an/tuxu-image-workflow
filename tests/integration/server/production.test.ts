@@ -210,7 +210,7 @@ test("uncertain paid submission requires explicit reconciliation and never auto-
     await f.close();
   }
 });
-test("expired worker lease preserves uncertain boundary; global concurrency is coordinated", async () => {
+test("expired worker lease preserves uncertain boundary; claims remain exclusive without a concurrency cap", async () => {
   const f = await fixture();
   try {
     await f.workflows.edit([{ path: ["concurrency"], before: 2, value: 1 }]);
@@ -232,7 +232,8 @@ test("expired worker lease preserves uncertain boundary; global concurrency is c
       f.workflows.repo.claim("a"),
       f.workflows.repo.claim("b"),
     ]);
-    assert.equal([a, b].filter(Boolean).length, 1);
+    assert.equal([a, b].filter(Boolean).length, 2);
+    assert.notEqual(a!.id, b!.id);
     const job = a || b;
     await f.workflows.repo.markStage(job!, "submitting");
     await f.workflows.repo.claim("replacement", Date.now() + 300000);

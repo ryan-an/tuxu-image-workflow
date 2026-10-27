@@ -244,20 +244,26 @@ export function TopBar({ onLogout }: { onLogout?: () => Promise<void> }) {
           action="settings"
           variant="ghost"
           size="sm"
-          aria-label={`设置：${keyStatus}`}
-          title={`密钥、模型与生成设置\n豆包 API Key：${ui.hasPromptKey ? "已填写" : "未设置"}\nGrsai API Key：${ui.hasKey ? "已填写" : "未设置"}`}
+          aria-label={user.role === "owner" ? `设置：${keyStatus}` : "设置"}
+          title={
+            user.role === "owner"
+              ? `密钥、模型与生成设置\n豆包 API Key：${ui.hasPromptKey ? "已填写" : "未设置"}\nGrsai API Key：${ui.hasKey ? "已填写" : "未设置"}`
+              : "模型与生成设置"
+          }
         >
           <Icon name="settings" />
           <span className="settings-label">设置</span>
-          <Badge
-            className="settings-key-status"
-            tone={missingKeys.length ? "danger" : "success"}
-            aria-label={keyStatus}
-            title={keyStatus}
-            icon={<i className="settings-key-dot" aria-hidden="true" />}
-          >
-            {missingKeys.length ? "待配置" : "已配置"}
-          </Badge>
+          {user.role === "owner" && (
+            <Badge
+              className="settings-key-status"
+              tone={missingKeys.length ? "danger" : "success"}
+              aria-label={keyStatus}
+              title={keyStatus}
+              icon={<i className="settings-key-dot" aria-hidden="true" />}
+            >
+              {missingKeys.length ? "待配置" : "已配置"}
+            </Badge>
+          )}
         </ActionButton>
         <div className="topbar-account">
           <Button

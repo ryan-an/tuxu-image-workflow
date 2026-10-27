@@ -3,6 +3,7 @@ import { api } from "../services/workspace-client.js";
 import { productPhotos } from "../../shared/prompt-suite.js";
 import { chosen } from "../../shared/model.js";
 import { PRODUCT_PAGE_SIZE } from "../view-models/product-page.js";
+import { editable, differences } from "../../shared/workspace-edits.js";
 
 import {
   detectColumns,
@@ -306,30 +307,42 @@ export function createSheet(context) {
       const imported = applySheetImport(state, parseContext.candidates, {
         authoritative: parseContext.source.id === "preview",
       });
-      originalRowData = Object.fromEntries(
-        Object.entries(previousRows).map(([row, value]) => [
-          imported.rowMap.get(Number(row)) ?? row,
-          value,
-        ]),
-      );
       const previousProducts = new Map(state.products.map((p) => [p.id, p]));
-      state.products = imported.state.products.map((next) => {
-        const previous = previousProducts.get(next.id);
-        if (!previous) return next;
-        const tasks = next.tasks.map((task) => {
-          const old = previous.tasks.find((t) => t.id === task.id);
-          return old ? Object.assign(old, task) : task;
-        });
-        return Object.assign(previous, next, { tasks });
-      });
       const changedIds = new Set(imported.updatedIds);
       const selectedId =
         imported.importedIds.findLast(
           (id) => !previousProducts.has(id) || changedIds.has(id),
         ) || imported.importedIds.at(-1);
+      if (context.repository) {
+        originalRowData = previousRows;
+        // A new product is sent as one complete record (all ten positions),
+        // together with the parsed sheet, before publishing it to the UI.
+        await context.persist({
+          preparedEdits: differences(editable(state), editable(imported.state)),
+        });
+        originalRowData = undefined;
+        bridge.replaceSnapshot(state.sheetSnapshot, imported.rowMap);
+      } else {
+        originalRowData = Object.fromEntries(
+          Object.entries(previousRows).map(([row, value]) => [
+            imported.rowMap.get(Number(row)) ?? row,
+            value,
+          ]),
+        );
+        state.products = imported.state.products.map((next) => {
+          const previous = previousProducts.get(next.id);
+          if (!previous) return next;
+          const tasks = next.tasks.map((task) => {
+            const old = previous.tasks.find((t) => t.id === task.id);
+            return old ? Object.assign(old, task) : task;
+          });
+          return Object.assign(previous, next, { tasks });
+        });
+        bridge.replaceSnapshot(imported.state.sheetSnapshot, imported.rowMap);
+        await context.persist();
+      }
       state.activeProductId = selectedId;
       for (const id of imported.importedIds) bridge.knownProducts.add(id);
-      bridge.replaceSnapshot(imported.state.sheetSnapshot, imported.rowMap);
       for (const [key, conflict] of bridge.conflicts)
         if (
           imported.importedIds.includes(
@@ -339,7 +352,6 @@ export function createSheet(context) {
         )
           bridge.removeConflict(key);
       change();
-      await context.persist();
       // Persistence may reorder products. Reveal the saved product on its final
       // page, including when a search would otherwise hide the new product.
       if (selectedId) {

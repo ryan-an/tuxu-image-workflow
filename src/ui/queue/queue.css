@@ -169,28 +169,6 @@
   display: grid;
   gap: 6px;
 }
-.queue-concurrency {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--color-border);
-  color: var(--color-muted);
-  font-size: 12px;
-}
-.queue-concurrency select {
-  width: 64px;
-  min-height: 30px;
-  margin: 0;
-  padding: 4px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
-}
 .batch-queue .queue-job-details {
   padding: 0;
   border: 0;
@@ -506,13 +484,7 @@
   color: #8589a0;
   font-size: 11px;
 }
-.queue-execution-limits {
-  display: block;
-  color: var(--color-text-muted);
-  font-size: 11px;
-  line-height: 1.6;
-  padding-top: 8px;
-}
+
 .queue-history-pagination button {
   padding: 7px 12px;
   border: 1px solid #dedfed;

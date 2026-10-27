@@ -10,7 +10,7 @@ import { useApplication } from "../context";
 const roleDescriptions = {
   owner:
     "拥有工作区的完整管理权限，可管理团队成员、API Key、产品资料和生成结果。",
-  editor: "可创建和编辑产品、调整提示词、生成图片、选图和导出结果。",
+  editor: "可创建和编辑产品、调整提示词与生成设置、生成图片、选图和导出结果。",
   viewer: "可查看产品资料、提示词和生成结果，下载图片。",
 };
 

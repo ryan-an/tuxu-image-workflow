@@ -1,4 +1,15 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from "node:crypto";
+// Identify the configured encrypted credential version without storing a key
+// or exposing a reusable API-key fingerprint in scheduler records.
+export const credentialVersion = (encrypted: string | null) =>
+  createHash("sha256")
+    .update(encrypted || "")
+    .digest("hex");
 export class Credentials {
   private key: Buffer;
   constructor(secret: string) {

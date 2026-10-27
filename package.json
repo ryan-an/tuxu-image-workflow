@@ -1,7 +1,7 @@
 {
   "name": "tuxu-image-workflow",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.3",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
@@ -16,6 +16,7 @@
     "setup:https": "node scripts/setup-https.mjs",
     "docker:pack": "node scripts/docker-pack.mjs",
     "windows:pack": "node scripts/windows-pack.mjs",
+    "windows:pack:update": "npm run build && node scripts/windows-pack.mjs --update-only",
     "docker:image": "node scripts/docker-pack.mjs --image",
     "docker:deploy": "node scripts/docker-deploy.mjs",
     "start": "node scripts/start-local.mjs",

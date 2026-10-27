@@ -36,7 +36,8 @@ export function AssistantDock() {
 }
 
 function AssistantPanel() {
-  const { state, ui, controller, isRemote } = useApplication();
+  const { state, ui, controller, isRemote, user } = useApplication();
+  const canManageKeys = user.role === "owner";
   const context = ui.assistant;
   const product = state.products.find((p) => p.id === context.productId);
   const task = product?.tasks.find((t) => t.id === context.taskId);
@@ -80,7 +81,7 @@ function AssistantPanel() {
   async function send(value = draft, retry?: AssistantTurn) {
     if (pending || loading || !value.trim()) return;
     if (!ui.hasPromptKey) {
-      await controller.dispatch("settings");
+      if (canManageKeys) await controller.dispatch("settings");
       return;
     }
     followReply.current = true;
@@ -249,8 +250,14 @@ function AssistantPanel() {
         </div>
         {!ui.hasPromptKey && (
           <div className="assistant-banner">
-            先配置豆包 API Key，即可开始对话。
-            <ActionButton action="settings">填写密钥</ActionButton>
+            {canManageKeys ? (
+              <>
+                先配置豆包 API Key，即可开始对话。
+                <ActionButton action="settings">填写密钥</ActionButton>
+              </>
+            ) : (
+              "请联系所有者配置豆包服务后开始对话。"
+            )}
           </div>
         )}
         {!isRemote && (
@@ -278,7 +285,10 @@ function AssistantPanel() {
                 前往火山方舟开通模型 ↗
               </a>
             )}
-            {errorAction && (
+            {errorAction === "check-key" && !canManageKeys && (
+              <span>请联系所有者检查豆包服务配置。</span>
+            )}
+            {errorAction && (errorAction !== "check-key" || canManageKeys) && (
               <ActionButton action="settings">
                 {errorAction === "check-key"
                   ? "检查豆包密钥"

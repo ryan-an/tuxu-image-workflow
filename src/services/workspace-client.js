@@ -2,6 +2,7 @@ import {
   editable,
   differences,
   mergeView,
+  applyLatestEdits,
 } from "../../shared/workspace-edits.js";
 import { sessionHeaders, analysisEventsUrl } from "./session-scope.js";
 export async function api(
@@ -291,17 +292,27 @@ export class WorkspaceClient {
       });
     this.render();
   }
-  save() {
+  save({ preparedEdits = [] } = {}) {
     return this.serialize(async () => {
       this.capture();
-      const sent = structuredClone(editable(this.state)),
+      const localBefore = structuredClone(editable(this.state));
+      // Parse results stay staged until the complete product creation and sheet
+      // writes commit together. Merge over the latest local state so queued
+      // refreshes and unrelated edits are not replaced by an older snapshot.
+      const sent = applyLatestEdits(
+          structuredClone(localBefore),
+          preparedEdits,
+        ),
         edits = differences(editable(this.baseline), sent);
       if (!edits.length) return;
       const remote = this.savedWorkspace(
         await this.request("/api/workspace", { edits }, "PATCH"),
       );
       this.capture();
-      const pending = differences(sent, editable(this.state));
+      const pending = differences(
+        preparedEdits.length ? localBefore : sent,
+        editable(this.state),
+      );
       await this.accept(remote, pending);
     });
   }

@@ -23,7 +23,7 @@ import {
 import { baseUrl, MODELS } from "../../shared/provider-config.js";
 import { migratePromptSettings } from "../../shared/doubao.js";
 import { Repository } from "./repository.js";
-import { Credentials } from "./credentials.js";
+import { Credentials, credentialVersion } from "./credentials.js";
 import { Assets } from "./assets.js";
 import { AnalysisEvents } from "./analysis-events.js";
 import { removeProductRows } from "../../shared/sheet-data.js";
@@ -53,7 +53,7 @@ export function validateProduct(product: Product) {
     !/^[A-Za-z0-9_-]{1,100}$/.test(product.id) ||
     typeof product.code !== "string" ||
     !product.code.trim() ||
-    /[<>:"/\\|?*]/.test(product.code) ||
+    /[\u0000-\u001f\u007f]/.test(product.code) ||
     typeof product.name !== "string" ||
     !product.name.trim() ||
     typeof product.facts !== "string" ||
@@ -157,7 +157,16 @@ export class Workflows {
         state = await this.repo.view(tx);
       if (row.archived_at !== null) throw new AppError("工作区已归档", 409);
       if (actor)
-        await requireMembership(tx, this.repo.workspaceId, actor.id, "manage");
+        await requireMembership(
+          tx,
+          this.repo.workspaceId,
+          actor.id,
+          ["apiKey", "promptApiKey", "clearKey", "clearPromptKey"].some(
+            (key) => Object.hasOwn(input, key),
+          )
+            ? "manage"
+            : "edit",
+        );
       for (const key of Object.keys(input))
         if (
           ![
@@ -228,6 +237,9 @@ export class Workflows {
     });
   }
   async key(provider: "image" | "doubao" = "image") {
+    return (await this.executionCredential(provider)).key;
+  }
+  async executionCredential(provider: "image" | "doubao" = "image") {
     const row = (
       await this.repo.db.query(
         "SELECT credential,prompt_credential FROM workspace WHERE id=$1",
@@ -242,7 +254,10 @@ export class Workflows {
           ? "请先配置豆包 API Key"
           : "请先配置 Grsai 生图 API Key",
       );
-    return this.credentials.decrypt(credential);
+    return {
+      key: this.credentials.decrypt(credential),
+      version: credentialVersion(credential),
+    };
   }
   async deleteProduct(id: string, actor?: CurrentUser) {
     const result = await this.repo.db.transaction(async (tx) => {

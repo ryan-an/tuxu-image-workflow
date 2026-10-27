@@ -11,7 +11,7 @@ import {
 import { editable, differences } from "../../shared/workspace-edits.js";
 
 test(
-  "parser counts real creates and updates, selects the last saved product and excludes unchanged products on reopening",
+  "parser stages complete new products with special business codes, retains drafts after failure and selects only saved products",
   { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 90000 },
   async () => {
     const { chromium } = createRequire(import.meta.url)(
@@ -26,7 +26,7 @@ test(
       const original = await f.workflows.repo.view(),
         next = structuredClone(original);
       const updated = newProduct("B-UPDATE", "本次更新"),
-        fresh = newProduct("C-NEW", "本次最后保存"),
+        fresh = newProduct("C * NEW / 01", "本次最后保存"),
         tail = newProduct("D-SYNCED", "末尾已同步");
       next.products.push(updated as any, tail as any);
       next.sheetSnapshot = workflowSnapshot({
@@ -72,6 +72,50 @@ test(
           .count(),
         2,
       );
+      let rejectCreation = true;
+      await page.route("**/api/workspace", async (route: any) => {
+        const request = route.request();
+        if (request.method() === "PATCH" && rejectCreation) {
+          const creation = request
+            .postDataJSON()
+            .edits.find(
+              (edit: any) =>
+                edit.path[0] === "products" &&
+                edit.path.length === 2 &&
+                edit.value?.code === fresh.code,
+            );
+          if (creation) {
+            assert.equal(Object.keys(creation.value.tasks).length, 10);
+            rejectCreation = false;
+            await route.fulfill({
+              status: 400,
+              contentType: "application/json",
+              body: JSON.stringify({ error: "模拟解析保存失败" }),
+            });
+            return;
+          }
+        }
+        await route.continue();
+      });
+      await dialog.locator('[data-action="confirm-parse"]').click();
+      await page
+        .getByText("模拟解析保存失败", { exact: true })
+        .first()
+        .waitFor();
+      assert.equal(await dialog.isVisible(), true);
+      assert.equal(
+        await page
+          .locator(".product-code")
+          .filter({ hasText: fresh.code })
+          .count(),
+        0,
+      );
+      assert.equal(
+        (await f.workflows.repo.view()).products.some(
+          (product) => product.code === fresh.code,
+        ),
+        false,
+      );
       await dialog.locator('[data-action="confirm-parse"]').click();
       await dialog.waitFor({ state: "hidden" });
       assert.equal(
@@ -82,7 +126,7 @@ test(
         await page
           .locator('.product-link[aria-current="true"] .product-code')
           .textContent(),
-        "C-NEW",
+        fresh.code,
       );
       assert.match(
         await page.locator("#toast").textContent(),
