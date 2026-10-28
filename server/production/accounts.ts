@@ -15,6 +15,7 @@ export const accountIdentity = (row: any): UserIdentity => ({
   id: row.id,
   username: row.username,
   displayName: row.display_name,
+  systemRole: row.system_role || "user",
 });
 
 // Global identity and credentials only. Workspace roles live in workspace_members.
@@ -32,7 +33,7 @@ export class Accounts {
       const hash = await hashPassword(ownerPassword);
       await this.db.transaction(async (tx) => {
         await tx.query(
-          "INSERT INTO accounts(id,username,display_name,status,password_hash,created_at) VALUES($1,$2,'所有者','active',$3,$4) ON CONFLICT(id) DO UPDATE SET password_hash=excluded.password_hash",
+          "INSERT INTO accounts(id,username,display_name,status,password_hash,created_at,system_role) VALUES($1,$2,'所有者','active',$3,$4,'super_admin') ON CONFLICT(id) DO UPDATE SET password_hash=excluded.password_hash",
           [OWNER_ID, OWNER_USERNAME, hash, Date.now()],
         );
         if (!existing)

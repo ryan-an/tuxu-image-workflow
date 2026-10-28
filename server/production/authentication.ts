@@ -10,6 +10,7 @@ import { Accounts, sessionDuration } from "./accounts.js";
 import type { Workflows } from "./workflows.js";
 import { WorkspaceDirectory } from "./workspace-directory.js";
 import { Invitations } from "./invitations.js";
+import { assertSystemAdmin, recordAdminAudit } from "./admin.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -20,6 +21,7 @@ declare module "fastify" {
   interface FastifyContextConfig {
     public?: boolean;
     accountOnly?: boolean;
+    systemAdmin?: boolean;
     permission?: Permission;
   }
 }
@@ -33,10 +35,13 @@ export function registerAuthentication(
   const sessionResult = async (
     account: UserIdentity | null,
     workspaceId?: string,
+    adminMode = false,
   ) => ({
     authenticated: !!account,
     account,
-    user: account ? await directory.context(account.id, workspaceId) : null,
+    user: account
+      ? await directory.context(account.id, workspaceId, adminMode)
+      : null,
   });
   const tokenFor = (request: FastifyRequest) =>
     (request.headers.cookie || "")
@@ -96,13 +101,37 @@ export function registerAuthentication(
       request.headers["x-account-id"] || query.get("account");
     if (expectedAccount && expectedAccount !== request.account.id)
       throw new AppError("登录账号已切换，请刷新页面或重新登录", 401);
+    if (
+      path.startsWith("/api/admin/") ||
+      request.routeOptions.config.systemAdmin
+    ) {
+      if (request.account.systemRole !== "super_admin")
+        throw new AppError("仅超级管理员可访问管理台", 403);
+      return;
+    }
     if (request.routeOptions.config.accountOnly) return;
+    const asset = path.match(/^\/api\/assets\/([a-f0-9]{64})(?:\/thumbnail)?$/);
+    let assetPage: URLSearchParams | undefined;
+    if (asset && request.headers.referer) {
+      try {
+        const referer = new URL(request.headers.referer);
+        if (
+          referer.origin ===
+            new URL(`${request.protocol}://${request.host}`).origin &&
+          referer.searchParams.get("admin") === "1" &&
+          !!referer.searchParams.get("workspace")
+        )
+          assetPage = referer.searchParams;
+      } catch {
+        // An invalid or external referrer cannot establish management intent.
+      }
+    }
     let expected =
       request.headers["x-workspace-id"] ||
-      (["/api/analysis/events", "/api/workspace/events"].includes(path)
-        ? query.get("workspace")
+      (["/api/analysis/events", "/api/workspace/events"].includes(path) ||
+      path.startsWith("/api/assets/")
+        ? query.get("workspace") || assetPage?.get("workspace")
         : undefined);
-    const asset = path.match(/^\/api\/assets\/([a-f0-9]{64})(?:\/thumbnail)?$/);
     if (asset && !expected)
       expected = (
         await accounts.db.query("SELECT workspace_id FROM assets WHERE id=$1", [
@@ -111,9 +140,16 @@ export function registerAuthentication(
       ).rows[0]?.workspace_id;
     if (expected && typeof expected !== "string")
       throw new AppError("工作区参数无效");
+    const adminMode =
+      request.headers["x-admin-mode"] === "1" ||
+      query.get("admin") === "1" ||
+      !!assetPage;
+    if (adminMode && request.account.systemRole !== "super_admin")
+      throw new AppError("仅超级管理员可使用管理模式", 403);
     request.user = await directory.context(
       request.account.id,
       expected as string | undefined,
+      adminMode,
     );
     if (!request.user)
       throw new AppError(
@@ -123,7 +159,11 @@ export function registerAuthentication(
     const permission =
       request.routeOptions.config.permission ||
       (!["GET", "HEAD"].includes(request.method) ? "edit" : undefined);
-    if (permission && !can(request.user.role, permission))
+    const adminRead =
+      ["GET", "HEAD"].includes(request.method) &&
+      request.user.accessMode === "admin" &&
+      request.user.systemRole === "super_admin";
+    if (permission && !adminRead && !can(request.user, permission))
       throw new AppError(
         permission === "manage"
           ? "仅所有者可执行此操作"
@@ -143,11 +183,24 @@ export function registerAuthentication(
           "Set-Cookie",
           cookie(request, tokenFor(request)!, sessionDuration / 1000),
         );
-      const workspaceId =
-        new URL(request.url, "http://localhost").searchParams.get(
-          "workspace",
-        ) || undefined;
-      return sessionResult(account, workspaceId);
+      const sessionQuery = new URL(request.url, "http://localhost")
+        .searchParams;
+      const workspaceId = sessionQuery.get("workspace") || undefined;
+      const adminMode = sessionQuery.get("admin") === "1";
+      if (adminMode && account && account.systemRole !== "super_admin")
+        throw new AppError("仅超级管理员可使用管理模式", 403);
+      const result = await sessionResult(account, workspaceId, adminMode);
+      if (account && result.user?.accessMode === "admin")
+        await accounts.db.transaction(async (tx) => {
+          await assertSystemAdmin(tx, account.id);
+          await recordAdminAudit(tx, {
+            actorId: account.id,
+            action: "workspace.access",
+            workspaceId: result.user!.workspaceId,
+            requestId: request.id,
+          });
+        });
+      return result;
     },
   );
   const passwordSchema = { type: "string", minLength: 1, maxLength: 4096 };
@@ -312,7 +365,11 @@ export function registerAuthentication(
         account &&
         account.id === request.account?.id &&
         request.user &&
-        (await directory.context(account.id, request.user.workspaceId))
+        (await directory.context(
+          account.id,
+          request.user.workspaceId,
+          request.user.accessMode === "admin",
+        ))
       );
     },
   };

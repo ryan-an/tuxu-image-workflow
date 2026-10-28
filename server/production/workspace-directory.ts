@@ -6,6 +6,7 @@ import {
   memberIdentity,
   memberQuery,
   requireOwner,
+  adminWorkspaceAccess,
 } from "./workspace-access.js";
 
 // Workspace lifecycle and membership access; business runtimes stay in Workspaces.
@@ -16,7 +17,8 @@ export class WorkspaceDirectory {
       await this.db.query(
         `SELECT w.id,w.name,m.role,w.created_at AS createdAt,w.archived_at AS archivedAt,
       (SELECT COUNT(*) FROM workspace_members c WHERE c.workspace_id=w.id AND c.status<>'deleted') AS memberCount
-      FROM workspace w JOIN workspace_members m ON m.workspace_id=w.id WHERE m.account_id=$1 AND m.status='active'
+      FROM workspace w JOIN workspace_members m ON m.workspace_id=w.id JOIN accounts a ON a.id=m.account_id
+      WHERE m.account_id=$1 AND a.status='active' AND m.status='active' AND m.accepted_at IS NOT NULL
       AND (w.archived_at IS NULL OR m.role='owner') ORDER BY w.created_at,w.id`,
         [accountId],
       )
@@ -25,10 +27,16 @@ export class WorkspaceDirectory {
   async context(
     accountId: string,
     workspaceId?: string,
+    adminMode = false,
   ): Promise<CurrentUser | null> {
+    if (adminMode) {
+      if (!workspaceId) return null;
+      const admin = await adminWorkspaceAccess(this.db, workspaceId, accountId);
+      return admin ? memberIdentity(admin) : null;
+    }
     const row = (
       await this.db.query(
-        `${memberQuery} WHERE a.id=$1 AND a.status='active' AND m.status='active' AND w.archived_at IS NULL ${workspaceId ? "AND m.workspace_id=$2" : ""} ORDER BY CASE WHEN m.workspace_id='default' THEN 0 ELSE 1 END,m.created_at,m.workspace_id LIMIT 1`,
+        `${memberQuery} WHERE a.id=$1 AND a.status='active' AND m.status='active' AND m.accepted_at IS NOT NULL AND w.archived_at IS NULL ${workspaceId ? "AND m.workspace_id=$2" : ""} ORDER BY CASE WHEN m.workspace_id='default' THEN 0 ELSE 1 END,m.created_at,m.workspace_id LIMIT 1`,
         workspaceId ? [accountId, workspaceId] : [accountId],
       )
     ).rows[0];
@@ -114,7 +122,7 @@ export class WorkspaceDirectory {
       if (accountId === targetId) throw new AppError("请选择其他成员");
       const target = (
         await tx.query(
-          "SELECT m.account_id FROM workspace_members m JOIN accounts a ON a.id=m.account_id WHERE m.workspace_id=$1 AND m.account_id=$2 AND m.status='active' AND a.status='active'",
+          "SELECT m.account_id FROM workspace_members m JOIN accounts a ON a.id=m.account_id WHERE m.workspace_id=$1 AND m.account_id=$2 AND m.status='active' AND m.accepted_at IS NOT NULL AND a.status='active'",
           [id, targetId],
         )
       ).rows[0];

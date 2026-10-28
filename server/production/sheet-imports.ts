@@ -69,7 +69,7 @@ export function registerSheetImports(app: FastifyInstance) {
       let counts = { created: 0, updated: 0 };
       await workflows.repo.db.transaction(async (tx) => {
         await workflows.repo.lock(tx);
-        await requireMembership(tx, workspaceId, request.user!.id, "edit");
+        await requireMembership(tx, workspaceId, request.user!, "edit");
         await tx.query(
           "DELETE FROM sheet_imports WHERE workspace_id=$1 AND expires_at<$2",
           [workspaceId, Date.now()],

@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import { useState } from "react";
 import { ActionButton, ApplicationForm, useApplication } from "../context.tsx";
 import { Badge } from "../design-system/Badge";
@@ -90,7 +91,7 @@ function ProviderKeys() {
 
 export function ApiKeysDialog() {
   const { ui, isRemote, user } = useApplication();
-  if (user.role !== "owner") return null;
+  if (!can(user, "manage")) return null;
   return (
     <>
       <h2>工作区 API Key</h2>

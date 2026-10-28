@@ -89,15 +89,36 @@ test(
         .screenshot({ path: artifactPath("topbar-desktop.png") });
       await trigger.focus();
       await page.keyboard.press("ArrowDown");
+      const adminEntry = page.getByRole("button", {
+        name: "超级管理台",
+        exact: true,
+      });
       const logout = page.getByRole("button", {
         name: "退出登录",
         exact: true,
       });
       assert.equal(
+        await adminEntry.evaluate(
+          (element: Element) => element === document.activeElement,
+        ),
+        true,
+        "keyboard opening focuses the first available account action",
+      );
+      await page.keyboard.press("Tab");
+      assert.equal(
+        await page
+          .locator(".account-release-link")
+          .evaluate((element: Element) => element === document.activeElement),
+        true,
+        "the release notes link remains keyboard accessible",
+      );
+      await page.keyboard.press("Tab");
+      assert.equal(
         await logout.evaluate(
           (element: Element) => element === document.activeElement,
         ),
         true,
+        "logout remains reachable after the admin entry and release notes",
       );
       await page.screenshot({
         path: artifactPath("topbar-account-menu.png"),

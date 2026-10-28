@@ -7,6 +7,7 @@ import {
 } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { presentationAssetUrl } from "../../services/session-scope.js";
 
 const plugins = [remarkGfm];
 function AssistantCodeBlock({
@@ -64,7 +65,12 @@ function AssistantCodeBlock({
 const components: Components = {
   pre: AssistantCodeBlock,
   a: ({ node: _node, ...props }) => (
-    <a {...props} target="_blank" rel="noopener noreferrer" />
+    <a
+      {...props}
+      href={presentationAssetUrl(props.href)}
+      target="_blank"
+      rel="noopener noreferrer"
+    />
   ),
   table: ({ node: _node, ...props }) => (
     <div className="assistant-table-scroll">
@@ -72,7 +78,12 @@ const components: Components = {
     </div>
   ),
   img: ({ node: _node, ...props }) => (
-    <img {...props} loading="lazy" referrerPolicy="no-referrer" />
+    <img
+      {...props}
+      src={presentationAssetUrl(props.src)}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+    />
   ),
 };
 export const AssistantMarkdown = memo(function AssistantMarkdown({

@@ -25,6 +25,9 @@ export function WorkspaceHome({ account }: { account: UserIdentity }) {
           <span>
             {account.displayName} · @{account.username}
           </span>
+          {account.systemRole === "super_admin" && (
+            <a href="/admin">超级管理台</a>
+          )}
           {account.id !== "owner" && (
             <Button variant="secondary" onClick={() => setPasswordOpen(true)}>
               修改密码

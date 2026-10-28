@@ -1,14 +1,19 @@
 export type Role = "owner" | "editor" | "viewer";
 export type Permission = "edit" | "manage";
+export type SystemRole = "user" | "super_admin";
+export type AccessMode = "member" | "admin";
 export interface UserIdentity {
   id: string;
   username: string;
   displayName: string;
+  systemRole?: SystemRole;
 }
 export interface CurrentUser extends UserIdentity {
   workspaceId: string;
   workspaceName: string;
   role: Role;
+  accessMode?: AccessMode;
+  archivedAt?: number | null;
 }
 export interface WorkspaceSummary {
   id: string;
@@ -29,6 +34,8 @@ export interface WorkspaceInvitation {
 }
 export interface WorkspaceMember extends CurrentUser {
   status: "pending" | "active" | "disabled";
+  accountStatus?: "pending" | "active" | "disabled" | "deleted";
+  acceptedAt?: number | null;
   monthlyLimit: number | null;
   used: number;
   period: string;
@@ -41,7 +48,10 @@ export const roleLabels: Record<Role, string> = {
   editor: "编辑者",
   viewer: "查看者",
 };
-export function can(role: Role, permission: Permission) {
+export function can(subject: Role | CurrentUser, permission: Permission) {
+  if (typeof subject !== "string" && subject.accessMode === "admin")
+    return subject.systemRole === "super_admin" && subject.archivedAt == null;
+  const role = typeof subject === "string" ? subject : subject.role;
   return role === "owner" || (permission === "edit" && role === "editor");
 }
 // Viewing and downloading never change shared selections or workspace data.
@@ -67,7 +77,7 @@ const readActions = new Set([
   "view-requirements",
   "close-assistant",
 ]);
-export function actionAllowed(role: Role, action: string) {
+export function actionAllowed(role: Role | CurrentUser, action: string) {
   if (["api-keys", "clear-key", "clear-prompt-key", "restore"].includes(action))
     return can(role, "manage");
   return readActions.has(action) || can(role, "edit");

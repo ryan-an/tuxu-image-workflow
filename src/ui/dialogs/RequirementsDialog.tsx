@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import {
   useRef,
   useState,
@@ -67,7 +68,7 @@ function ToolIcon({
 
 export function RequirementsDialog({ product }: { product: Product }) {
   const { state, user, controller } = useApplication();
-  const readOnly = user.role === "viewer";
+  const readOnly = !can(user, "edit");
   const [saved, setSaved] = useState(() => ({
     text: productRequirements(product, state.common),
     before: product.promptRequirements ?? null,

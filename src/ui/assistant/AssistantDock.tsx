@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import { useEffect, useRef, useState } from "react";
 import { ActionButton, useApplication } from "../context.tsx";
 import { StatusSpinner } from "../StatusSpinner.tsx";
@@ -37,7 +38,7 @@ export function AssistantDock() {
 
 function AssistantPanel() {
   const { state, ui, controller, isRemote, user } = useApplication();
-  const canManageKeys = user.role === "owner";
+  const canManageKeys = can(user, "manage");
   const context = ui.assistant;
   const product = state.products.find((p) => p.id === context.productId);
   const task = product?.tasks.find((t) => t.id === context.taskId);

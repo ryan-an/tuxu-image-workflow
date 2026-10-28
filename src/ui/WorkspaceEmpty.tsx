@@ -1,3 +1,4 @@
+import { can } from "../../shared/access";
 import { ActionButton, useApplication } from "./context";
 import "./workspace-empty.css";
 
@@ -59,7 +60,7 @@ const steps = [
 
 export function WorkspaceEmpty({ queue = false }: { queue?: boolean }) {
   const { user } = useApplication();
-  const canEdit = user.role !== "viewer";
+  const canEdit = can(user, "edit");
   return (
     <section
       className="workspace-empty"

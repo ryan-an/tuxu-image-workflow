@@ -5,7 +5,7 @@ import { Members } from "./members.js";
 export function registerMemberRoutes(app: FastifyInstance, db: Database) {
   const config = { permission: "manage" as const };
   const members = (request: FastifyRequest) =>
-    new Members(db, request.user!.workspaceId, request.account!.id);
+    new Members(db, request.user!.workspaceId, request.user!, request.id);
   const properties = {
     displayName: { type: "string", minLength: 1, maxLength: 60 },
     role: { type: "string", enum: ["editor", "viewer"] },
@@ -18,6 +18,28 @@ export function registerMemberRoutes(app: FastifyInstance, db: Database) {
   app.get("/api/members", { config }, async (request) => ({
     members: await members(request).list(),
   }));
+  app.post<{
+    Body: { accountId: string; displayName: string; role: "editor" | "viewer" };
+  }>(
+    "/api/members/existing",
+    {
+      config,
+      bodyLimit: 2048,
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["accountId", "displayName", "role"],
+          properties: {
+            accountId: { type: "string", minLength: 1, maxLength: 100 },
+            displayName: properties.displayName,
+            role: properties.role,
+          },
+        },
+      },
+    },
+    (request) => members(request).addExisting(request.body),
+  );
   app.post(
     "/api/members",
     {

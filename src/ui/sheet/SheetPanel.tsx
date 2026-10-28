@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import { SheetPagination } from "./SheetPagination.tsx";
 import { SheetLoading } from "./SheetLoading.tsx";
 import { ActionButton, useApplication } from "../context.tsx";
@@ -7,7 +8,7 @@ import { collaboratorColor } from "../../integrations/sheet-collaboration.js";
 // Univer owns the contents of this stable host. Switching views only hides it.
 export function SheetPanel() {
   const { ui, controller, user } = useApplication();
-  const ready = user.role === "viewer" || ui.sheetStatus === "ready";
+  const ready = !can(user, "edit") || ui.sheetStatus === "ready";
   return (
     <section id="sheet-section" hidden={ui.view !== "sheet"}>
       <div className="sheet-toolbar">
@@ -147,7 +148,7 @@ export function SheetPanel() {
           </ul>
         </details>
       )}
-      {user.role === "viewer" ? (
+      {!can(user, "edit") ? (
         ui.view === "sheet" && <ReadOnlySheet />
       ) : (
         <div

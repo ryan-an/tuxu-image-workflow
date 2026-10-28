@@ -2,7 +2,7 @@
 
 适用于 Windows 10/11 x64。内置 Node.js 24、SQLite 及运行依赖，无需安装 Node.js、Docker、数据库或执行 npm install。服务器仍需联网访问豆包和 Grsai；其他局域网电脑只需浏览器。
 
-启动器和更新器使用与平台一致的浅色卡片、蓝紫按钮和状态配色，可复制访问地址、打开数据目录。界面使用开源 [AntdUI](https://github.com/AntdUI/AntdUI)（Apache-2.0），组件内嵌于 EXE，使用时无需另行下载；完整许可随包放在「第三方许可」目录。
+启动器和更新器使用与平台一致的浅色卡片、蓝紫按钮和状态配色，可复制访问地址、打开数据目录。界面使用开源 [AntdUI](https://github.com/AntdUI/AntdUI)（Apache-2.0），组件内嵌于 EXE，使用时无需另行下载；完整许可随包放在 `runtime/licenses/` 目录。
 
 ## 数据迁移约定
 

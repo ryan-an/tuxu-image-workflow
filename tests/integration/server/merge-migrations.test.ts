@@ -8,6 +8,8 @@ import {
   emptyWorkspace,
 } from "../../../server/production/repository.js";
 import { newProduct } from "../../../shared/model.js";
+import { Accounts } from "../../../server/production/accounts.js";
+import { tokenHash } from "../../../server/production/passwords.js";
 
 const checksum = (sql: string) =>
   createHash("sha256").update(sql).digest("hex");
@@ -61,6 +63,16 @@ test("015 databases discard unscoped cooldowns while preserving credentials and 
     await db.query(
       "INSERT INTO model_cooldowns VALUES('doubao','model',900000)",
     );
+    await db.query(
+      "INSERT INTO accounts(id,username,display_name,status,password_hash,created_at) VALUES('owner','admin','旧管理员','active','owner-hash',1),('preserved-member','preserved_member','旧成员','active','member-hash',2)",
+    );
+    await db.query(
+      "INSERT INTO workspace_members(workspace_id,account_id,display_name,role,status,created_at,accepted_at) VALUES('default','owner','旧管理员','owner','active',1,1),('default','preserved-member','旧成员','editor','active',2,2)",
+    );
+    await db.query(
+      "INSERT INTO account_sessions(token_hash,account_id,expires_at) VALUES($1,'preserved-member',9999999999999)",
+      [tokenHash("preserved-session")],
+    );
     await migrate(db);
     assert.equal(
       (await db.query("SELECT COUNT(*) AS count FROM model_cooldowns")).rows[0]
@@ -78,6 +90,16 @@ test("015 databases discard unscoped cooldowns while preserving credentials and 
     assert.equal(job.due_at, 900000);
     assert.equal(job.payload.rateLimitUntil, 900000);
     assert.equal(job.payload.rateLimitRetries, 1);
+    assert.deepEqual(
+      (await db.query("SELECT id,system_role FROM accounts ORDER BY id")).rows,
+      [
+        { id: "owner", system_role: "super_admin" },
+        { id: "preserved-member", system_role: "user" },
+      ],
+    );
+    const session = await new Accounts(db).session("preserved-session");
+    assert.equal(session?.id, "preserved-member");
+    assert.equal(session?.systemRole, "user");
     await repo.deferModel(db, "doubao", "model", 950000, "version-hash");
     assert.equal(
       (
@@ -146,7 +168,7 @@ for (const source of ["local-sheet-import", "remote-accounts"] as const) {
       assert.equal(
         (await db.query("SELECT count(*) AS count FROM schema_migrations"))
           .rows[0].count,
-        18,
+        19,
       );
       await db.query("SELECT * FROM accounts");
       await db.query("SELECT * FROM workspace_members");
@@ -171,7 +193,7 @@ for (const source of ["local-sheet-import", "remote-accounts"] as const) {
       assert.equal(
         (await db.query("SELECT count(*) AS count FROM schema_migrations"))
           .rows[0].count,
-        18,
+        19,
       );
       await db.query(
         "UPDATE schema_migrations SET checksum='unexpected' WHERE version='008.sql'",

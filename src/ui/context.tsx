@@ -27,7 +27,7 @@ export function ActionButton({
   const attributes = Object.fromEntries(
     Object.entries(data).map(([key, value]) => [`data-${key}`, value]),
   );
-  if (!actionAllowed(user.role, action)) return null;
+  if (!actionAllowed(user, action)) return null;
   return (
     <Button
       type="button"

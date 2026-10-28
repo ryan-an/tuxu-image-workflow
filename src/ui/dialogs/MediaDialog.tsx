@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import type { Product, ImageTask } from "../types";
 import { productPhotos } from "../../../shared/prompt-suite.js";
 import { ActionButton, useApplication } from "../context.tsx";
@@ -14,7 +15,7 @@ export function MediaDialog({
   return (
     <div id="media-uploader">
       <h2>{task ? `${task.role} · 参考图` : "产品实拍图"}</h2>
-      {user.role !== "viewer" && (
+      {can(user, "edit") && (
         <p className="modal-subtitle">
           {task
             ? "仅添加到当前图片位置，用于分析布局和文案。"
@@ -42,7 +43,7 @@ export function MediaDialog({
           </small>
         </span>
       </ActionButton>
-      {user.role !== "viewer" && (
+      {can(user, "edit") && (
         <p
           id="media-feedback"
           className={`media-feedback ${ui.mediaError ? "error-text" : ""}`}
@@ -80,7 +81,7 @@ export function MediaDialog({
         ))}
         {!sources.length && (
           <p className="empty-small">
-            {user.role === "viewer"
+            {!can(user, "edit")
               ? "暂无图片"
               : "还没有图片，点击上方区域、粘贴或拖入第一张吧。"}
           </p>
@@ -88,7 +89,7 @@ export function MediaDialog({
       </div>
       <div className="media-modal-footer">
         <small>
-          {user.role === "viewer" ? "只读查看" : "添加图片不会启动生成任务"}
+          {!can(user, "edit") ? "只读查看" : "添加图片不会启动生成任务"}
         </small>
         <ActionButton action="close-modal" variant="secondary" size="sm">
           完成

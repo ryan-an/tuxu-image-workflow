@@ -168,7 +168,9 @@ export function WorkspaceSwitcher({
               <span className="workspace-menu-info">
                 <strong>{space.name}</strong>
                 <small>
-                  {roleLabels[space.role]}
+                  {user.accessMode === "admin" && space.id === user.workspaceId
+                    ? "超级管理模式"
+                    : roleLabels[space.role]}
                   {space.memberCount ? ` · ${space.memberCount} 位成员` : ""}
                 </small>
               </span>

@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import { useState } from "react";
 import { MODELS } from "../../../shared/provider-config.js";
 import { PROMPT_MODELS } from "../../../shared/service-models.js";
@@ -19,7 +20,7 @@ function Options({ values }: { values: string[] }) {
 export function SettingsDialog() {
   const { state, ui, isRemote, user } = useApplication(),
     config = state.settings,
-    canManageWorkspace = user.role === "owner";
+    canManageWorkspace = can(user, "manage");
   const [imageModel, setImageModel] = useState(config.imageModel),
     [promptModel, setPromptModel] = useState(config.promptModel),
     [quality, setQuality] = useState(config.quality);

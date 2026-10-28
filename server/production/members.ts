@@ -4,7 +4,7 @@ import {
   requireOwner,
 } from "./workspace-access.js";
 import { randomUUID } from "node:crypto";
-import type { WorkspaceMember } from "../../shared/access.js";
+import type { CurrentUser, WorkspaceMember } from "../../shared/access.js";
 import { AppError, type Database, type Queryable } from "./types.js";
 import {
   hashPassword,
@@ -13,6 +13,7 @@ import {
   tokenHash,
 } from "./passwords.js";
 import { usagePeriod } from "./account-usage.js";
+import { assertSystemAdmin, recordAdminAudit } from "./admin.js";
 
 const inviteDuration = 7 * 24 * 3600000;
 export function validUsername(raw: string) {
@@ -26,10 +27,77 @@ export class Members {
   constructor(
     public db: Database,
     public readonly workspaceId = "default",
-    private actorId?: string,
+    private actorId?: string | CurrentUser,
+    private requestId = "internal",
   ) {}
   private async guard(tx: Queryable) {
     if (this.actorId) await requireOwner(tx, this.workspaceId, this.actorId);
+  }
+  private async audit(
+    tx: Queryable,
+    action: string,
+    targetAccountId?: string,
+    before?: Record<string, unknown>,
+    after?: Record<string, unknown>,
+  ) {
+    if (typeof this.actorId !== "object" || this.actorId.accessMode !== "admin")
+      return;
+    await recordAdminAudit(tx, {
+      actorId: this.actorId.id,
+      action,
+      workspaceId: this.workspaceId,
+      targetAccountId,
+      requestId: this.requestId,
+      before,
+      after,
+    });
+  }
+  async addExisting(input: {
+    accountId: string;
+    displayName: string;
+    role: "editor" | "viewer";
+  }) {
+    const name = input.displayName.trim();
+    if (!name || name.length > 60) throw new AppError("成员名称须为 1～60 字");
+    return this.db.transaction(async (tx) => {
+      await this.guard(tx);
+      if (
+        typeof this.actorId !== "object" ||
+        this.actorId.accessMode !== "admin"
+      )
+        throw new AppError("仅超级管理模式可直接添加有效账号", 403);
+      await assertSystemAdmin(tx, this.actorId.id);
+      const account = (
+        await tx.query(
+          "SELECT id FROM accounts WHERE id=$1 AND status='active'",
+          [input.accountId],
+        )
+      ).rows[0];
+      if (!account) throw new AppError("请选择有效账号", 409);
+      const previous = (
+        await tx.query(
+          "SELECT role,status FROM workspace_members WHERE workspace_id=$1 AND account_id=$2",
+          [this.workspaceId, input.accountId],
+        )
+      ).rows[0];
+      if (previous && previous.status !== "deleted")
+        throw new AppError("该账号已是本工作区成员", 409);
+      const now = Date.now();
+      await tx.query(
+        "INSERT INTO workspace_members(workspace_id,account_id,display_name,role,status,monthly_limit,created_at,accepted_at) VALUES($1,$2,$3,$4,'active',NULL,$5,$5) ON CONFLICT(workspace_id,account_id) DO UPDATE SET display_name=excluded.display_name,role=excluded.role,status='active',monthly_limit=NULL,created_at=excluded.created_at,accepted_at=excluded.accepted_at",
+        [this.workspaceId, input.accountId, name, input.role, now],
+      );
+      await tx.query(
+        "DELETE FROM workspace_invitations WHERE workspace_id=$1 AND account_id=$2",
+        [this.workspaceId, input.accountId],
+      );
+      await this.audit(tx, "member.add", input.accountId, undefined, {
+        displayName: name,
+        role: input.role,
+        status: "active",
+      });
+      return { id: input.accountId };
+    });
   }
   async list(): Promise<WorkspaceMember[]> {
     const period = usagePeriod();
@@ -52,6 +120,8 @@ export class Members {
     return rows.map((row) => ({
       ...memberIdentity(row),
       status: row.member_status,
+      accountStatus: row.status,
+      acceptedAt: row.accepted_at,
       monthlyLimit: row.monthly_limit,
       used: usageByAccount.get(row.id) || 0,
       period,
@@ -135,6 +205,18 @@ export class Members {
             Date.now(),
           ],
         );
+      await this.audit(
+        tx,
+        active ? "member.create" : "invitation.create",
+        account.id,
+        undefined,
+        {
+          username,
+          displayName: name,
+          role: input.role,
+          status: active ? "active" : "pending",
+        },
+      );
       return { id: account.id, ...(active ? {} : { token, expiresAt }) };
     });
   }
@@ -177,6 +259,23 @@ export class Members {
           "UPDATE workspace_invitations SET role=$3 WHERE workspace_id=$1 AND account_id=$2",
           [this.workspaceId, id, input.role],
         );
+      await this.audit(
+        tx,
+        "member.update",
+        id,
+        {
+          displayName: row.member_name,
+          role: row.role,
+          status: row.member_status,
+          monthlyLimit: row.monthly_limit,
+        },
+        {
+          displayName: input.displayName.trim(),
+          role: input.role,
+          enabled: input.enabled,
+          monthlyLimit: input.monthlyLimit,
+        },
+      );
     });
   }
   private async member(tx: Queryable, id: string) {
@@ -198,6 +297,8 @@ export class Members {
       await this.guard(tx);
       if (id) {
         const row = await this.member(tx, id);
+        if (row.status === "disabled" || row.status === "deleted")
+          throw new AppError("请先启用账号，再发送邀请", 409);
         if (row.member_status !== "pending")
           throw new AppError(
             "仅待加入成员可以重新邀请；个人密码由本人管理",
@@ -221,6 +322,10 @@ export class Members {
           Date.now(),
         ],
       );
+      await this.audit(tx, "invitation.create", id, undefined, {
+        role,
+        expiresAt,
+      });
     });
     return { id: invitationId, token, expiresAt };
   }
@@ -239,15 +344,27 @@ export class Members {
         "DELETE FROM workspace_invitations WHERE workspace_id=$1 AND id=$2",
         [this.workspaceId, id],
       );
+      await this.audit(tx, "invitation.revoke");
     });
   }
   async remove(id: string) {
     await this.db.transaction(async (tx) => {
       await this.guard(tx);
-      await this.member(tx, id);
+      const before = await this.member(tx, id);
       await tx.query(
         "UPDATE workspace_members SET status='deleted' WHERE workspace_id=$1 AND account_id=$2",
         [this.workspaceId, id],
+      );
+      await this.audit(
+        tx,
+        "member.remove",
+        id,
+        {
+          displayName: before.member_name,
+          role: before.role,
+          status: before.member_status,
+        },
+        { status: "deleted" },
       );
       await tx.query(
         "DELETE FROM workspace_invitations WHERE workspace_id=$1 AND account_id=$2",

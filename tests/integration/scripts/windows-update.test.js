@@ -25,6 +25,9 @@ test("Windows updater preserves data and configuration, rejects live programs, a
   });
   assert.equal(extraction.status, 0, extraction.stderr);
   const root = join(destination, basename(archive, ".zip"));
+  const legacyLicenses = join(root, "第三方许可");
+  await assert.rejects(access(legacyLicenses), { code: "ENOENT" });
+  await access(join(root, "runtime/licenses/AntdUI-Apache-2.0.txt"));
   const node = join(root, "runtime/node.exe");
   const manifestPath = join(root, "manifest.json");
   const next = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -86,6 +89,9 @@ test("Windows updater preserves data and configuration, rejects live programs, a
   }
   await sameData();
 
+  // Older installations may still have the former notice directory.
+  await mkdir(legacyLicenses);
+  await writeFile(join(legacyLicenses, "old-notice.txt"), "legacy component notice");
   // Lock a late program entry so earlier directory moves must be rolled back.
   const oldSnapshots = [];
   for (let index = 0; index < 3; index++) {
@@ -116,6 +122,7 @@ test("Windows updater preserves data and configuration, rejects live programs, a
     assert.match(failed.stderr, /使用说明.txt/);
     assert.deepEqual(JSON.parse(await readFile(manifestPath, "utf8")), previous);
     assert.equal(await readFile(join(root, "dist/obsolete-chunk.js"), "utf8"), "old program file");
+    assert.equal(await readFile(join(legacyLicenses, "old-notice.txt"), "utf8"), "legacy component notice");
     for (const path of oldSnapshots) await access(path);
   } finally {
     locker.stdin.end("\n");
@@ -127,6 +134,8 @@ test("Windows updater preserves data and configuration, rejects live programs, a
   assert.equal(updated.status, 0, updated.stderr + updated.stdout);
   assert.equal(JSON.parse(await readFile(manifestPath, "utf8")).buildId, next.buildId);
   await assert.rejects(access(join(root, "dist/obsolete-chunk.js")));
+  await assert.rejects(access(legacyLicenses), { code: "ENOENT" });
+  await access(join(root, "runtime/licenses/AntdUI-Apache-2.0.txt"));
   await sameData();
   const backups = await readdir(join(root, "data/backups"));
   assert.equal(backups.length, 4, "Two successful backups plus the protected failed and recovery snapshots");
@@ -144,10 +153,19 @@ test("Windows updater preserves data and configuration, rejects live programs, a
   assert.equal(await readFile(join(complete, ".env"), "utf8"), env);
   assert.equal(createHash("sha256").update(await readFile(join(complete, "data/workspace.sqlite"))).digest("hex"), dataHash);
   assert.equal(await readFile(join(complete, "program/dist/obsolete-chunk.js"), "utf8"), "old program file");
+  assert.equal(await readFile(join(complete, "program/第三方许可/old-notice.txt"), "utf8"), "legacy component notice");
   await assert.rejects(access(join(complete, "data/backups")));
   const repeated = run();
   assert.notEqual(repeated.status, 0);
   assert.match(repeated.stderr, /无需重复更新/);
+  await sameData();
+  // Updating an installation without the legacy directory must also succeed.
+  await writeFile(manifestPath, JSON.stringify(previous));
+  const withoutLegacy = run();
+  assert.equal(withoutLegacy.status, 0, withoutLegacy.stderr + withoutLegacy.stdout);
+  assert.equal(JSON.parse(await readFile(manifestPath, "utf8")).buildId, next.buildId);
+  await assert.rejects(access(legacyLicenses), { code: "ENOENT" });
+  await access(join(root, "runtime/licenses/AntdUI-Apache-2.0.txt"));
   await sameData();
   await writeFile(artifactPath(`windows-update/${basename(destination)}/update-output.log`), updated.stdout);
 });

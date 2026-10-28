@@ -18,7 +18,7 @@
 
 手动快照位于 `data/backups/manual-时间-标识/`，包含 `data/`、原 `.env` 和状态文件 `update.json`，不复制程序文件。状态记录当前安装的版本、构建标识及 `kind: manual`。备份和更新期间请保持窗口打开，等待完成后再启动图序。
 
-更新只替换程序目录中的 `dist`、`build-server`、`node_modules`、`runtime`、`scripts`、启动入口、图标、程序元信息和附带说明，同时收起旧版根目录的「第三方许可」目录。组件声明统一放在 `runtime/licenses/`，仅适用于所列第三方组件，不表示图序自有代码开源。`data/` 与原 `.env` 留在原位置，其他自行添加的根目录文件也保留。`CREDENTIAL_SECRET` 不会重新生成。
+更新只替换程序目录中的 `dist`、`build-server`、`node_modules`、`runtime`、`scripts`、启动入口、图标、程序元信息和附带说明。旧版根目录的「第三方许可」目录仅在存在时收进程序备份，不要求原程序或更新包包含此目录；替换失败时会一并恢复。组件声明统一放在 `runtime/licenses/`，仅适用于所列第三方组件，不表示图序自有代码开源。`data/` 与原 `.env` 留在原位置，其他自行添加的根目录文件也保留。`CREDENTIAL_SECRET` 不会重新生成。
 
 更新前，工具会在 `data/backups/update-时间-标识/` 保存：
 

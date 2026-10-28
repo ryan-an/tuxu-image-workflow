@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import { hasSelectedVersion } from "../../../shared/model.js";
 import {
   productPhotos,
@@ -56,9 +57,9 @@ export function Workbench() {
           </p>
         </div>
         <ActionButton
-          action={user.role === "viewer" ? "view-product" : "edit-product"}
+          action={!can(user, "edit") ? "view-product" : "edit-product"}
         >
-          {user.role === "viewer" ? "查看产品" : "编辑产品"}
+          {!can(user, "edit") ? "查看产品" : "编辑产品"}
         </ActionButton>
       </div>
       <div className="product-context">
@@ -159,10 +160,10 @@ export function Workbench() {
               <ActionButton
                 className="requirements-edit"
                 action={
-                  user.role === "viewer" ? "view-requirements" : "common-prompt"
+                  !can(user, "edit") ? "view-requirements" : "common-prompt"
                 }
               >
-                {user.role === "viewer" ? "查看要求" : "编辑要求"}
+                {!can(user, "edit") ? "查看要求" : "编辑要求"}
               </ActionButton>
               <SuitePromptButton key={product.id} primary />
             </div>
@@ -220,7 +221,7 @@ export function BatchBar() {
   const { state, ui, user } = useApplication(),
     product = currentProduct(state),
     count =
-      user.role === "viewer"
+      !can(user, "edit")
         ? product?.tasks.reduce(
             (n, t) => n + (ui.downloadSelections[t.id] || t.selectedIds).length,
             0,

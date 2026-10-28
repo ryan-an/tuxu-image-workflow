@@ -1,3 +1,4 @@
+import { can } from "../../shared/access";
 import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { roleLabels } from "../../shared/access";
@@ -176,21 +177,19 @@ export function TopBar({ onLogout }: { onLogout?: () => Promise<void> }) {
           <span
             id="save-status"
             role="status"
-            aria-label={user.role === "viewer" ? "只读访问" : ui.saveStatus}
-            title={
-              user.role === "viewer" ? "当前工作区为只读访问" : ui.saveStatus
-            }
+            aria-label={!can(user, "edit") ? "只读访问" : ui.saveStatus}
+            title={!can(user, "edit") ? "当前工作区为只读访问" : ui.saveStatus}
           >
-            {user.role === "viewer" ? (
+            {!can(user, "edit") ? (
               <Icon name="eye" />
             ) : saved ? (
               <i className="save-status-dot" aria-hidden="true" />
             ) : (
               <Icon name="retry" />
             )}
-            <span>{user.role === "viewer" ? "只读访问" : ui.saveStatus}</span>
+            <span>{!can(user, "edit") ? "只读访问" : ui.saveStatus}</span>
           </span>
-          {saveFailed && user.role !== "viewer" && (
+          {saveFailed && can(user, "edit") && (
             <ActionButton
               id="retry-save"
               action="save"
@@ -228,7 +227,7 @@ export function TopBar({ onLogout }: { onLogout?: () => Promise<void> }) {
               </ActionButton>
             </>
           )}
-          {user.role === "owner" && (
+          {can(user, "manage") && (
             <ActionButton
               action="view"
               data={{ view: "members" }}
@@ -250,7 +249,7 @@ export function TopBar({ onLogout }: { onLogout?: () => Promise<void> }) {
           size="sm"
           aria-label="模型配置"
           title={
-            user.role === "owner"
+            can(user, "manage")
               ? "工作区服务配置与我的生图参数"
               : "仅用于你在当前工作区发起的生图任务"
           }
@@ -285,7 +284,7 @@ export function TopBar({ onLogout }: { onLogout?: () => Promise<void> }) {
             className="current-account"
             variant="ghost"
             aria-label="账号菜单"
-            title={`${user.displayName} · ${roleLabels[user.role]}`}
+            title={`${user.displayName} · ${user.accessMode === "admin" ? "超级管理员" : roleLabels[user.role]}`}
             aria-expanded={accountOpen}
             aria-controls={accountId}
             popoverTarget={accountId}
@@ -308,7 +307,11 @@ export function TopBar({ onLogout }: { onLogout?: () => Promise<void> }) {
               <span className="account-name" title={user.displayName}>
                 {user.displayName}
               </span>
-              <span className="account-role">{roleLabels[user.role]}</span>
+              <span className="account-role">
+                {user.accessMode === "admin"
+                  ? "超级管理员"
+                  : roleLabels[user.role]}
+              </span>
             </span>
             <Icon name="chevron" />
           </Button>
@@ -329,8 +332,33 @@ export function TopBar({ onLogout }: { onLogout?: () => Promise<void> }) {
             <div className="account-popover-heading">
               <strong>{user.displayName}</strong>
               <span title={user.username}>@{user.username}</span>
-              <Badge tone="neutral">{roleLabels[user.role]}</Badge>
+              <Badge tone="neutral">
+                {user.accessMode === "admin"
+                  ? "超级管理员"
+                  : roleLabels[user.role]}
+              </Badge>
             </div>
+            {user.systemRole === "super_admin" && (
+              <Button
+                variant="ghost"
+                onClick={async () => {
+                  closeAccount();
+                  try {
+                    await controller.flush();
+                    window.location.assign("/admin");
+                  } catch (error) {
+                    setLogoutError(
+                      error instanceof Error
+                        ? error.message
+                        : "保存失败，请重试",
+                    );
+                  }
+                }}
+              >
+                <Icon name="workspaces" />
+                超级管理台
+              </Button>
+            )}
             {user.id !== "owner" && (
               <Button
                 variant="ghost"

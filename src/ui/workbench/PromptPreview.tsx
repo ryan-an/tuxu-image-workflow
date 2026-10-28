@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import { useEffect, useRef, useState } from "react";
 import { ActionButton, useApplication } from "../context.tsx";
 export function PromptPreview({
@@ -28,7 +29,7 @@ export function PromptPreview({
   analysisProgress?: { label: string };
 }) {
   const { controller, user } = useApplication();
-  const canEdit = user.role !== "viewer";
+  const canEdit = can(user, "edit");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);

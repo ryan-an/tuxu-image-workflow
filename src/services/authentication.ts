@@ -56,10 +56,11 @@ async function authRequest(path: string, body?: object) {
   return data as Session;
 }
 
-export async function getSession(workspaceId?: string) {
-  return authRequest(
-    `session${workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : ""}`,
-  );
+export async function getSession(workspaceId?: string, adminMode = false) {
+  const query = new URLSearchParams();
+  if (workspaceId) query.set("workspace", workspaceId);
+  if (adminMode) query.set("admin", "1");
+  return authRequest(`session${query.size ? `?${query}` : ""}`);
 }
 export async function login(username: string, password: string) {
   return authRequest("login", { username, password });

@@ -1,4 +1,6 @@
+import { can } from "../../shared/access";
 import { TopBar } from "./TopBar";
+import { Button } from "./design-system/Button";
 import { WorkspaceLoading } from "./WorkspaceLoading";
 import type { ApplicationController } from "./types";
 import type { ReactNode } from "react";
@@ -18,6 +20,7 @@ import { WorkspaceManager } from "./workspaces/WorkspaceManager";
 import { CreateWorkspaceDialog } from "./workspaces/CreateWorkspaceDialog";
 import { useWorkspaces } from "../application/use-workspaces";
 import { openWorkspace } from "../services/workspaces";
+import "./admin/admin.css";
 
 export function Application({
   controller,
@@ -68,6 +71,33 @@ export function Application({
           onCreateWorkspace={() => setCreatingWorkspace(true)}
         />
         <div className="app-main">
+          {user.accessMode === "admin" && (
+            <div
+              className="admin-mode-banner"
+              role="region"
+              aria-label="超级管理模式"
+            >
+              <div>
+                <strong>超级管理模式</strong>
+                <span>
+                  · {workspaceUser.workspaceName} · 操作者：{user.username}
+                  {user.archivedAt != null ? " · 归档只读" : ""}
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  await controller.flush();
+                  window.location.assign(
+                    `/admin?workspace=${encodeURIComponent(user.workspaceId)}`,
+                  );
+                }}
+              >
+                返回管理台
+              </Button>
+            </div>
+          )}
           <TopBar onLogout={onLogout} />
           <main id="content">
             <section
@@ -84,7 +114,7 @@ export function Application({
               </div>
             </section>
             <SheetPanel />
-            {snapshot.ui.view === "members" && user.role === "owner" && (
+            {snapshot.ui.view === "members" && can(user, "manage") && (
               <MembersPage />
             )}
             {snapshot.ui.view === "workspaces" && (
@@ -125,7 +155,7 @@ export function Application({
           onCreated={(id) => openWorkspace(id)}
         />
       )}
-      {user.role !== "viewer" && <AssistantDock />}
+      {can(user, "edit") && <AssistantDock />}
       <input
         type="file"
         accept="image/*"

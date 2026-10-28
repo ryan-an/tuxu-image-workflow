@@ -35,7 +35,7 @@ export function QueueManager({
       document.removeEventListener("scroll", close, true);
     };
   }, [open]);
-  if (!can(user.role, "edit")) return null;
+  if (!can(user, "edit")) return null;
   function positionPanel() {
     const rect = trigger.current!.getBoundingClientRect();
     const width = Math.min(256, window.innerWidth - 24);

@@ -96,7 +96,19 @@ export function registerTransportSecurity(
   );
   app.addHook("onRequest", async (request, reply) => {
     reply.header("X-Content-Type-Options", "nosniff");
-    reply.header("Referrer-Policy", "no-referrer");
+    const navigation = new URL(request.url, "http://localhost");
+    // Native images cannot attach workspace headers. Only the management
+    // document sends its explicit scope back to this same origin; no referrer
+    // is sent to external sites, and normal pages retain their existing policy.
+    const managementDocument =
+      ["GET", "HEAD"].includes(request.method) &&
+      navigation.pathname === "/" &&
+      navigation.searchParams.get("admin") === "1" &&
+      !!navigation.searchParams.get("workspace");
+    reply.header(
+      "Referrer-Policy",
+      managementDocument ? "same-origin" : "no-referrer",
+    );
     if (request.protocol === "https") {
       if (!isLoopbackHostname(request.hostname))
         reply.header(

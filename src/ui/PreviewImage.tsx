@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ImgHTMLAttributes } from "react";
+import { presentationAssetUrl } from "../services/session-scope.js";
 
 type PreviewImageProps = Omit<
   ImgHTMLAttributes<HTMLImageElement>,
@@ -8,9 +9,9 @@ type PreviewImageProps = Omit<
 // Only presentation URLs change. Stored sources, full-size viewers and exports
 // continue to use the original asset.
 export function PreviewImage({ src, style, ...props }: PreviewImageProps) {
-  const source = /^\/api\/assets\/[a-f0-9]{64}$/.test(src)
-    ? `${src}/thumbnail`
-    : src;
+  const source = presentationAssetUrl(
+    /^\/api\/assets\/[a-f0-9]{64}$/.test(src) ? `${src}/thumbnail` : src,
+  );
   const image = useRef<HTMLImageElement>(null);
   const [requested, setRequested] = useState<string>();
   useEffect(() => {

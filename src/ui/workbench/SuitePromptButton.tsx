@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import { ActionButton, useApplication } from "../context.tsx";
 import { currentProduct } from "../selectors";
 import { useRef, useState } from "react";
@@ -53,7 +54,7 @@ export function SuitePromptButton({
       ["queued", "running"].includes(job.status),
   );
   const interrupted = analyses.find((job) => job.status === "interrupted");
-  if (user.role === "viewer") return null;
+  if (!can(user, "edit")) return null;
   return (
     <div className="suite-action-control">
       <ActionButton

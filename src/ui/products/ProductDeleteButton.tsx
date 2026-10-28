@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import { useId, useRef, useState } from "react";
 import { Button } from "../design-system/Button";
 import { useApplication } from "../context";
@@ -17,7 +18,7 @@ export function ProductDeleteButton({ product }: { product: Product }) {
     popover.current?.hidePopover();
     trigger.current?.focus();
   };
-  if (user.role === "viewer") return null;
+  if (!can(user, "edit")) return null;
   return (
     <>
       <button

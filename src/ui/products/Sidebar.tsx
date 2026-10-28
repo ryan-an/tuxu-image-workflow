@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import { useEffect, useRef, useState } from "react";
 import { productPage } from "../../view-models/product-page.js";
 import { ProductPagination } from "./ProductPagination.tsx";
@@ -293,7 +294,7 @@ export function Sidebar({
               <small>
                 {ui.search.trim()
                   ? "试试其他编号或名称"
-                  : user.role === "viewer"
+                  : !can(user, "edit")
                     ? "成员添加产品后，将在这里展示"
                     : "为你的创作建立第一个产品档案"}
               </small>

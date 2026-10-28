@@ -24,6 +24,7 @@ import { normalizePromptTemplates } from "../../shared/prompt-templates.js";
 import type { CurrentUser } from "../../shared/access.js";
 import { assertImageQuota } from "./account-usage.js";
 import { requireMembership } from "./workspace-access.js";
+import { recordAdminAudit } from "./admin.js";
 import type { Permission } from "../../shared/access.js";
 import { ROLES, newProduct, savePrompt } from "../../shared/model.js";
 import {
@@ -158,7 +159,11 @@ export class Workflows {
       hasPromptKey: !!row.prompt_credential,
     };
   }
-  async updateSettings(input: Record<string, any>, actor?: CurrentUser) {
+  async updateSettings(
+    input: Record<string, any>,
+    actor?: CurrentUser,
+    requestId = "internal",
+  ) {
     return this.repo.db.transaction(async (tx) => {
       const row = await this.repo.lock(tx),
         state = await this.repo.view(tx);
@@ -167,7 +172,7 @@ export class Workflows {
         await requireMembership(
           tx,
           this.repo.workspaceId,
-          actor.id,
+          actor,
           [
             "apiKey",
             "promptApiKey",
@@ -186,6 +191,11 @@ export class Workflows {
             state.settings,
           )
         : generationDefaults(state.settings);
+      const beforeSettings = {
+        ...settings,
+        hasKey: !!row.credential,
+        hasPromptKey: !!row.prompt_credential,
+      };
       for (const key of Object.keys(input))
         if (
           ![
@@ -206,7 +216,7 @@ export class Workflows {
             throw new AppError("无效模型设置");
           settings[key] = input[key];
         }
-      baseUrl(settings.baseUrl);
+      settings.baseUrl = baseUrl(settings.baseUrl);
       if (
         !MODELS.includes(settings.imageModel) ||
         settings.promptProvider !== "doubao" ||
@@ -269,6 +279,31 @@ export class Workflows {
         "UPDATE workspace SET credential=$2,prompt_credential=$3 WHERE id=$1",
         [this.repo.workspaceId, credential, promptCredential],
       );
+      if (actor?.accessMode === "admin") {
+        const afterSettings = {
+          ...settings,
+          hasKey: !!credential,
+          hasPromptKey: !!promptCredential,
+        };
+        // Credential values never enter audit records; replacement and clear
+        // operations retain only configuration state.
+        const credentialsChanged = [
+          "apiKey",
+          "promptApiKey",
+          "clearKey",
+          "clearPromptKey",
+        ].some((key) => Object.hasOwn(input, key));
+        await recordAdminAudit(tx, {
+          actorId: actor.id,
+          action: credentialsChanged
+            ? "workspace.credentials.update"
+            : "workspace.settings.update",
+          workspaceId: this.repo.workspaceId,
+          requestId,
+          before: beforeSettings,
+          after: afterSettings,
+        });
+      }
       return {
         ...settings,
         hasKey: !!credential,
@@ -304,7 +339,7 @@ export class Workflows {
       const row = await this.repo.lock(tx);
       if (row.archived_at !== null) throw new AppError("工作区已归档", 409);
       if (actor)
-        await requireMembership(tx, this.repo.workspaceId, actor.id, "edit");
+        await requireMembership(tx, this.repo.workspaceId, actor, "edit");
       const state = await this.repo.view(tx);
       const before = structuredClone(state);
       const product = state.products.find((p) => p.id === id);
@@ -358,7 +393,12 @@ export class Workflows {
     }
     return result;
   }
-  async edit(raw: any[], actor?: CurrentUser, delta = false) {
+  async edit(
+    raw: any[],
+    actor?: CurrentUser,
+    delta = false,
+    requestId = "internal",
+  ) {
     const edits = await this.assets.normalize(raw);
     const ids = [
       ...new Set<string>(
@@ -383,7 +423,7 @@ export class Workflows {
           await requireMembership(
             tx,
             this.repo.workspaceId,
-            actor.id,
+            actor,
             raw.some((edit) => CONCURRENCY_FIELDS.includes(edit.path?.[0]))
               ? "manage"
               : "edit",
@@ -579,6 +619,22 @@ export class Workflows {
             document[key] = projection[key];
         }
         Object.assign(state, document);
+        if (
+          actor?.accessMode === "admin" &&
+          CONCURRENCY_FIELDS.some((key) => Object.hasOwn(document, key))
+        )
+          await recordAdminAudit(tx, {
+            actorId: actor.id,
+            action: "workspace.concurrency.update",
+            workspaceId: this.repo.workspaceId,
+            requestId,
+            before: Object.fromEntries(
+              CONCURRENCY_FIELDS.map((key) => [key, before[key]]),
+            ),
+            after: Object.fromEntries(
+              CONCURRENCY_FIELDS.map((key) => [key, state[key]]),
+            ),
+          });
         await recordWorkspaceActivity(
           tx,
           this.repo.workspaceId,
@@ -629,12 +685,7 @@ export class Workflows {
       if (workspace.archived_at !== null)
         throw new AppError("工作区已归档", 409);
       if (actor)
-        await requireMembership(
-          tx,
-          this.repo.workspaceId,
-          actor.id,
-          permission,
-        );
+        await requireMembership(tx, this.repo.workspaceId, actor, permission);
       const old = (
         await tx.query(
           "SELECT * FROM commands WHERE id=$1 AND workspace_id=$2",
@@ -748,6 +799,8 @@ export class Workflows {
                     id: actor.id,
                     username: actor.username,
                     displayName: actor.displayName,
+                    systemRole: actor.systemRole,
+                    accessMode: actor.accessMode,
                   },
                 }
               : {}),
@@ -805,7 +858,7 @@ export class Workflows {
           }
         }
         if (actor && imageCount)
-          await assertImageQuota(tx, actor.id, this.repo.workspaceId);
+          await assertImageQuota(tx, actor, this.repo.workspaceId);
         return { count };
       },
       actor,
@@ -918,6 +971,8 @@ export class Workflows {
               id: actor.id,
               username: actor.username,
               displayName: actor.displayName,
+              systemRole: actor.systemRole,
+              accessMode: actor.accessMode,
             };
           job.status = "queued";
           job.error = "";
@@ -949,7 +1004,7 @@ export class Workflows {
               await this.repo.saveJob(tx, child);
             }
           if (actor && imageJobs)
-            await assertImageQuota(tx, actor.id, this.repo.workspaceId);
+            await assertImageQuota(tx, actor, this.repo.workspaceId);
         } else throw new AppError("无效任务操作");
         return { ok: true };
       },

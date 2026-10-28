@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import { useJobHistory } from "../../application/use-job-history";
 import { useQueueProgress } from "../../application/use-queue-progress";
 import { useEffect, useState } from "react";
@@ -291,7 +292,7 @@ export function QueueDashboard() {
     ? (summary.generated / summary.slots) * 100
     : 0;
   const canDownload =
-    user.role === "viewer"
+    !can(user, "edit")
       ? state.products.some((product) =>
           product.tasks.some(
             (task) =>

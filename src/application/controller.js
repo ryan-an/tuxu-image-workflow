@@ -30,7 +30,7 @@ export function createApplicationController(
   },
   { initialView = "workbench" } = {},
 ) {
-  setSessionWorkspace(user.workspaceId, user.id);
+  setSessionWorkspace(user.workspaceId, user.id, user.accessMode === "admin");
   const store = createStateStore(),
     { ui, publish, notify, showModal, closeModal } = store;
   ui.view = initialView;
@@ -102,8 +102,8 @@ export function createApplicationController(
       }
     };
   const context = {
-    canEdit: can(user.role, "edit"),
-    canManage: can(user.role, "manage"),
+    canEdit: can(user, "edit"),
+    canManage: can(user, "manage"),
     user,
     ...store,
     get state() {
@@ -279,7 +279,7 @@ export function createApplicationController(
       }
     },
     dispatch: safe(async (action, data) => {
-      if (!actionAllowed(user.role, action))
+      if (!actionAllowed(user, action))
         throw new Error("当前账号没有此操作权限");
       if (["open-product", "queue-open-product"].includes(action)) {
         failedProduct = null;

@@ -20,8 +20,10 @@ internal static class Updater
     // Only these program entries can be replaced. User files, data and .env stay put.
     private static readonly string[] ProgramEntries = {
         "dist", "build-server", "node_modules", "runtime", "scripts", "图序.exe", "图序.ico",
-        "启动图序.cmd", "放行局域网.cmd", "使用说明.txt", "数据迁移说明.md", "更新说明.md", "第三方许可", "package.json", "manifest.json"
+        "启动图序.cmd", "放行局域网.cmd", "使用说明.txt", "数据迁移说明.md", "更新说明.md", "package.json", "manifest.json"
     };
+    // Older installations kept these notices at the root; new payloads use runtime/licenses.
+    private const string LegacyLicenseDirectory = "第三方许可";
     private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
     private static bool headless;
     internal static Action<int, string> Progress;
@@ -116,6 +118,8 @@ internal static class Updater
                 string path = Path.Combine(target, name);
                 if (File.Exists(path) || Directory.Exists(path)) RejectLink(path);
             }
+            string legacyLicensePath = Path.Combine(target, LegacyLicenseDirectory);
+            if (File.Exists(legacyLicensePath) || Directory.Exists(legacyLicensePath)) RejectLink(legacyLicensePath);
             try
             {
                 Report(1, "检查并释放更新文件…");
@@ -136,6 +140,11 @@ internal static class Updater
                 var installed = new List<string>();
                 try
                 {
+                    if (File.Exists(legacyLicensePath) || Directory.Exists(legacyLicensePath))
+                    {
+                        Move(legacyLicensePath, Path.Combine(programBackup, LegacyLicenseDirectory));
+                        saved.Add(LegacyLicenseDirectory);
+                    }
                     foreach (string name in ProgramEntries)
                     {
                         string path = Path.Combine(target, name);

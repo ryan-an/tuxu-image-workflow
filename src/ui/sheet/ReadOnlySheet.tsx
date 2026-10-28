@@ -1,6 +1,7 @@
 import { productPage } from "../../view-models/product-page.js";
 import { useApplication } from "../context";
 import { PreviewImage } from "../PreviewImage";
+import { presentationAssetUrl } from "../../services/session-scope.js";
 export function ReadOnlySheet() {
   const { state, ui } = useApplication();
   const { products } = productPage(state, ui);
@@ -37,7 +38,7 @@ export function ReadOnlySheet() {
                     {task.references.map((source, index) => (
                       <a
                         key={index}
-                        href={source}
+                        href={presentationAssetUrl(source)}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -55,7 +56,11 @@ export function ReadOnlySheet() {
                   </td>
                   <td>
                     {version ? (
-                      <a href={version.source} target="_blank" rel="noreferrer">
+                      <a
+                        href={presentationAssetUrl(version.source)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
                         <PreviewImage
                           src={version.source}
                           alt={`结果 V${version.number}`}

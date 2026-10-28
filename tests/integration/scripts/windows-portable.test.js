@@ -79,7 +79,8 @@ test("Windows portable ZIP boots using only its own runtime and preserves login 
     assert.equal(connection.origin, origin);
     for (const entry of Object.values(networkInterfaces()).flat().filter((item) => item.family === "IPv4" && !item.internal))
       assert.ok(connection.addresses.split("\n").includes(`http://${entry.address}:${port}`), "The desktop UI receives every LAN candidate address");
-    await access(join(root, "第三方许可/AntdUI-Apache-2.0.txt"));
+    await assert.rejects(access(join(root, "第三方许可")), { code: "ENOENT" });
+    await access(join(root, "runtime/licenses/AntdUI-Apache-2.0.txt"));
     assert.match(await (await fetch(origin)).text(), /href="\/tuxu.svg"/);
     const favicon = await fetch(`${origin}/tuxu.ico`);
     assert.equal(favicon.status, 200);

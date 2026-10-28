@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import type { ImageTask, ImageVersion } from "../types";
 import { useState } from "react";
 import { chosen, taskStatusInfo } from "../../../shared/model.js";
@@ -26,7 +27,7 @@ export function VersionSelection({
       data-action="select-version"
       data-task={task.id}
       data-version={version.id}
-      checked={(user.role === "viewer"
+      checked={(!can(user, "edit")
         ? ui.downloadSelections[task.id] || task.selectedIds
         : task.selectedIds
       ).includes(version.id)}
@@ -50,10 +51,10 @@ function VersionHistory({ task }: { task: ImageTask }) {
         >
           <ActionButton
             className="version-image"
-            action={user.role === "viewer" ? "view-version" : "choose-version"}
+            action={!can(user, "edit") ? "view-version" : "choose-version"}
             data={{ task: task.id, version: v.id }}
             aria-pressed={v.id === task.primaryId}
-            title={`${user.role === "viewer" ? "查看" : "点击选用"} V${v.number} · ${v.origin === "demo" ? "演示图片" : formatTime(v.createdAt)}`}
+            title={`${!can(user, "edit") ? "查看" : "点击选用"} V${v.number} · ${v.origin === "demo" ? "演示图片" : formatTime(v.createdAt)}`}
           >
             <PreviewImage
               src={v.source}
@@ -121,12 +122,12 @@ export function TaskCard({ task }: { task: ImageTask }) {
           </ActionButton>
           <ActionButton
             className={`prompt-button ${task.prompt ? "has-prompt" : ""}`}
-            action={user.role === "viewer" ? "prompt-history" : "edit-prompt"}
+            action={!can(user, "edit") ? "prompt-history" : "edit-prompt"}
             data={{ task: task.id }}
-            title={user.role === "viewer" ? "查看提示词历史" : "展开编辑提示词"}
+            title={!can(user, "edit") ? "查看提示词历史" : "展开编辑提示词"}
           >
             {task.prompt && <i aria-label="已有提示词" />}
-            {user.role === "viewer" ? "提示词历史" : "提示词"}
+            {!can(user, "edit") ? "提示词历史" : "提示词"}
           </ActionButton>
           <ActionButton
             className="card-generate-button"

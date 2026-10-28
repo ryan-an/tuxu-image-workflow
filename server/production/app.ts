@@ -3,6 +3,7 @@ import staticFiles from "@fastify/static";
 import compress from "@fastify/compress";
 import { constants as zlibConstants } from "node:zlib";
 import { basename, extname, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
 import {
   requestedWorkspaceView,
   readWorkspace,
@@ -25,6 +26,9 @@ import {
   type TransportSecurityOptions,
 } from "./transport-security.js";
 import { registerSheetImports } from "./sheet-imports.js";
+import { registerAdminRoutes } from "./admin-routes.js";
+import { adminFailureAction, recordAdminFailure } from "./admin.js";
+import { can } from "../../shared/access.js";
 import type { ExecutionLimits } from "./execution-limits.js";
 export interface AppOptions {
   executionLimits?: ExecutionLimits;
@@ -46,6 +50,7 @@ export async function createApp(options: AppOptions) {
   );
   const workflows = await workspaces.initialize();
   const app = Fastify({
+    genReqId: () => randomUUID(),
     logger: options.logger ?? true,
     bodyLimit: 128 * 1024 * 1024,
     logController: new LogController({ disableRequestLogging: true }),
@@ -91,13 +96,45 @@ export async function createApp(options: AppOptions) {
   });
   registerMemberRoutes(app, options.db);
   registerWorkspaceRoutes(app, directory);
+  registerAdminRoutes(app, options.db);
   registerCollaborationRoutes(app, auth.authenticated);
   await registerAssistant(app, workspaces);
   registerSheetImports(app);
-  app.setErrorHandler((error, request, reply) => {
+  app.setErrorHandler(async (error, request, reply) => {
     // Never log request bodies, credentials or upstream response payloads.
     const status = (error as any).statusCode || 500;
     const detail = error instanceof Error ? error : new Error("服务处理失败");
+    const path = request.url.split("?")[0];
+    const route = request.routeOptions.url || path;
+    const targetId = (request.params as { id?: string } | undefined)?.id;
+    if (
+      request.account?.systemRole === "super_admin" &&
+      !["GET", "HEAD"].includes(request.method) &&
+      (path.startsWith("/api/admin/") || request.user?.accessMode === "admin")
+    ) {
+      await recordAdminFailure(
+        options.db,
+        request.account.id,
+        adminFailureAction(request.method, route),
+        request.id,
+        {
+          targetAccountId:
+            route.startsWith("/api/admin/accounts/") ||
+            route.startsWith("/api/members/")
+              ? targetId
+              : undefined,
+          workspaceId: route.startsWith("/api/admin/workspaces/")
+            ? targetId
+            : request.user?.workspaceId,
+          statusCode: status,
+        },
+      ).catch(() => {
+        app.log.error(
+          { requestId: request.id },
+          "admin failure audit could not be recorded",
+        );
+      });
+    }
     if (error instanceof AppError && error.diagnostic)
       app.log.warn(
         { requestId: request.id, ...error.diagnostic },
@@ -210,7 +247,11 @@ export async function createApp(options: AppOptions) {
       },
     },
     (request) =>
-      request.workspace.updateSettings(request.body as any, request.user!),
+      request.workspace.updateSettings(
+        request.body as any,
+        request.user!,
+        request.id,
+      ),
   );
   app.post(
     "/api/workflow/credentials",
@@ -233,6 +274,7 @@ export async function createApp(options: AppOptions) {
       const settings = await request.workspace.updateSettings(
         request.body as any,
         request.user!,
+        request.id,
       );
       return { hasKey: settings.hasKey, hasPromptKey: settings.hasPromptKey };
     },
@@ -367,7 +409,7 @@ export async function createApp(options: AppOptions) {
     (request) => {
       const edits = (request.body as any).edits;
       if (
-        request.user?.role !== "owner" &&
+        !can(request.user!, "manage") &&
         edits.some((edit: any) =>
           ["concurrency", "promptConcurrency", "queryConcurrency"].includes(
             edit.path[0],
@@ -379,6 +421,7 @@ export async function createApp(options: AppOptions) {
         edits,
         request.user!,
         request.headers["x-workspace-result"] === "delta",
+        request.id,
       );
     },
   );

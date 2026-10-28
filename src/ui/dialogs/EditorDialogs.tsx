@@ -1,3 +1,4 @@
+import { can } from "../../../shared/access";
 import type { Product, ImageTask, ImageVersion } from "../types";
 import { ActionButton, ApplicationForm, useApplication } from "../context.tsx";
 import { formatTime } from "../selectors";
@@ -82,7 +83,7 @@ export function ProductDialog({
   isNew?: boolean;
 }) {
   const { user } = useApplication();
-  if (user.role === "viewer")
+  if (!can(user, "edit"))
     return (
       <>
         <h2>产品资料</h2>

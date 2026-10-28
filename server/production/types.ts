@@ -42,8 +42,20 @@ export interface Job {
     imageCount?: number;
     imageBytes?: number;
   };
-  createdBy?: { id: string; username: string; displayName: string };
-  lastRetriedBy?: { id: string; username: string; displayName: string };
+  createdBy?: {
+    id: string;
+    username: string;
+    displayName: string;
+    systemRole?: "user" | "super_admin";
+    accessMode?: "member" | "admin";
+  };
+  lastRetriedBy?: {
+    id: string;
+    username: string;
+    displayName: string;
+    systemRole?: "user" | "super_admin";
+    accessMode?: "member" | "admin";
+  };
   id: string;
   productId: string;
   productName: string;

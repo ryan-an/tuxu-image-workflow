@@ -15,6 +15,7 @@ import { WorkspaceHome } from "../workspaces/WorkspaceHome";
 import { workspaceUrl } from "../../services/workspaces";
 import { setSessionWorkspace } from "../../services/session-scope.js";
 import { insecureTransportMessage } from "../../../shared/transport-security";
+import { AdminConsole } from "../admin/AdminConsole";
 
 function Workspace({
   onLogout,
@@ -45,6 +46,7 @@ function SessionRouter() {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [account, setAccount] = useState<UserIdentity | null>(null);
   const query = new URLSearchParams(window.location.search);
+  const [adminPage] = useState(() => window.location.pathname === "/admin");
   const [invitationToken] = useState(() =>
     window.location.pathname === "/invite"
       ? new URLSearchParams(window.location.hash.slice(1)).get("token") || ""
@@ -60,22 +62,31 @@ function SessionRouter() {
 
   useEffect(() => {
     let active = true;
-    void getSession(query.get("workspace") || undefined)
+    void getSession(
+      adminPage ? undefined : query.get("workspace") || undefined,
+      !adminPage && query.get("admin") === "1",
+    )
       .then(({ authenticated, user, account }) => {
         if (!active) return;
         setAccount(account);
-        if (account) setSessionWorkspace(user?.workspaceId, account.id);
+        if (account)
+          setSessionWorkspace(
+            adminPage ? undefined : user?.workspaceId,
+            account.id,
+            !adminPage && user?.accessMode === "admin",
+          );
         if (invitationToken !== null) {
           setStatus("anonymous");
           return;
         }
         if (authenticated) {
           setUser(user);
-          if (user)
+          if (user && !adminPage)
             window.history.replaceState(
               null,
               "",
               workspaceUrl(user.workspaceId) +
+                (user.accessMode === "admin" ? "&admin=1" : "") +
                 (query.has("manage") ? "&manage=1" : ""),
             );
           if (window.location.pathname === "/login")
@@ -98,7 +109,11 @@ function SessionRouter() {
 
   useEffect(() => {
     document.title =
-      status === "anonymous" ? "登录 · 图序" : "图序 · 批量生图工作台";
+      status === "anonymous"
+        ? "登录 · 图序"
+        : adminPage
+          ? "超级管理台 · 图序"
+          : "图序 · 批量生图工作台";
   }, [status]);
 
   if (status === "checking") return <WorkspaceLoading title="正在打开图序" />;
@@ -140,7 +155,22 @@ function SessionRouter() {
       />
     );
   if (status === "anonymous")
-    return <LoginPage onLogin={() => window.location.assign("/")} />;
+    return (
+      <LoginPage
+        onLogin={() => window.location.assign(adminPage ? "/admin" : "/")}
+      />
+    );
+  if (adminPage && account) {
+    if (account.systemRole !== "super_admin")
+      return (
+        <main className="startup">
+          <h2>无权访问超级管理台</h2>
+          <p>当前账号没有系统管理权限。</p>
+          <a href="/">返回我的工作台</a>
+        </main>
+      );
+    return <AdminConsole account={account} />;
+  }
   if (account && !user) return <WorkspaceHome account={account} />;
   return (
     <Workspace
