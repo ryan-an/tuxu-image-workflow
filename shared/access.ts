@@ -68,7 +68,7 @@ const readActions = new Set([
   "close-assistant",
 ]);
 export function actionAllowed(role: Role, action: string) {
-  if (["clear-key", "clear-prompt-key", "restore"].includes(action))
+  if (["api-keys", "clear-key", "clear-prompt-key", "restore"].includes(action))
     return can(role, "manage");
   return readActions.has(action) || can(role, "edit");
 }

@@ -160,9 +160,10 @@ test(
       );
       assert.equal(
         await other.locator("#settings-button").count(),
-        0,
-        "the existing owner is only an editor in this personal workspace",
+        1,
+        "editors have personal model preferences in each workspace",
       );
+      assert.equal(await other.locator("#api-keys-button").count(), 0);
       const tab = await page.context().newPage();
       await tab.goto(`${root}/?workspace=${workspaceId}`);
       await tab.locator("#app").waitFor();

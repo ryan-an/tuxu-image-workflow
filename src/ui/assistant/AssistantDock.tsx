@@ -81,7 +81,7 @@ function AssistantPanel() {
   async function send(value = draft, retry?: AssistantTurn) {
     if (pending || loading || !value.trim()) return;
     if (!ui.hasPromptKey) {
-      if (canManageKeys) await controller.dispatch("settings");
+      if (canManageKeys) await controller.dispatch("api-keys");
       return;
     }
     followReply.current = true;
@@ -253,7 +253,7 @@ function AssistantPanel() {
             {canManageKeys ? (
               <>
                 先配置豆包 API Key，即可开始对话。
-                <ActionButton action="settings">填写密钥</ActionButton>
+                <ActionButton action="api-keys">填写密钥</ActionButton>
               </>
             ) : (
               "请联系所有者配置豆包服务后开始对话。"
@@ -276,7 +276,7 @@ function AssistantPanel() {
                 重新读取记录
               </button>
             )}
-            {errorAction === "open-model" && (
+            {errorAction === "open-model" && canManageKeys && (
               <a
                 href="https://ark.volcengine.com/region:cn-beijing/openManagement"
                 target="_blank"
@@ -285,11 +285,13 @@ function AssistantPanel() {
                 前往火山方舟开通模型 ↗
               </a>
             )}
-            {errorAction === "check-key" && !canManageKeys && (
-              <span>请联系所有者检查豆包服务配置。</span>
+            {errorAction && !canManageKeys && (
+              <span>请联系所有者检查豆包服务和对话模型配置。</span>
             )}
-            {errorAction && (errorAction !== "check-key" || canManageKeys) && (
-              <ActionButton action="settings">
+            {errorAction && canManageKeys && (
+              <ActionButton
+                action={errorAction === "check-key" ? "api-keys" : "settings"}
+              >
                 {errorAction === "check-key"
                   ? "检查豆包密钥"
                   : "更换已开通的模型"}

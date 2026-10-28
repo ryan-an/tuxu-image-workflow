@@ -115,7 +115,9 @@ export async function createApp(options: AppOptions) {
     await options.db.query("SELECT 1");
     return { status: "ok" };
   });
-  app.get("/api/workflow/settings", (request) => request.workspace.settings());
+  app.get("/api/workflow/settings", (request) =>
+    request.workspace.settings(request.user!),
+  );
   // Compatibility for already open clients; null explicitly means no cap.
   app.get("/api/execution/limits", () => ({
     prompt: null,
@@ -209,6 +211,31 @@ export async function createApp(options: AppOptions) {
     },
     (request) =>
       request.workspace.updateSettings(request.body as any, request.user!),
+  );
+  app.post(
+    "/api/workflow/credentials",
+    {
+      config: { permission: "manage" },
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            apiKey: { type: "string", maxLength: 4096 },
+            promptApiKey: { type: "string", maxLength: 4096 },
+            clearKey: { type: "boolean" },
+            clearPromptKey: { type: "boolean" },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const settings = await request.workspace.updateSettings(
+        request.body as any,
+        request.user!,
+      );
+      return { hasKey: settings.hasKey, hasPromptKey: settings.hasPromptKey };
+    },
   );
   app.get("/api/workspace/startup", (request) => {
     const repo = request.workspace.repo;

@@ -42,7 +42,7 @@ export function createFormCommands(context) {
     } = context;
     if (
       !event.target.matches(
-        "#settings-form,#product-form,#prompt-form,#reconcile-form",
+        "#settings-form,#credentials-form,#product-form,#prompt-form,#reconcile-form",
       )
     )
       return;
@@ -64,6 +64,18 @@ export function createFormCommands(context) {
         values.prompt,
       );
       closeModal();
+    } else if (form.id === "credentials-form") {
+      const data = await api(
+        context.repository
+          ? "/api/workflow/credentials"
+          : "/api/workflow/settings",
+        values,
+      );
+      setHasKey(data.hasKey);
+      setHasPromptKey(data.hasPromptKey);
+      closeModal();
+      render();
+      notify("工作区密钥已保存");
     } else if (form.id === "settings-form") {
       if (values.promptModel === "__custom") {
         values.promptModel = values.customPromptModel?.trim();
@@ -80,8 +92,9 @@ export function createFormCommands(context) {
       delete data.hasPromptKey;
       state.settings = data;
       closeModal();
-      change();
-      notify("服务设置已保存");
+      render();
+      if (!context.repository) change();
+      notify("模型配置已保存");
     } else if (form.id === "product-form") {
       const isNew = form.dataset.new === "true",
         old = state.products.find((p) => p.id === form.dataset.product),

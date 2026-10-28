@@ -147,7 +147,23 @@ export function createCommands(context) {
         notify(repository ? "已保存到服务端" : "已保存到本机");
         break;
       case "settings":
+        if (repository) {
+          const { hasKey, hasPromptKey, ...config } = await api(
+            "/api/workflow/settings",
+          );
+          state.settings = config;
+          setHasKey(hasKey);
+          setHasPromptKey(hasPromptKey);
+        }
         settings();
+        break;
+      case "api-keys":
+        if (repository) {
+          const result = await api("/api/workflow/settings");
+          setHasKey(result.hasKey);
+          setHasPromptKey(result.hasPromptKey);
+        }
+        showModal({ type: "api-keys" });
         break;
       case "activity":
         showModal({ type: "activity" });
@@ -155,7 +171,7 @@ export function createCommands(context) {
       case "clear-key":
       case "clear-prompt-key": {
         const result = await api(
-          "/api/workflow/settings",
+          repository ? "/api/workflow/credentials" : "/api/workflow/settings",
           a === "clear-prompt-key"
             ? { clearPromptKey: true }
             : { clearKey: true },

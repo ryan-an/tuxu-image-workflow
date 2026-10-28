@@ -11,6 +11,7 @@ import {
 } from "./EditorDialogs.tsx";
 import { MediaDialog } from "./MediaDialog.tsx";
 import { SettingsDialog } from "./SettingsDialog.tsx";
+import { ApiKeysDialog } from "./ApiKeysDialog.tsx";
 import { ParseDialog } from "../sheet/ParseDialog.tsx";
 import { RequirementsDialog } from "./RequirementsDialog.tsx";
 import { useDialogDismiss } from "./useDialogDismiss";
@@ -41,6 +42,8 @@ function DialogContent({ modal }: { modal: Modal }) {
       return product ? <MediaDialog product={product} task={task} /> : null;
     case "settings":
       return <SettingsDialog />;
+    case "api-keys":
+      return <ApiKeysDialog />;
     case "parser":
       return <ParseDialog context={ui.parser!} />;
     case "reconcile":
@@ -69,7 +72,7 @@ export function DialogHost() {
       dialog.showModal();
       dialog
         .querySelector<HTMLElement>(
-          "#prompt-form textarea, #product-form input, #common-form textarea, #settings-form input[type=password], #media-dropzone, #paste-content",
+          "#prompt-form textarea, #product-form input, #common-form textarea, #settings-form select, #credentials-form input[type=password], #media-dropzone, #paste-content",
         )
         ?.focus();
     }
@@ -114,11 +117,12 @@ export function DialogHost() {
             </ActionButton>
           )}
           <DialogContent modal={ui.modal} />
-          {ui.formError && ui.modal.type !== "settings" && (
-            <p className="error-text" role="alert">
-              {ui.formError}
-            </p>
-          )}
+          {ui.formError &&
+            !["settings", "api-keys"].includes(ui.modal.type) && (
+              <p className="error-text" role="alert">
+                {ui.formError}
+              </p>
+            )}
         </div>
       )}
     </dialog>

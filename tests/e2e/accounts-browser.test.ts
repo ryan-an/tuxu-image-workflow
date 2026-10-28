@@ -275,7 +275,8 @@ test(
       await editor.locator("#login-password").fill("editor-browser-password");
       await editor.click('#login-form button[type="submit"]');
       await editor.locator(".task-card").first().waitFor();
-      assert.equal(await editor.locator("#settings-button").count(), 0);
+      assert.equal(await editor.locator("#settings-button").count(), 1);
+      assert.equal(await editor.locator("#api-keys-button").count(), 0);
       assert.ok(
         (await editor.locator('[data-action="new-product"]').count()) > 0,
       );

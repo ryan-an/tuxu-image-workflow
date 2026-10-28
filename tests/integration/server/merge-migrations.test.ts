@@ -146,7 +146,7 @@ for (const source of ["local-sheet-import", "remote-accounts"] as const) {
       assert.equal(
         (await db.query("SELECT count(*) AS count FROM schema_migrations"))
           .rows[0].count,
-        16,
+        18,
       );
       await db.query("SELECT * FROM accounts");
       await db.query("SELECT * FROM workspace_members");
@@ -171,7 +171,7 @@ for (const source of ["local-sheet-import", "remote-accounts"] as const) {
       assert.equal(
         (await db.query("SELECT count(*) AS count FROM schema_migrations"))
           .rows[0].count,
-        16,
+        18,
       );
       await db.query(
         "UPDATE schema_migrations SET checksum='unexpected' WHERE version='008.sql'",

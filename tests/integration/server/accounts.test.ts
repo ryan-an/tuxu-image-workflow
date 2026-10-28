@@ -73,13 +73,9 @@ test("editors save generation settings but credential fields remain owner-only a
       imageModel: "nano-banana-2",
       imageSize: "2K",
       aspectRatio: "4:3",
-      promptModel: "ep-editor-model",
-      baseUrl: "https://grsaiapi.com",
-      mode: "live",
     });
     assert.equal(saved.statusCode, 200, saved.body);
     assert.equal(saved.json().imageSize, "2K");
-    assert.equal(saved.json().promptModel, "ep-editor-model");
     const settings = await f.workflows.settings();
     for (const payload of [
       { apiKey: "replacement" },
@@ -88,6 +84,10 @@ test("editors save generation settings but credential fields remain owner-only a
       { clearPromptKey: true },
       { apiKey: "" },
       { clearKey: false },
+      { promptModel: "ep-forbidden" },
+      { promptProvider: "doubao" },
+      { mode: "live" },
+      { baseUrl: "https://grsaiapi.com" },
     ]) {
       const response = await update(editor.headers, {
         imageSize: "4K",

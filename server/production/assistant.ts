@@ -258,6 +258,7 @@ export async function registerAssistant(
           : await conversations.create(context, body.messages?.slice(0, -1));
       }
       const state = await workflows.repo.view();
+      const settings = await workflows.settings(request.user!);
       const product = state.products.find((p) => p.id === context.productId);
       if (body.productId && !product) throw new AppError("产品已不存在", 404);
       const task = product?.tasks.find((t) => t.id === context.taskId);
@@ -323,7 +324,7 @@ export async function registerAssistant(
         conversation.id,
         turnId,
         message,
-        state.settings.promptModel,
+        settings.promptModel,
         body.retry,
       );
       const streaming = body.stream === true;
@@ -361,7 +362,7 @@ export async function registerAssistant(
           await stream.send("start", {
             conversationId: conversation.id,
             turnId,
-            model: state.settings.promptModel,
+            model: settings.promptModel,
           });
         }
         const text = await new GrsaiProvider(workflows.assets, (event) =>
@@ -377,7 +378,7 @@ export async function registerAssistant(
               }),
             ),
           ],
-          state.settings,
+          settings,
           key,
           signal,
           async (text) => {
@@ -417,7 +418,7 @@ export async function registerAssistant(
         );
         const result = {
           text,
-          model: state.settings.promptModel,
+          model: settings.promptModel,
           conversation: saved,
         };
         if (!stream) return result;
@@ -461,7 +462,7 @@ export async function registerAssistant(
           app.log.warn(
             {
               event: "assistant.failed",
-              model: state.settings.promptModel,
+              model: settings.promptModel,
               upstreamStatus: upstream?.status,
               code: upstream?.code,
               requestId: upstream?.requestId,

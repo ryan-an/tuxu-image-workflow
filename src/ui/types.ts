@@ -148,6 +148,7 @@ export interface Modal {
     | "version"
     | "media"
     | "settings"
+    | "api-keys"
     | "parser"
     | "reconcile"
     | "paste"

@@ -69,13 +69,7 @@ export async function loadWorkspace({ canImport = true } = {}) {
     for (const j of unfinished) j.status = "interrupted";
     if (unfinished.length) state.paused = true;
   }
-  const server = production
-    ? {
-        ...state.settings,
-        hasKey: state.hasKey,
-        hasPromptKey: state.hasPromptKey,
-      }
-    : await api("/api/workflow/settings");
+  const server = await api("/api/workflow/settings");
   delete state.hasKey;
   delete state.hasPromptKey;
   const hasKey = server.hasKey;

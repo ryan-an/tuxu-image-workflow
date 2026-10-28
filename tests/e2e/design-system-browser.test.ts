@@ -157,7 +157,7 @@ test(
         path: artifactPath("design-system-mobile.png"),
         fullPage: true,
       });
-      await page.locator("#settings-button").click();
+      await page.locator("#api-keys-button").click();
       await page.locator(".api-key-status").first().waitFor();
       await checkBadges();
       assert.deepEqual(errors, []);

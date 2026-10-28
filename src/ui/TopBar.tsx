@@ -16,6 +16,7 @@ function Icon({
     | "workspaces"
     | "members"
     | "settings"
+    | "key"
     | "password"
     | "logout"
     | "chevron"
@@ -48,6 +49,9 @@ function Icon({
         <path d="m9.5 3-.7 2.2-2 .9-2.2-.5-2 3.4 1.5 1.7v2.6l-1.5 1.7 2 3.4 2.2-.5 2 .9.7 2.2h5l.7-2.2 2-.9 2.2.5 2-3.4-1.5-1.7v-2.6L21 9l-2-3.4-2.2.5-2-.9L14.5 3z" />
         <circle cx="12" cy="12" r="3" />
       </>
+    ),
+    key: (
+      <path d="M14 3a7 7 0 0 0-6.7 9L2 17.3V22h4v-3h3v-3l2-2A7 7 0 1 0 14 3Zm3 4h.01" />
     ),
     password: (
       <>
@@ -244,26 +248,35 @@ export function TopBar({ onLogout }: { onLogout?: () => Promise<void> }) {
           action="settings"
           variant="ghost"
           size="sm"
-          aria-label={user.role === "owner" ? `设置：${keyStatus}` : "设置"}
+          aria-label="模型配置"
           title={
             user.role === "owner"
-              ? `密钥、模型与生成设置\n豆包 API Key：${ui.hasPromptKey ? "已填写" : "未设置"}\nGrsai API Key：${ui.hasKey ? "已填写" : "未设置"}`
-              : "模型与生成设置"
+              ? "工作区服务配置与我的生图参数"
+              : "仅用于你在当前工作区发起的生图任务"
           }
         >
           <Icon name="settings" />
-          <span className="settings-label">设置</span>
-          {user.role === "owner" && (
-            <Badge
-              className="settings-key-status"
-              tone={missingKeys.length ? "danger" : "success"}
-              aria-label={keyStatus}
-              title={keyStatus}
-              icon={<i className="settings-key-dot" aria-hidden="true" />}
-            >
-              {missingKeys.length ? "待配置" : "已配置"}
-            </Badge>
-          )}
+          <span className="settings-label">模型配置</span>
+        </ActionButton>
+        <ActionButton
+          id="api-keys-button"
+          action="api-keys"
+          variant="ghost"
+          size="sm"
+          aria-label={`API Key：${keyStatus}`}
+          title={`工作区共用 API Key\n豆包：${ui.hasPromptKey ? "已填写" : "未设置"}\nGrsai：${ui.hasKey ? "已填写" : "未设置"}`}
+        >
+          <Icon name="key" />
+          <span className="settings-label">API Key</span>
+          <Badge
+            className="settings-key-status"
+            tone={missingKeys.length ? "danger" : "success"}
+            aria-label={keyStatus}
+            title={keyStatus}
+            icon={<i className="settings-key-dot" aria-hidden="true" />}
+          >
+            {missingKeys.length ? "待配置" : "已配置"}
+          </Badge>
         </ActionButton>
         <div className="topbar-account">
           <Button

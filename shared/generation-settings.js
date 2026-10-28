@@ -4,6 +4,20 @@ export const AUTO_SIZE_DEFAULTS = {
   gptSize: "auto",
 };
 
+export const WORKSPACE_GENERATION_FIELDS = /** @type {const} */ ([
+  "promptProvider",
+  "promptModel",
+  "mode",
+  "baseUrl",
+]);
+export const PERSONAL_GENERATION_FIELDS = /** @type {const} */ ([
+  "imageModel",
+  "aspectRatio",
+  "imageSize",
+  "gptSize",
+  "quality",
+]);
+
 export function migrateAutoSizeDefaults(settings = {}) {
   const result = { ...settings };
   const previous = {

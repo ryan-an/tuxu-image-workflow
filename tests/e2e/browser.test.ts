@@ -93,19 +93,19 @@ test(
       await page.fill("#login-password", password);
       await page.click('#login-form button[type="submit"]');
       await page.locator(".task-card").first().waitFor();
-      await page.locator("#settings-button").click();
+      await page.locator("#api-keys-button").click();
       assert.equal(
         await page
-          .locator('#settings-form [name="promptApiKey"]')
+          .locator('#credentials-form [name="promptApiKey"]')
           .getAttribute("type"),
         "password",
       );
       await page.fill(
-        '#settings-form [name="promptApiKey"]',
+        '#credentials-form [name="promptApiKey"]',
         "browser-doubao-key",
       );
-      await page.locator('#settings-form button[type="submit"]').click();
-      await page.locator("#settings-form").waitFor({ state: "detached" });
+      await page.locator('#credentials-form button[type="submit"]').click();
+      await page.locator("#credentials-form").waitFor({ state: "detached" });
       assert.equal(await f.workflows.key(), "fake-platform-key");
       assert.equal(await f.workflows.key("doubao"), "browser-doubao-key");
       await page.locator('[data-action="settings"]').first().click();
@@ -118,7 +118,16 @@ test(
       await page.locator('#settings-form button[type="submit"]').click();
       await page.locator("#settings-form").waitFor({ state: "detached" });
       assert.equal(
-        (await f.workflows.settings()).promptModel,
+        (
+          await f.app.inject({
+            url: "/api/workflow/settings",
+            headers: {
+              cookie: (await page.context().cookies())
+                .map((cookie: any) => `${cookie.name}=${cookie.value}`)
+                .join("; "),
+            },
+          })
+        ).json().promptModel,
         "ep-my-doubao-model",
       );
       await page
@@ -575,7 +584,7 @@ test(
       await reopened
         .getByRole("button", { name: "队列管理", exact: true })
         .click();
-      await reopened.selectOption("#concurrency", "2");
+      assert.equal(await reopened.locator("#concurrency").count(), 0);
       await reopened.keyboard.press("Escape");
       await reopened.click("#queue-tab-jobs");
       await Promise.all([

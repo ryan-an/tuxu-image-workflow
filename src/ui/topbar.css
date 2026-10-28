@@ -287,13 +287,15 @@
   }
   .topbar #save-status > span,
   .topbar #settings-button > .settings-label,
+  .topbar #api-keys-button > .settings-label,
   .current-account > svg {
     display: none;
   }
   .topbar .current-account {
     padding: 3px;
   }
-  .topbar #settings-button {
+  .topbar #settings-button,
+  .topbar #api-keys-button {
     gap: 5px;
     padding-inline: 5px;
   }
@@ -308,7 +310,8 @@
 }
 @media (pointer: coarse) {
   .topbar .topbar-icon-button,
-  .topbar #settings-button {
+  .topbar #settings-button,
+  .topbar #api-keys-button {
     min-width: 36px;
     min-height: 36px;
   }

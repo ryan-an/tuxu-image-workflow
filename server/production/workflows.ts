@@ -10,6 +10,16 @@ import {
   validConcurrency,
 } from "../../shared/execution-settings.js";
 import { WorkspaceCollaboration } from "./workspace-collaboration.js";
+import {
+  WORKSPACE_GENERATION_FIELDS,
+  PERSONAL_GENERATION_FIELDS,
+} from "../../shared/generation-settings.js";
+import {
+  GENERATION_FIELDS as configuration,
+  generationDefaults,
+  memberGenerationSettings,
+  saveMemberGenerationSettings,
+} from "./member-generation-settings.js";
 import { normalizePromptTemplates } from "../../shared/prompt-templates.js";
 import type { CurrentUser } from "../../shared/access.js";
 import { assertImageQuota } from "./account-usage.js";
@@ -36,16 +46,6 @@ import {
 } from "./types.js";
 const active = (j: Job) =>
   ["queued", "running", "interrupted"].includes(j.status);
-const configuration = [
-  "baseUrl",
-  "imageModel",
-  "promptProvider",
-  "promptModel",
-  "aspectRatio",
-  "imageSize",
-  "gptSize",
-  "quality",
-];
 export function validateProduct(product: Product) {
   if (
     !product ||
@@ -137,7 +137,7 @@ export class Workflows {
     public assets: Assets,
     private credentials: Credentials,
   ) {}
-  async settings() {
+  async settings(actor?: CurrentUser) {
     const row = (
       await this.repo.db.query(
         "SELECT document,credential,prompt_credential FROM workspace WHERE id=$1",
@@ -145,7 +145,14 @@ export class Workflows {
       )
     ).rows[0];
     return {
-      ...row.document.settings,
+      ...(actor
+        ? await memberGenerationSettings(
+            this.repo.db,
+            this.repo.workspaceId,
+            actor.id,
+            row.document.settings,
+          )
+        : generationDefaults(row.document.settings)),
       mode: "live",
       hasKey: !!row.credential,
       hasPromptKey: !!row.prompt_credential,
@@ -161,12 +168,24 @@ export class Workflows {
           tx,
           this.repo.workspaceId,
           actor.id,
-          ["apiKey", "promptApiKey", "clearKey", "clearPromptKey"].some(
-            (key) => Object.hasOwn(input, key),
-          )
+          [
+            "apiKey",
+            "promptApiKey",
+            "clearKey",
+            "clearPromptKey",
+            ...WORKSPACE_GENERATION_FIELDS,
+          ].some((key) => Object.hasOwn(input, key))
             ? "manage"
             : "edit",
         );
+      const settings = actor
+        ? await memberGenerationSettings(
+            tx,
+            this.repo.workspaceId,
+            actor.id,
+            state.settings,
+          )
+        : generationDefaults(state.settings);
       for (const key of Object.keys(input))
         if (
           ![
@@ -185,13 +204,13 @@ export class Workflows {
         if (input[key] !== undefined) {
           if (typeof input[key] !== "string" || input[key].length > 200)
             throw new AppError("无效模型设置");
-          state.settings[key] = input[key];
+          settings[key] = input[key];
         }
-      baseUrl(state.settings.baseUrl);
+      baseUrl(settings.baseUrl);
       if (
-        !MODELS.includes(state.settings.imageModel) ||
-        state.settings.promptProvider !== "doubao" ||
-        !state.settings.promptModel?.trim()
+        !MODELS.includes(settings.imageModel) ||
+        settings.promptProvider !== "doubao" ||
+        !settings.promptModel?.trim()
       )
         throw new AppError("无效模型");
       const updateKey = (
@@ -223,14 +242,35 @@ export class Workflows {
           input.promptApiKey,
           input.clearPromptKey,
         );
-      state.settings.mode = "live";
-      await this.repo.saveWorkspace(tx, state);
+      settings.mode = "live";
+      const changesPersonal = PERSONAL_GENERATION_FIELDS.some((key) =>
+        Object.hasOwn(input, key),
+      );
+      const changesWorkspace = WORKSPACE_GENERATION_FIELDS.some((key) =>
+        Object.hasOwn(input, key),
+      );
+      if (changesPersonal && actor)
+        await saveMemberGenerationSettings(
+          tx,
+          this.repo.workspaceId,
+          actor.id,
+          settings,
+        );
+      if (!actor && changesPersonal) {
+        for (const key of PERSONAL_GENERATION_FIELDS)
+          if (Object.hasOwn(input, key)) state.settings[key] = settings[key];
+      }
+      if (changesWorkspace)
+        for (const key of WORKSPACE_GENERATION_FIELDS)
+          if (Object.hasOwn(input, key)) state.settings[key] = settings[key];
+      if (changesWorkspace || (!actor && changesPersonal))
+        await this.repo.saveWorkspace(tx, state);
       await tx.query(
         "UPDATE workspace SET credential=$2,prompt_credential=$3 WHERE id=$1",
         [this.repo.workspaceId, credential, promptCredential],
       );
       return {
-        ...state.settings,
+        ...settings,
         hasKey: !!credential,
         hasPromptKey: !!promptCredential,
       };
@@ -632,6 +672,14 @@ export class Workflows {
       id,
       { pairs, kind, ...(actor ? { actorId: actor.id } : {}) },
       async (tx, state) => {
+        const settings = actor
+          ? await memberGenerationSettings(
+              tx,
+              this.repo.workspaceId,
+              actor.id,
+              state.settings,
+            )
+          : state.settings;
         const row = (
           await tx.query(
             "SELECT credential,prompt_credential FROM workspace WHERE id=$1",
@@ -692,7 +740,7 @@ export class Workflows {
             stage: "pending",
             createdAt: Date.now(),
             mode: "live",
-            config: { ...state.settings },
+            config: { ...settings },
             error: "",
             ...(actor
               ? {

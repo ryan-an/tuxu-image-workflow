@@ -5,6 +5,7 @@ import {
   applyLatestEdits,
 } from "../../shared/workspace-edits.js";
 import { sessionHeaders, analysisEventsUrl } from "./session-scope.js";
+import { WORKSPACE_GENERATION_FIELDS } from "../../shared/generation-settings.js";
 export async function api(
   path,
   body,
@@ -223,6 +224,19 @@ export class WorkspaceClient {
     preserveExpected = false,
     changedIds = null,
   ) {
+    // Refresh owner-managed workspace settings without replacing personal image
+    // preferences with the workspace's legacy image defaults.
+    remote = {
+      ...remote,
+      settings: {
+        ...this.state.settings,
+        ...Object.fromEntries(
+          WORKSPACE_GENERATION_FIELDS.filter(
+            (key) => remote.settings?.[key] !== undefined,
+          ).map((key) => [key, remote.settings[key]]),
+        ),
+      },
+    };
     const previousSheet = structuredClone(this.state.sheetSnapshot);
     const oldProducts = new Map(this.state.products.map((p) => [p.id, p]));
     const changes = remote.products

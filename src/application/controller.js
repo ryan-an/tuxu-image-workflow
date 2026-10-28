@@ -159,7 +159,7 @@ export function createApplicationController(
       ) {
         if (!context.canManage)
           return notify("请联系所有者配置豆包和 Grsai API Key");
-        context.settings();
+        showModal({ type: "api-keys" });
         return notify(
           needsPrompt && !ui.hasPromptKey
             ? "请先填写豆包 API Key"

@@ -96,7 +96,7 @@ test(
       await page
         .getByText("正在加载产品图片和提示词…", { exact: true })
         .waitFor();
-      await page.getByRole("button", { name: /^设置：/ }).click();
+      await page.getByRole("button", { name: "模型配置", exact: true }).click();
       await page.locator("#settings-form").waitFor();
       assert.ok(!requests.includes("/api/workspace"));
       assert.ok(!requests.some((url) => url.includes("/api/jobs/history")));

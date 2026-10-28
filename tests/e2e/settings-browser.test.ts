@@ -7,6 +7,139 @@ import { artifactPath } from "../support/artifacts.cjs";
 import { Members } from "../../server/production/members.js";
 
 test(
+  "model preferences follow the current account and workspace across tabs, reloads and collaborative edits",
+  { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 60000 },
+  async () => {
+    const { chromium } = createRequire(import.meta.url)(
+      process.env.PLAYWRIGHT_MODULE!,
+    );
+    const f = await fixture(resolve("dist"));
+    const browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.CHROME_PATH,
+    });
+    try {
+      await new Members(f.db).create({
+        username: "personal-editor",
+        displayName: "个人配置编辑者",
+        role: "editor",
+        password,
+        monthlyLimit: null,
+      });
+      await f.app.listen({ host: "127.0.0.1", port: 0 });
+      const root = `http://127.0.0.1:${(f.app.server.address() as { port: number }).port}`;
+      const ownerContext = await browser.newContext({
+        viewport: { width: 1440, height: 1000 },
+      });
+      const memberContext = await browser.newContext({
+        viewport: { width: 1440, height: 1000 },
+      });
+      const owner = await ownerContext.newPage();
+      const member = await memberContext.newPage();
+      const login = async (page: any, username: string) => {
+        await page.goto(`${root}/?workspace=default`);
+        await page.fill("#login-username", username);
+        await page.fill("#login-password", password);
+        await page.click('#login-form button[type="submit"]');
+        await page.locator(".topbar").waitFor();
+      };
+      const saveSize = async (page: any, size: string) => {
+        await page.locator("#settings-button").click();
+        assert.equal(
+          await page.locator("#settings-form .api-key-field").count(),
+          0,
+        );
+        await page.selectOption('#settings-form [name="imageSize"]', size);
+        await page.locator('#settings-form button[type="submit"]').click();
+        await page.locator("#settings-form").waitFor({ state: "detached" });
+      };
+      const checkSize = async (page: any, size: string) => {
+        await page.locator("#settings-button").click();
+        assert.equal(
+          await page.locator('#settings-form [name="imageSize"]').inputValue(),
+          size,
+        );
+        await page.keyboard.press("Escape");
+      };
+      await login(owner, "admin");
+      await login(member, "personal-editor");
+      await saveSize(member, "2K");
+      await saveSize(owner, "1K");
+      await owner.locator("#settings-button").click();
+      await owner.selectOption(
+        '#settings-form [name="promptModel"]',
+        "__custom",
+      );
+      await owner.fill(
+        '#settings-form [name="customPromptModel"]',
+        "ep-shared-browser",
+      );
+      await owner.selectOption(
+        '#settings-form [name="baseUrl"]',
+        "https://grsaiapi.com",
+      );
+      await owner.locator('#settings-form button[type="submit"]').click();
+      await owner.locator("#settings-form").waitFor({ state: "detached" });
+      const memberConfig = await member.request.get(
+        `${root}/api/workflow/settings`,
+        { headers: { "X-Workspace-Id": "default" } },
+      );
+      assert.equal(
+        (await memberConfig.json()).promptModel,
+        "ep-shared-browser",
+      );
+      await checkSize(member, "2K");
+      const created = await member.request.post(`${root}/api/workspaces`, {
+        data: { name: "配置独立的工作区" },
+      });
+      assert.equal(created.status(), 200);
+      const workspaceId = (await created.json()).id;
+      const other = await member.context().newPage();
+      await other.goto(`${root}/?workspace=${workspaceId}`);
+      await other.locator(".topbar").waitFor();
+      await saveSize(other, "4K");
+      await member.reload();
+      await checkSize(member, "2K");
+      await checkSize(other, "4K");
+      await checkSize(owner, "1K");
+      const update = await owner.request.patch(`${root}/api/workspace`, {
+        headers: { "X-Workspace-Id": "default" },
+        data: {
+          edits: [
+            {
+              path: ["products", f.product.id, "name"],
+              before: f.product.name,
+              value: "协作刷新后的产品",
+            },
+          ],
+        },
+      });
+      assert.equal(update.status(), 200);
+      await member
+        .getByRole("heading", { name: "协作刷新后的产品", exact: true })
+        .waitFor();
+      await checkSize(member, "2K");
+      await member.screenshot({
+        path: artifactPath("personal-model-settings-workspace.png"),
+      });
+      await owner.locator("#api-keys-button").click();
+      await owner.locator("#credentials-form").waitFor();
+      assert.equal(await owner.locator("#credentials-form select").count(), 0);
+      assert.equal(
+        await owner.locator("#credentials-form .api-key-field").count(),
+        2,
+      );
+      await owner.screenshot({
+        path: artifactPath("workspace-api-keys-dialog.png"),
+      });
+    } finally {
+      await browser.close();
+      await f.close();
+    }
+  },
+);
+
+test(
   "editors can save settings without API key controls while viewers have no settings entry",
   { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 45000 },
   async () => {
@@ -42,10 +175,20 @@ test(
         if (role === "viewer") {
           assert.equal(await button.count(), 0);
         } else {
-          assert.equal(await button.getAttribute("aria-label"), "设置");
+          assert.equal(await button.getAttribute("aria-label"), "模型配置");
+          assert.equal(await page.locator("#api-keys-button").count(), 0);
           assert.equal(await button.locator(".settings-key-status").count(), 0);
           await button.click();
           const form = page.locator("#settings-form");
+          await form.waitFor();
+          assert.equal(
+            await form
+              .locator(
+                '[name="promptProvider"], [name="promptModel"], [name="customPromptModel"], [name="mode"], [name="baseUrl"]',
+              )
+              .count(),
+            0,
+          );
           assert.equal(
             await form
               .locator('input[type="password"], .api-key-field, .api-key-clear')
@@ -66,6 +209,10 @@ test(
             "promptApiKey",
             "clearKey",
             "clearPromptKey",
+            "promptProvider",
+            "promptModel",
+            "mode",
+            "baseUrl",
           ])
             assert.equal(Object.hasOwn(payload, name), false);
           await form.waitFor({ state: "detached" });
@@ -117,7 +264,7 @@ test(
       await page.goto(root);
       await page.fill("#login-password", password);
       await page.click('#login-form button[type="submit"]');
-      const button = page.locator("#settings-button");
+      const button = page.locator("#api-keys-button");
       const status = button.locator(".settings-key-status");
       const checkStatus = async (text: string, configured = false) => {
         await page.waitForFunction(
@@ -170,8 +317,8 @@ test(
         await page.setViewportSize({ width: 1440, height: 1000 });
       };
       const save = async () => {
-        await page.locator('#settings-form button[type="submit"]').click();
-        await page.locator("#settings-form").waitFor({ state: "detached" });
+        await page.locator('#credentials-form button[type="submit"]').click();
+        await page.locator("#credentials-form").waitFor({ state: "detached" });
       };
 
       await checkStatus("未设置豆包、Grsai API Key");

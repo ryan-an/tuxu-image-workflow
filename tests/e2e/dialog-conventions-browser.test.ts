@@ -85,6 +85,7 @@ test(
       const cases = [
         ["edit-product", '#product-form button[type="submit"]'],
         ["settings", '#settings-form button[type="submit"]'],
+        ["api-keys", '#credentials-form button[type="submit"]'],
         ["edit-prompt", '#prompt-form button[type="submit"]'],
         ["manage-photos", '.media-modal-footer [data-action="close-modal"]'],
         [
