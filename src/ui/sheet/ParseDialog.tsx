@@ -50,6 +50,7 @@ function ColumnSelect({
 export function ParseDialog({ context }: { context: ParserContext }) {
   const { controller } = useApplication(),
     { source, mapping, layout, candidates, changes } = context;
+  const pendingProducts = context.importId ? candidates : changes;
   const [saving, setSaving] = useState(false);
   return (
     <>
@@ -154,14 +155,14 @@ export function ParseDialog({ context }: { context: ParserContext }) {
         </p>
       )}
       <div className="parse-products">
-        {candidates.map((p) => (
+        {pendingProducts.map((p) => (
           <div key={p.code}>
             <strong>{p.code}</strong>
             <span>{p.name || "未填写名称"}</span>
             <small>
-              {changes.includes(p) ? "待保存" : "已同步"} · {p.photos.length}{" "}
-              张实拍图 · {p.tasks.filter((t) => t.references.length).length} 图
-              · {p.tasks.filter((t) => t.prompt).length} 提示词 ·{" "}
+              待保存 · {p.photos.length} 张实拍图 ·{" "}
+              {p.tasks.filter((t) => t.references.length).length} 图 ·{" "}
+              {p.tasks.filter((t) => t.prompt).length} 提示词 ·{" "}
               {p.tasks.filter((t) => t.result).length} 结果
             </small>
           </div>
@@ -170,7 +171,7 @@ export function ParseDialog({ context }: { context: ParserContext }) {
           <p>未识别到数据，调整列对应关系或先粘贴表格。</p>
         )}
         {!!candidates.length && !changes.length && (
-          <p>所有产品已同步，无需更新。</p>
+          <p>所有产品均无变更，无需更新。</p>
         )}
       </div>
       <DialogActions>
@@ -179,7 +180,9 @@ export function ParseDialog({ context }: { context: ParserContext }) {
           className="primary"
           data-action="confirm-parse"
           aria-busy={saving}
-          disabled={saving || !candidates.length || !!context.issues?.length}
+          disabled={
+            saving || !pendingProducts.length || !!context.issues?.length
+          }
           onClick={async () => {
             if (saving) return;
             setSaving(true);

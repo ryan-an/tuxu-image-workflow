@@ -57,7 +57,7 @@ export function createFiles(context) {
             ? "webp"
             : "png";
       zip.file(
-        `${folders.get(p.id)}/${safeFileComponent(t.role)}-V${v.number}.${ext}`,
+        `${folders.get(p.id)}/${p.tasks.indexOf(t) + 1}-${safeFileComponent(t.role)}-V${v.number}.${ext}`,
         await blob.arrayBuffer(),
       );
     }

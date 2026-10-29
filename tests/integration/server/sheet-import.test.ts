@@ -434,6 +434,26 @@ test("new preview products get all three rows and conflicting metadata cannot be
   assert.deepEqual(h.state.sheetSnapshot, before);
 });
 
+test("unchanged products stay pending only when their sheet structure or parse marker needs saving", async () => {
+  for (const repair of ["missing-row", "missing-merge", "unparsed"] as const) {
+    const product = newProduct(`REPAIR-${repair}`, "产品");
+    const h = parserHarness([product]);
+    if (repair !== "unparsed") h.bridge.markProductParsed(product.code);
+    const preview = h.state.sheetSnapshot.sheets.preview;
+    if (repair === "missing-row") delete preview.cellData[2];
+    if (repair === "missing-merge") preview.mergeData = [];
+    await h.open();
+    assert.deepEqual(
+      h.context.ui.parser.changes.map((item: any) => item.code),
+      [product.code],
+    );
+    await h.sheet.confirmParse();
+    await h.open();
+    assert.equal(h.context.ui.parser.changes.length, 0);
+    assert.equal(h.state.products.length, 1);
+  }
+});
+
 test("preview parsing applies clears, selects an existing result, and preserves history and unmapped fields", async () => {
   const product: any = newProduct("ACCURATE", "产品", "旧资料");
   product.photo = png;

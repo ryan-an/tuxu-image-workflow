@@ -332,7 +332,7 @@ export function createCommands(context) {
         const v = t.versions.find((v) => v.id === data.version);
         downloadBlob(
           await (await fetch(v.source)).blob(),
-          `${p.code}-${t.role}-V${v.number}.${v.source.startsWith("data:image/jpeg") ? "jpg" : v.source.startsWith("data:image/webp") ? "webp" : "png"}`,
+          `${p.tasks.indexOf(t) + 1}-${p.code}-${t.role}-V${v.number}.${v.source.startsWith("data:image/jpeg") ? "jpg" : v.source.startsWith("data:image/webp") ? "webp" : "png"}`,
         );
         break;
       }

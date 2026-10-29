@@ -10,7 +10,37 @@ import {
   parseSheet,
   validateSheetParse,
   imageCell,
+  cellText,
+  ROW_TYPES,
 } from "../../shared/sheet-data.js";
+
+function parsedSheetNeedsUpdate(product, sheet, mapping, mergedColumns) {
+  if (sheet.id !== "preview") return false;
+  const rows = product.sourceRows.map((row) => row - 1);
+  const start = rows[0];
+  if (
+    rows.length !== 3 ||
+    rows.some(
+      (row, index) =>
+        row !== start + index ||
+        cellText(sheet.cellData[row]?.[mapping.typeColumn]) !==
+          ROW_TYPES[index],
+    )
+  )
+    return true;
+  if (
+    [mapping.codeColumn, mapping.statusColumn, mapping.nameColumn].some(
+      (column) =>
+        column >= 0 && !mergedColumns.has(`${start}:${start + 2}:${column}`),
+    )
+  )
+    return true;
+  return (
+    (mapping.statusColumn >= 0 &&
+      !sheet.cellData[start]?.[mapping.statusColumn]?.custom?.workflowParsed) ||
+    rows.some((row) => sheet.rowData?.[row]?.custom?.workflowSaveFailed)
+  );
+}
 
 // Match the import rules: missing external columns preserve existing values,
 // while explicitly empty preview cells can clear them.
@@ -237,14 +267,28 @@ export function createSheet(context) {
       );
     }
     const products = new Map(context.state.products.map((p) => [p.code, p]));
+    const mergedColumns = new Set(
+      (parseContext.source.mergeData || [])
+        .filter((range) => range.startColumn === range.endColumn)
+        .map(
+          (range) => `${range.startRow}:${range.endRow}:${range.startColumn}`,
+        ),
+    );
     parseContext.changes = parseContext.importId
       ? parseContext.candidates
-      : parseContext.candidates.filter((source) =>
-          parsedProductNeedsUpdate(
-            source,
-            products.get(source.code),
-            parseContext.source.id === "preview",
-          ),
+      : parseContext.candidates.filter(
+          (source) =>
+            parsedProductNeedsUpdate(
+              source,
+              products.get(source.code),
+              parseContext.source.id === "preview",
+            ) ||
+            parsedSheetNeedsUpdate(
+              source,
+              parseContext.source,
+              parseContext.mapping,
+              mergedColumns,
+            ),
         );
     ui.parser = {
       ...parseContext,

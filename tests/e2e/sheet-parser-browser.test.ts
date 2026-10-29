@@ -72,6 +72,26 @@ test(
           .count(),
         2,
       );
+      assert.equal(
+        await dialog
+          .locator(".parse-products > div")
+          .filter({ hasText: "无变更" })
+          .count(),
+        0,
+      );
+      assert.equal(
+        await dialog
+          .locator(".parse-products > div")
+          .filter({ hasText: "已同步" })
+          .count(),
+        0,
+      );
+      assert.deepEqual(
+        await dialog
+          .locator(".parse-products > div > strong")
+          .allTextContents(),
+        [updated.code, fresh.code],
+      );
       let rejectCreation = true;
       await page.route("**/api/workspace", async (route: any) => {
         const request = route.request();
@@ -141,9 +161,14 @@ test(
       );
       assert.equal(
         await dialog
-          .getByText("所有产品已同步，无需更新。", { exact: true })
+          .getByText("所有产品均无变更，无需更新。", { exact: true })
           .count(),
         1,
+      );
+      assert.equal(await dialog.locator(".parse-products > div").count(), 0);
+      assert.equal(
+        await dialog.locator('[data-action="confirm-parse"]').isDisabled(),
+        true,
       );
       const saved = await f.workflows.repo.view();
       for (const row of [1, 4, 7, 10])
@@ -200,13 +225,28 @@ test(
       await page.fill("#login-password", password);
       await page.click('#login-form button[type="submit"]');
       const sheetTab = page.locator('[data-action="view"][data-view="sheet"]');
-      const parse = async () => {
+      const parse = async (expectPending = true) => {
         await sheetTab.click();
         await page.locator('[data-u-comp="defined-name"] input').waitFor();
         await page
           .getByRole("button", { name: "保存并解析", exact: true })
           .click();
         const dialog = page.locator("#modal");
+        await dialog.locator(".parse-summary").waitFor();
+        if (!expectPending) {
+          assert.equal(
+            await dialog.locator(".parse-products > div").count(),
+            0,
+          );
+          assert.equal(
+            await dialog.locator('[data-action="confirm-parse"]').isDisabled(),
+            true,
+          );
+          await dialog
+            .getByRole("button", { name: "关闭", exact: true })
+            .click();
+          return;
+        }
         await dialog.locator(".parse-products > div").first().waitFor();
         await dialog
           .getByRole("button", { name: "保存并解析", exact: true })
@@ -237,7 +277,7 @@ test(
       await sheetTab.click();
       await page.locator('[data-u-comp="defined-name"] input').waitFor();
       await page.reload();
-      await parse();
+      await parse(false);
       const reloaded = (await f.workflows.repo.view()).sheetSnapshot.sheets
         .preview;
       assert.deepEqual(Object.keys(reloaded.cellData), ["0", "1", "2", "3"]);
@@ -350,7 +390,12 @@ test(
       await page
         .getByRole("button", { name: "保存并解析", exact: true })
         .click();
-      await dialog.locator(".parse-products > div").first().waitFor();
+      await dialog.locator(".parse-summary").waitFor();
+      assert.equal(await dialog.locator(".parse-products > div").count(), 0);
+      assert.equal(
+        await dialog.locator('[data-action="confirm-parse"]').isDisabled(),
+        true,
+      );
       assert.equal(await dialog.locator("#parse-layout").isVisible(), false);
       assert.deepEqual(errors, []);
     } finally {
