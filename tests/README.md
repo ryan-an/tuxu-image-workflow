@@ -57,6 +57,18 @@ Remove-Item Env:TUXU_WINDOWS_BUNDLE
 
 未同时设置两项环境变量时，更新工具验证自动跳过。
 
+旧数据库升级启动验证额外设置 `TUXU_WINDOWS_PREVIOUS_BUNDLE` 为旧版 ZIP（例如 v0.2.1 或 v0.2.3），并将 `TUXU_WINDOWS_UPDATER` 指向本次生成的更新 EXE：
+
+```powershell
+$env:TUXU_WINDOWS_PREVIOUS_BUNDLE = (Resolve-Path 'artifacts/windows/tuxu-windows-x64-v0.2.1.zip').Path
+$env:TUXU_WINDOWS_UPDATER = (Resolve-Path 'artifacts/windows/tuxu-update-windows-x64-v0.2.4.exe').Path
+node --test tests/integration/scripts/windows-upgrade-startup.test.js
+Remove-Item Env:TUXU_WINDOWS_PREVIOUS_BUNDLE
+Remove-Item Env:TUXU_WINDOWS_UPDATER
+```
+
+该测试只操作 `artifacts/tests/`：用旧版运行时和代码创建 CRLF 迁移历史，保存账号、会话、工作区、产品和测试密钥，再执行更新并通过新版 EXE 连续启动两次，验证登录、数据、主密钥及已执行迁移记录保留，也验证真实迁移内容不一致时明确报错。缺少旧包或更新 EXE 时自动跳过，不读取业务数据库、不调用平台。
+
 Windows 上默认测试还会编译并运行备份保留逻辑，验证成功备份仅保留 2 份、失败备份保留、未完成更新不清理、文件占用提示，以及拒绝跟随备份内的目录链接。测试只操作 `artifacts/tests/backup-retention/` 中的独立数据。完整更新包验证也会检查成功后才清理旧备份，原数据和主密钥保持不变。
 
 Windows 窗口布局可用 `node tests/support/preview-windows-ui.mjs` 检查。脚本按打包配置编译启动器和更新器，使用内嵌界面组件、独立目录及虚拟状态离屏绘制窗口，覆盖首次密码、普通运行、更新进度、成功、失败及 100% / 150% 缩放；检查可见控件没有越出容器，以及关闭隐藏、恢复窗口和显式退出行为。截图与布局信息写入 `artifacts/tests/windows-ui-preview/`，不启动业务服务、不读取个人数据、不显示命令行窗口。完整便携包测试还会用离屏窗口和真实后台验证叉掉后 HTTP 继续访问、恢复窗口及退出后服务停止；测试模式不创建真实托盘图标。

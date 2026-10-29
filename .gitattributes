@@ -1,2 +1,2 @@
-# Keep the checksum of the migration relocated from the local 008.sql.
-/server/production/sqlite-migrations/014.sql text eol=lf
+# Migration SQL uses stable line endings across Windows and Linux checkouts.
+/server/production/sqlite-migrations/*.sql text eol=lf

@@ -9,7 +9,15 @@ if (!["all", "migrate"].includes(mode))
 const transport =
   mode === "migrate" ? undefined : await loadTransportSecurity(process.env);
 const db = database(process.env.DATABASE_PATH || "./data/workspace.sqlite");
-await migrate(db);
+try {
+  await migrate(db);
+} catch (error) {
+  await db.close();
+  console.error(
+    `数据库升级失败：${error instanceof Error ? error.message : String(error)}`,
+  );
+  process.exit(1);
+}
 if (mode === "migrate") {
   await db.close();
   process.exit(0);
