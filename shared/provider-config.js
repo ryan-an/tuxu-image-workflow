@@ -45,7 +45,10 @@ export function generationPayload(config, input) {
   if (!input.prompt?.trim()) throw new Error("提示词不能为空");
   const body = {
     model,
-    prompt: input.prompt,
+    prompt:
+      input.referenceImageKind === "reference" && input.referenceImages?.length
+        ? `本次未提供产品实拍图。随附图片均为当前卡片的参考图／对标图，不是产品实拍图；请结合产品资料和以下提示词设计，不要直接复刻参考图。\n\n${input.prompt}`
+        : input.prompt,
     images: input.referenceImages || [],
     replyType: "async",
   };

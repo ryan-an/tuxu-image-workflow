@@ -1,6 +1,7 @@
 import type { Product, ImageTask } from "../types";
 import { productPhotos } from "../../../shared/prompt-suite.js";
 import { ActionButton, useApplication } from "../context.tsx";
+import { ProductPhotoHint } from "../ProductPhotoHint";
 
 export function MediaDialog({
   product,
@@ -14,20 +15,19 @@ export function MediaDialog({
   return (
     <div id="media-uploader">
       <h2>{task ? `${task.role} · 参考图` : "产品实拍图"}</h2>
-      {user.role !== "viewer" && (
+      {user.role !== "viewer" && task && (
         <p className="modal-subtitle">
-          {task
-            ? "仅添加到当前图片位置，用于分析布局和文案。"
-            : "添加当前产品的不同实拍视角，供整套分析和生图使用。"}
+          添加到当前图片位置，用于分析布局和文案；没有实拍图时也用于生图，并注明为参考图。
           默认追加图片，已有图片保留。
         </p>
       )}
+      {!task && <ProductPhotoHint id="media-photo-hint" detailed />}
       <ActionButton
         id="media-dropzone"
         className="media-dropzone"
         action="choose-image-files"
         aria-label="选择图片，可多选，也可拖拽或粘贴"
-        aria-describedby="media-upload-hint media-feedback"
+        aria-describedby={`media-upload-hint media-feedback${task ? "" : " media-photo-hint"}`}
       >
         <span className="media-drop-icon" aria-hidden="true">
           ＋
@@ -38,7 +38,9 @@ export function MediaDialog({
             也可按 <kbd>Ctrl</kbd> + <kbd>V</kbd> 粘贴图片
           </span>
           <small id="media-upload-hint">
-            支持截图、复制的图片、石墨图片单元格，可连续添加
+            {task
+              ? "支持截图、复制的图片、石墨图片单元格，可连续添加"
+              : "仅上传本产品实拍照片，支持多选、拖拽和粘贴"}
           </small>
         </span>
       </ActionButton>

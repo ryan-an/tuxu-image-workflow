@@ -2,7 +2,7 @@ import { uid, findTask, addVersion, savePrompt } from "../../shared/model.js";
 import { runDemo } from "./demo-images.js";
 import {
   demoSuite,
-  productPhotos,
+  generationImages,
   productRequirements,
 } from "../../shared/prompt-suite.js";
 const active = (j) => ["queued", "running", "interrupted"].includes(j.status);
@@ -64,11 +64,6 @@ export class GenerationQueue {
       if (!groups.get(pair.product.id).tasks.includes(pair.task))
         groups.get(pair.product.id).tasks.push(pair.task);
     }
-    if (this.state.settings.mode === "live")
-      for (const { product } of groups.values()) {
-        if (!productPhotos(product).length)
-          throw new Error(`${product.name}：请先上传实拍图`);
-      }
     for (const { product, tasks } of groups.values()) {
       if (["prompt", "prompt-set"].includes(kind)) {
         this.setJob(product, tasks);
@@ -82,16 +77,12 @@ export class GenerationQueue {
       for (const task of tasks) {
         if (this.state.jobs.some((j) => j.taskId === task.id && active(j)))
           continue;
-        const photos = productPhotos(product);
-        const indices = task.realPhotoIndices;
         this.newJob(product, "image", {
           taskId: task.id,
           role: task.role,
           prompt: task.prompt,
           revision: task.revision,
-          referenceImages: indices?.length
-            ? indices.map((i) => photos[i]).filter(Boolean)
-            : photos,
+          ...generationImages(product, task),
           dependsOn: set?.id,
         });
       }
@@ -146,14 +137,16 @@ export class GenerationQueue {
         productRequirements(product, this.state.common),
         signal,
       );
-    if (!job.referenceImages?.length)
-      throw new Error("缺少产品实拍图，请上传后重试");
     let data = job.remoteId
       ? await this.request(job, "result", { id: job.remoteId }, signal)
       : await this.request(
           job,
           "image",
-          { prompt: job.prompt, referenceImages: job.referenceImages },
+          {
+            prompt: job.prompt,
+            referenceImages: job.referenceImages,
+            referenceImageKind: job.referenceImageKind,
+          },
           signal,
         );
     while (data.status !== "succeeded") {
@@ -251,10 +244,17 @@ export class GenerationQueue {
         if (set) {
           const item = set.prompts.find((p) => p.role === task.role);
           job.prompt = item.prompt;
-          const photos = productPhotos(set.productSnapshot);
-          job.referenceImages = item.photoIndices?.length
-            ? item.photoIndices.map((i) => photos[i]).filter(Boolean)
-            : photos;
+          const snapshotTask = set.productSnapshot.tasks.find(
+            (t) => t.id === job.taskId,
+          );
+          Object.assign(
+            job,
+            generationImages(
+              set.productSnapshot,
+              snapshotTask,
+              item.photoIndices,
+            ),
+          );
         }
         if (!job.prompt) throw new Error("请先生成整套提示词");
         const source = await this.image(job, product, task, controller.signal);

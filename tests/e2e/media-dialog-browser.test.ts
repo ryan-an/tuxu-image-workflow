@@ -55,6 +55,10 @@ test(
       await page.fill("#login-password", password);
       await page.click('#login-form button[type="submit"]');
       await page.locator(".task-card").first().waitFor();
+      assert.match(
+        await page.locator("#product-photo-hint").innerText(),
+        /实拍区禁止上传参考图／对标图.*没有产品实拍图可留空/,
+      );
 
       const checkLayout = async (desktop: boolean) => {
         const layout = await page
@@ -72,7 +76,15 @@ test(
               uploadHeight: drop.getBoundingClientRect().height,
               bottom: footer.getBoundingClientRect().bottom,
               top: dialog.getBoundingClientRect().top,
+              viewportWidth: innerWidth,
               viewportHeight: innerHeight,
+              dialogHeight: dialog.clientHeight,
+              dialogScrollHeight: dialog.scrollHeight,
+              galleryHeight: gallery.clientHeight,
+              warningHeight:
+                dialog
+                  .querySelector("#media-photo-hint")
+                  ?.getBoundingClientRect().height || 0,
               overflow: dialog.scrollWidth > dialog.clientWidth,
               outerScroll: dialog.scrollHeight > dialog.clientHeight + 1,
               galleryScroll: gallery.scrollHeight > gallery.clientHeight,
@@ -84,12 +96,23 @@ test(
         assert.ok(layout.uploadHeight < (desktop ? 100 : 130));
         assert.ok(layout.top >= 0 && layout.bottom <= layout.viewportHeight);
         assert.equal(layout.overflow, false);
-        assert.equal(layout.outerScroll, false);
+        if (layout.outerScroll)
+          await page.screenshot({
+            path: artifactPath(
+              `media-layout-overflow-${layout.viewportWidth}-${layout.viewportHeight}.png`,
+            ),
+          });
+        assert.equal(layout.outerScroll, false, JSON.stringify(layout));
         assert.equal(layout.galleryScroll, true);
+        assert.ok(layout.galleryHeight > 0, JSON.stringify(layout));
       };
 
       for (const action of ["manage-photos", "manage-references"]) {
         await page.locator(`[data-action="${action}"]`).first().click();
+        assert.equal(
+          await page.locator("#media-photo-hint").count(),
+          action === "manage-photos" ? 1 : 0,
+        );
         assert.equal(await page.locator(".media-gallery img").count(), 8);
         await checkLayout(true);
         await page.screenshot({
@@ -149,6 +172,139 @@ test(
           .evaluate((dialog: HTMLDialogElement) => dialog.open),
         false,
       );
+    } finally {
+      await browser.close();
+      await f.close();
+    }
+  },
+);
+
+test(
+  "real photos may be left empty and their warning stays visible on desktop and mobile before generating from card references",
+  { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 30000 },
+  async () => {
+    const { chromium } = createRequire(import.meta.url)(
+      process.env.PLAYWRIGHT_MODULE!,
+    );
+    const f = await fixture(resolve("dist"));
+    const browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.CHROME_PATH,
+    });
+    try {
+      const product = (await f.workflows.repo.view()).products[0];
+      product.photo = "";
+      product.photos = [];
+      product.tasks[0].prompt = "使用当前卡片参考图设计";
+      await f.workflows.repo.saveProduct(f.db, product);
+      await f.app.listen({ host: "127.0.0.1", port: 0 });
+      const page = await browser.newPage();
+      const errors: string[] = [];
+      page.on("pageerror", (error: Error) => errors.push(error.message));
+      await page.goto(
+        `http://127.0.0.1:${(f.app.server.address() as { port: number }).port}`,
+      );
+      await page.fill("#login-password", password);
+      await page.click('#login-form button[type="submit"]');
+      await page.locator("#product-photo-hint").waitFor();
+      for (const viewport of [
+        { width: 1440, height: 1000 },
+        { width: 375, height: 667 },
+      ]) {
+        await page.setViewportSize(viewport);
+        const hint = page.locator("#product-photo-hint");
+        assert.equal(await hint.isVisible(), true);
+        const hintStyle = await hint.evaluate((node: HTMLElement) => ({
+          color: getComputedStyle(node).color,
+          fontSize: getComputedStyle(node).fontSize,
+        }));
+        assert.equal(hintStyle.color, "rgb(148, 91, 6)");
+        assert.equal(hintStyle.fontSize, "12px");
+        const hintLayout = await hint.evaluate((node: HTMLElement) => {
+          const hint = node.getBoundingClientRect(),
+            setup = document
+              .querySelector(".product-setup")!
+              .getBoundingClientRect(),
+            toolbar = document
+              .querySelector(".task-toolbar")!
+              .getBoundingClientRect();
+          return {
+            afterSetup: hint.top >= setup.bottom,
+            beforeToolbar: hint.bottom <= toolbar.top,
+            leftOffset: Math.abs(hint.left - setup.left),
+            rightOffset: Math.abs(hint.right - setup.right),
+          };
+        });
+        assert.equal(hintLayout.afterSetup, true);
+        assert.equal(hintLayout.beforeToolbar, true);
+        assert.ok(
+          hintLayout.leftOffset < 1 && hintLayout.rightOffset < 1,
+          JSON.stringify(hintLayout),
+        );
+        assert.equal(
+          await hint.evaluate(
+            (node: HTMLElement) => node.scrollWidth <= node.clientWidth,
+          ),
+          true,
+        );
+        await page.screenshot({
+          path: artifactPath(
+            `optional-real-photos-workspace-${viewport.width}.png`,
+          ),
+        });
+        await page.locator('[data-action="manage-photos"]').click();
+        assert.equal(await page.locator("#media-photo-hint").isVisible(), true);
+        assert.equal(await page.locator(".media-gallery img").count(), 0);
+        await page
+          .getByText("没有产品实拍图就留空，请勿用参考图代替。", {
+            exact: true,
+          })
+          .waitFor();
+        assert.match(
+          await page.locator("#media-photo-hint").innerText(),
+          /产品外观依据.*误传对标图容易让模型沿用其产品、构图和背景/s,
+        );
+        assert.equal(
+          await page.locator("#media-upload-hint").innerText(),
+          "仅上传本产品实拍照片，支持多选、拖拽和粘贴",
+        );
+        assert.equal(
+          await page
+            .locator("#modal")
+            .evaluate(
+              (node: HTMLElement) =>
+                node.scrollWidth <= node.clientWidth &&
+                node.scrollHeight <= node.clientHeight + 1,
+            ),
+          true,
+        );
+        await page.screenshot({
+          path: artifactPath(
+            `optional-real-photos-dialog-${viewport.width}.png`,
+          ),
+        });
+        await page
+          .locator('.media-modal-footer [data-action="close-modal"]')
+          .click();
+      }
+      const [response] = await Promise.all([
+        page.waitForResponse(
+          (response: any) =>
+            response.url().endsWith("/api/jobs") &&
+            response.request().method() === "POST",
+        ),
+        page
+          .locator(".task-card")
+          .first()
+          .getByRole("button", { name: "生成图片", exact: true })
+          .click(),
+      ]);
+      assert.equal(response.status(), 200);
+      const jobs = (await f.workflows.repo.view()).jobs;
+      assert.equal(jobs.length, 1);
+      assert.equal(jobs[0].referenceImageKind, "reference");
+      assert.deepEqual(jobs[0].referenceImages, product.tasks[0].references);
+      assert.deepEqual(errors, []);
     } finally {
       await browser.close();
       await f.close();

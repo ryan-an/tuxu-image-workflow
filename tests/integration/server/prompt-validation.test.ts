@@ -92,13 +92,14 @@ test("complete suite saves all ten prompts and final text without content checks
       images: f.product.tasks.map(({ role }, i) => ({
         role,
         layout: "版面布局",
+        thirdPart: `AI 产品约束 ${role}，按实际资料设计。`,
         copy:
           i === 0
             ? plateCopy
             : i === 6
               ? ["Enjamyo Made For Your Everyday Needs"]
               : ["Thoughtful Design For Your Everyday Needs"],
-        fourthPart: "分辨率300",
+        fourthPart: "AI 画布1200X800，分辨率150",
         photoIndices: [1, 2],
       })),
     });
@@ -120,7 +121,7 @@ test("complete suite saves all ten prompts and final text without content checks
     assert.equal(job.error, "");
     assert.equal(job.analysisResponse, text);
     assert.equal(job.receivedChars, text.length);
-    assert.match(job.promptDrafts!["A+ 4"], /分辨率300$/);
+    assert.match(job.promptDrafts!["A+ 4"], /分辨率150$/);
     assert.equal(job.promptWarnings, undefined);
     assert.ok(
       state.products[0].tasks.every(
@@ -129,6 +130,11 @@ test("complete suite saves all ten prompts and final text without content checks
       ),
     );
     assert.equal(state.products[0].promptSets.length, 1);
+    for (const task of state.products[0].tasks) {
+      assert.ok(task.prompt.includes(`AI 产品约束 ${task.role}`));
+      assert.match(task.prompt, /AI 画布1200X800，分辨率150$/);
+      assert.doesNotMatch(task.prompt, /1610X1610|970X600|分辨率300/);
+    }
     assert.equal(logs[0].event, "prompt.completed");
     assert.equal(logs[0].promptCount, 10);
     assert.equal(logs[0].warnings, undefined);

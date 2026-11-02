@@ -11,6 +11,7 @@ import { migrateAutoSizeDefaults } from "../../../shared/generation-settings.js"
 import {
   FIXED_PRODUCT_REQUIREMENTS,
   DEFAULT_COMMON,
+  LEGACY_DEFAULT_COMMON,
   parseSuiteResponse,
 } from "../../../shared/prompt-suite.js";
 const suiteFixture = () => ({
@@ -26,6 +27,8 @@ const suiteFixture = () => ({
           ? "Blcculi Made For Your Everyday Packing"
           : "Thoughtful Design For Your Everyday Packing",
     ],
+    thirdPart: "AI 返回的产品约束：保持产品结构，使用少量英文文案。",
+    fourthPart: `AI 返回的画布：${i < 6 ? "1400X1000" : "1100X650"}像素，分辨率150。`,
     photoIndices: [0],
   })),
 });
@@ -188,15 +191,31 @@ test("local adapter submits, polls, preserves IDs and hides the API key", async 
     });
     assert.equal(prompt.prompts.length, 10);
     for (const item of prompt.prompts) {
-      assert.ok(item.prompt.includes(FIXED_PRODUCT_REQUIREMENTS));
+      assert.ok(item.prompt.includes("AI 返回的产品约束"));
+      assert.ok(!item.prompt.includes(FIXED_PRODUCT_REQUIREMENTS));
       assert.ok(
         item.prompt.includes(
-          item.role.startsWith("A+") ? "970X600像素" : "1610X1610像素",
+          item.role.startsWith("A+") ? "1100X650像素" : "1400X1000像素",
         ),
       );
     }
+    product.photo = "";
+    const withoutPhotos = await post("/api/workflow/prompt-set", {
+      product,
+      common: DEFAULT_COMMON,
+    });
+    assert.equal(withoutPhotos.prompts.length, 10);
+    assert.ok(withoutPhotos.prompts.every((item) => !item.photoIndices.length));
+    const withoutPhotosVision = JSON.parse(
+      calls.filter((call) => call.url.endsWith("/api/v3/responses")).at(-1)
+        .options.body,
+    ).input[0].content;
+    assert.ok(withoutPhotosVision[0].text.includes("本次没有产品实拍图"));
+    assert.ok(
+      !withoutPhotosVision.some((item) => item.text?.startsWith("产品实拍图 ")),
+    );
     const chatCalls = calls.filter((c) => c.url.endsWith("/api/v3/responses"));
-    assert.equal(chatCalls.length, 1);
+    assert.equal(chatCalls.length, 2);
     assert.equal(
       chatCalls[0].options.headers.Authorization,
       "Bearer fake-doubao-for-test",
@@ -214,6 +233,7 @@ test("local adapter submits, polls, preserves IDs and hides the API key", async 
             item.text.includes(`对标图片位置：${role}`),
         ),
       );
+    product.photo = "data:image/png;base64,actual-photo";
     for (const allMissing of [false, true]) {
       product.tasks.forEach((task, index) => {
         if (allMissing || index > 0) task.references = [];
@@ -276,45 +296,51 @@ test("suite contract checks structure without checking copy content", () => {
   assert.throws(() => parseSuiteResponse(JSON.stringify(fixture)), /完整10张/);
 });
 
-test("all editable analysis rules are respected and no old fixed rules are injected", () => {
+test("default, legacy and custom templates never replace any model-returned section", () => {
   const product = newProduct(
     "test",
     "25 个装信封",
     "24 cm x 28 cm\n品牌：Blcculi",
   );
-  const common = DEFAULT_COMMON.replace(
-    FIXED_PRODUCT_REQUIREMENTS,
-    "按当前实拍图生成，不添加标识。图中的文字字数控制在10-20词以内。",
-  )
-    .replace("1610X1610", "2000X2000")
-    .replace("970X600", "1200X800")
-    .replaceAll("分辨率300", "分辨率150");
   const fixture = suiteFixture();
-  for (const item of fixture.images)
-    item.copy = [
-      "Thoughtful Design For Your Everyday Packing With Simple And Clear Details",
-    ];
-  const freeRules = common.replace(
-    "尺寸图里面必须包含我提供的产品尺寸和数量；A+(1)里面必须包含我提供的品牌。",
-    "尺寸图和A+1自由安排文案。",
-  );
-  const result = parseSuiteResponse(
-    JSON.stringify(fixture),
-    1,
-    product,
-    freeRules,
-  );
-  assert.equal(result.prompts.length, 10);
-  assert.ok(result.prompts[0].prompt.includes("2000X2000像素"));
-  assert.ok(result.prompts[6].prompt.includes("1200X800像素"));
-  assert.ok(
-    result.prompts.every(
-      (p) =>
-        p.prompt.includes("分辨率150") &&
-        p.prompt.includes("10-20词") &&
-        !p.prompt.includes(FIXED_PRODUCT_REQUIREMENTS),
-    ),
-  );
+  for (const common of [
+    DEFAULT_COMMON,
+    LEGACY_DEFAULT_COMMON.replace(/\n/g, "\r\n"),
+    "自定义模板原文：不得作为 AI 返回内容的兜底。第四部分：2000X2000。",
+  ]) {
+    const result = parseSuiteResponse(
+      JSON.stringify(fixture),
+      1,
+      product,
+      common,
+    );
+    assert.equal(result.prompts.length, 10);
+    for (const [index, item] of fixture.images.entries()) {
+      const prompt = result.prompts[index].prompt;
+      for (const text of [
+        item.layout,
+        ...item.copy,
+        fixture.style,
+        item.thirdPart,
+        item.fourthPart,
+      ])
+        assert.ok(prompt.includes(text));
+      assert.ok(!prompt.includes(FIXED_PRODUCT_REQUIREMENTS));
+      assert.doesNotMatch(prompt, /1610X1610|970X600|2000X2000|分辨率300/);
+    }
+    const missing = structuredClone(fixture);
+    delete missing.images[0].thirdPart;
+    delete missing.images[0].fourthPart;
+    const prompt = parseSuiteResponse(
+      JSON.stringify(missing),
+      1,
+      product,
+      common,
+    ).prompts[0].prompt;
+    assert.ok(!prompt.includes(common));
+    assert.ok(!prompt.includes(FIXED_PRODUCT_REQUIREMENTS));
+    assert.doesNotMatch(prompt, /1610X1610|分辨率300|2000X2000/);
+  }
 });
 test("API key survives development module reloads but is never returned", async () => {
   let middleware;

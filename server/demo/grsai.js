@@ -182,7 +182,6 @@ export function grsaiPlugin() {
         )
           throw new Error("请提供有效的产品资料和所选卡片");
         const photos = productPhotos(product);
-        if (!photos.length) throw new Error("请提供产品实拍图");
         const content = [
           {
             type: "text",

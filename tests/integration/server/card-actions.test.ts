@@ -332,6 +332,29 @@ test("single card model request includes only its reference and accepts only its
         c.text?.includes("未提供对标图，请依据产品资料"),
       ),
     );
+    product.photo = "";
+    product.photos = [];
+    product.tasks[0].references = [f.product.photo];
+    const withoutPhotos = await analyze();
+    assert.deepEqual(withoutPhotos.prompts[0].photoIndices, []);
+    assert.ok(request.input[0].content[0].text.includes("本次没有产品实拍图"));
+    assert.ok(
+      !request.input[0].content.some((c: any) =>
+        c.text?.startsWith("产品实拍图 "),
+      ),
+    );
+    assert.equal(
+      request.input[0].content.filter((c: any) => c.type === "input_image")
+        .length,
+      1,
+    );
+    product.tasks[0].references = [];
+    assert.equal((await analyze()).prompts.length, 1);
+    assert.equal(
+      request.input[0].content.filter((c: any) => c.type === "input_image")
+        .length,
+      0,
+    );
     extra = true;
     await assert.rejects(analyze(), /完整1张/);
   } finally {

@@ -27,7 +27,7 @@ import { requireMembership } from "./workspace-access.js";
 import type { Permission } from "../../shared/access.js";
 import { ROLES, newProduct, savePrompt } from "../../shared/model.js";
 import {
-  productPhotos,
+  generationImages,
   productRequirements,
 } from "../../shared/prompt-suite.js";
 import { baseUrl, MODELS } from "../../shared/provider-config.js";
@@ -705,8 +705,6 @@ export class Workflows {
         let count = 0,
           imageCount = 0;
         for (const { product, tasks } of groups.values()) {
-          const photos = productPhotos(product);
-          if (!photos.length) throw new AppError(`${product.name}：缺少实拍图`);
           const needsSet =
             ["prompt", "prompt-set"].includes(kind) ||
             kind === "full-workflow" ||
@@ -794,9 +792,7 @@ export class Workflows {
               role: task.role,
               prompt: task.prompt,
               dependsOn: needsSet ? set?.id : undefined,
-              referenceImages: task.realPhotoIndices?.length
-                ? task.realPhotoIndices.map((i) => photos[i]).filter(Boolean)
-                : photos,
+              ...generationImages(product, task),
             });
             await this.repo.insertJob(tx, job);
             state.jobs.push(job);

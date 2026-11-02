@@ -5,7 +5,7 @@ import {
   parseSuiteResponse,
   PromptValidationError,
 } from "../../shared/prompt-suite.js";
-import type { Product } from "./types.js";
+import type { Product, Job } from "./types.js";
 import type { Assets } from "./assets.js";
 import {
   readChatResponse,
@@ -71,6 +71,7 @@ export interface Provider {
     config: Record<string, any>,
     key: string,
     signal: AbortSignal,
+    referenceImageKind?: Job["referenceImageKind"],
   ): Promise<{ id: string }>;
   query(
     id: string,
@@ -293,6 +294,7 @@ export class GrsaiProvider implements Provider {
     config: Record<string, any>,
     key: string,
     signal: AbortSignal,
+    referenceImageKind?: Job["referenceImageKind"],
   ) {
     const references = [];
     for (const source of photos)
@@ -300,6 +302,7 @@ export class GrsaiProvider implements Provider {
     const body = generationPayload(config, {
       prompt,
       referenceImages: references,
+      referenceImageKind,
     });
     const data = await this.request(
       "/v1/api/generate",

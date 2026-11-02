@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { scheduler } from "node:timers/promises";
-import { productPhotos } from "../../shared/prompt-suite.js";
+import { generationImages } from "../../shared/prompt-suite.js";
 import { savePrompt, selectVersion } from "../../shared/model.js";
 import {
   ProviderError,
@@ -200,15 +200,17 @@ export class Worker {
           });
       } else if (!job.remoteId) {
         let prompt = job.prompt!,
-          photos = job.referenceImages!;
+          photos = job.referenceImages!,
+          referenceImageKind = job.referenceImageKind;
         if (job.dependsOn) {
           const set = (await this.workflows.repo.job(job.dependsOn))!;
           const item = set.prompts!.find((p: any) => p.role === job.role),
-            all = productPhotos(set.productSnapshot!);
+            product = set.productSnapshot!,
+            task = product.tasks.find((t) => t.id === job.taskId)!;
           prompt = item.prompt;
-          photos = item.photoIndices?.length
-            ? item.photoIndices.map((i: number) => all[i]).filter(Boolean)
-            : all;
+          const images = generationImages(product, task, item.photoIndices);
+          photos = images.referenceImages;
+          referenceImageKind = images.referenceImageKind;
         }
         // Persist the uncertain-submission boundary BEFORE making the paid request.
         if (!(await this.workflows.repo.markStage(job, "submitting")))
@@ -219,6 +221,7 @@ export class Worker {
           job.config,
           key,
           signal,
+          referenceImageKind,
         );
         await this.workflows.repo.updateClaim(
           job,
@@ -226,6 +229,7 @@ export class Worker {
             current.remoteId = result.id;
             current.prompt = prompt;
             current.referenceImages = photos;
+            current.referenceImageKind = referenceImageKind;
             current.stage = "polling";
             current.rateLimitRetries = 0;
             if (current.status !== "cancelled") current.status = "queued";

@@ -110,6 +110,36 @@ test("local analysis snapshots each product's requirements and reset returns to 
   assert.equal(state.jobs[2].common, state.common);
 });
 
+test("local workflows without real photos send each card's frozen references and label their source", async (t) => {
+  const { product, state, queue, pairs } = setup();
+  state.paused = true;
+  product.photo = "";
+  product.photos = [];
+  const expected = [...product.tasks[0].references];
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    const input = JSON.parse(options.body);
+    if (url.endsWith("prompt-set"))
+      return Response.json(demoSuite(input.product));
+    requests.push(input);
+    return Response.json({
+      id: "reference-image",
+      status: "succeeded",
+      image: photo,
+    });
+  });
+  assert.equal(queue.enqueue(pairs.slice(0, 1), "workflow"), 2);
+  product.photo = photo;
+  product.tasks[0].references = [];
+  state.paused = false;
+  queue.pump();
+  await until(() => state.jobs.every((job) => job.status === "completed"));
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0].referenceImages, expected);
+  assert.equal(requests[0].referenceImageKind, "reference");
+  assert.ok(requests[0].prompt.includes("未提供实拍图"));
+});
+
 test("single card analysis writes only its prompt and single card workflow submits one image", async () => {
   const original = globalThis.fetch;
   const { product, state, queue, writes, pairs } = setup();

@@ -2,6 +2,10 @@
   container-type: inline-size;
   margin-bottom: 18px;
 }
+.product-context > .product-photo-hint {
+  margin-top: 8px;
+  border: 1px solid var(--color-warning-border);
+}
 .product-setup {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr);

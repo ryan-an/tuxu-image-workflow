@@ -11,6 +11,7 @@ import { WorkspaceTitle } from "./WorkspaceTitle.tsx";
 import "./requirements.css";
 import { Badge } from "../design-system/Badge";
 import { PreviewImage } from "../PreviewImage";
+import { ProductPhotoHint } from "../ProductPhotoHint";
 import { WorkspaceLoading } from "../WorkspaceLoading";
 import { WorkspaceEmpty, EmptyCollectionIcon } from "../WorkspaceEmpty";
 
@@ -68,6 +69,7 @@ export function Workbench() {
               className="product-photo"
               action="upload-photo"
               aria-label={photoCount ? "查看产品实拍图" : "上传产品实拍图"}
+              aria-describedby="product-photo-hint"
             >
               {product.photo ? (
                 <PreviewImage src={product.photo} alt="产品实拍" />
@@ -86,6 +88,7 @@ export function Workbench() {
               action="manage-photos"
               aria-label={`实拍图 ${photoCount} 张`}
               title="查看、上传或管理产品实拍图"
+              aria-describedby="product-photo-hint"
             >
               <svg
                 width="16"
@@ -168,6 +171,7 @@ export function Workbench() {
             </div>
           </section>
         </div>
+        <ProductPhotoHint id="product-photo-hint" />
       </div>
       <div className="task-toolbar">
         <div className="segmented">

@@ -42,13 +42,14 @@ test("free text needs no numbered headings and model dimensions are not overridd
     /1200×800/,
   );
   delete (response.images[0] as any).thirdPart;
-  assert.ok(
+  assert.equal(
     parseSuiteResponse(
       JSON.stringify(response),
       0,
       product,
       text,
     ).prompts[0].prompt.includes(text),
+    false,
   );
 });
 
