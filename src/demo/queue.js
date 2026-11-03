@@ -3,6 +3,7 @@ import { runDemo } from "./demo-images.js";
 import {
   demoSuite,
   generationImages,
+  productPhotos,
   productRequirements,
 } from "../../shared/prompt-suite.js";
 const active = (j) => ["queued", "running", "interrupted"].includes(j.status);
@@ -41,9 +42,10 @@ export class GenerationQueue {
     if (activeSets.some((j) => tasks.some((t) => j.taskIds?.includes(t.id))))
       throw new Error("所选卡片已有分析任务，请等待完成后重试");
     const snapshot = structuredClone(product);
-    snapshot.tasks = snapshot.tasks.filter((t) =>
-      tasks.some((target) => target.id === t.id),
-    );
+    if (productPhotos(snapshot).length)
+      snapshot.tasks = snapshot.tasks.filter((t) =>
+        tasks.some((target) => target.id === t.id),
+      );
     return this.newJob(product, "prompt-set", {
       role:
         tasks.length === 10
@@ -146,6 +148,7 @@ export class GenerationQueue {
             prompt: job.prompt,
             referenceImages: job.referenceImages,
             referenceImageKind: job.referenceImageKind,
+            referenceImageContext: job.referenceImageContext,
           },
           signal,
         );
@@ -189,13 +192,19 @@ export class GenerationQueue {
         const targets = product.tasks.filter(
           (t) => !job.taskIds || job.taskIds.includes(t.id),
         );
+        const snapshot = {
+          ...job.productSnapshot,
+          tasks: job.productSnapshot.tasks.filter(
+            (t) => !job.taskIds || job.taskIds.includes(t.id),
+          ),
+        };
         const result =
           job.mode === "demo"
-            ? demoSuite(job.productSnapshot, job.common)
+            ? demoSuite(snapshot, job.common)
             : await this.request(
                 job,
                 "prompt-set",
-                { product: job.productSnapshot, common: job.common },
+                { product: snapshot, common: job.common },
                 controller.signal,
               );
         if (controller.signal.aborted)
@@ -343,11 +352,14 @@ export class GenerationQueue {
       )
         return;
       job.productSnapshot = structuredClone(pair.product);
-      job.productSnapshot.tasks = job.productSnapshot.tasks.filter(
-        (t) => !job.taskIds || job.taskIds.includes(t.id),
-      );
+      if (productPhotos(job.productSnapshot).length)
+        job.productSnapshot.tasks = job.productSnapshot.tasks.filter(
+          (t) => !job.taskIds || job.taskIds.includes(t.id),
+        );
       job.revisions = Object.fromEntries(
-        job.productSnapshot.tasks.map((t) => [t.id, t.revision]),
+        job.productSnapshot.tasks
+          .filter((t) => !job.taskIds || job.taskIds.includes(t.id))
+          .map((t) => [t.id, t.revision]),
       );
       job.common = productRequirements(pair.product, this.state.common);
       job.status = "queued";

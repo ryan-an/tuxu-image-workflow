@@ -1,4 +1,5 @@
 import { ROLES } from "./model.js";
+import { normalizePromptRole } from "./prompt-roles.js";
 
 export const FIXED_PRODUCT_REQUIREMENTS = `1. 必须严格使用我上传的实拍产品图片作为唯一产品参考来源。
 2. 生成结果中的产品必须与上传的实拍图高度一致，不得擅自修改产品本身。
@@ -65,18 +66,46 @@ export function productPhotos(product) {
     ...new Set([product.photo, ...(product.photos || [])].filter(Boolean)),
   ];
 }
-/** @returns {{ referenceImages: string[], referenceImageKind: "product-photo" | "reference" }} */
+/** @returns {{ referenceImages: string[], referenceImageKind: "product-photo" | "reference", referenceImageContext?: string }} */
 export function generationImages(
   product,
   task,
   indices = task.realPhotoIndices,
 ) {
   const photos = productPhotos(product);
-  if (!photos.length)
+  if (!photos.length) {
+    const cards = product.tasks || [task];
+    const referenceImages = [
+      ...new Set(
+        cards.flatMap((card) => card.references || []).filter(Boolean),
+      ),
+    ];
+    const numbers = new Map(
+      referenceImages.map((source, index) => [source, index + 1]),
+    );
+    const labels = (sources) =>
+      [...new Set(sources || [])]
+        .filter((source) => numbers.has(source))
+        .map((source) => `图片 ${numbers.get(source)}`)
+        .join("、");
+    const current = labels(task.references);
     return {
-      referenceImages: [...new Set(task.references || [])],
+      referenceImages,
       referenceImageKind: "reference",
+      ...(referenceImages.length
+        ? {
+            referenceImageContext: `本次只生成「${task.role}」一张图片，不生成其他卡片或整套拼图。
+附图按上传顺序从 1 编号，对应关系：
+${cards
+  .filter((card) => card.references?.length)
+  .map((card) => `${card.role}：${labels(card.references)}`)
+  .join("\n")}
+${current ? `当前要做的对标图：${current}（${task.role}）。` : `当前卡片「${task.role}」未提供对标图，请依据以下提示词自主设计。`}
+其他位置的对标图仅用于参考整套风格、配色和产品信息，不作为本张的目标版式。`,
+          }
+        : {}),
     };
+  }
   const selected = indices?.length
     ? indices.map((i) => photos[i]).filter(Boolean)
     : photos;
@@ -128,8 +157,8 @@ export function suiteInstruction(product, common) {
   return `以下全部是用户当前可编辑的提示词生成要求，请按当前版本执行，不套用其他默认规则：\n${common}\n\n产品名称：${product.name}\n产品编号：${product.code}\n产品信息：${product.facts || "资料暂缺；不要猜测规格。"}\n\n本次仅分析以下${roles.length}张卡片，严格按此顺序：${roles.join("、")}。共用要求中的整套数量仅作为设计背景，本次输出范围以上述卡片为准，不要输出其他位置。对标图是可选资料；部分或全部位置未提供对标图时，依据产品资料、实拍图、当前要求和图片类型自主设计，仍须输出所有指定卡片的完整提示词，不要求补图，不声称已识别未提供的对标图。
 产品实拍图也是可选资料。本次提供${photoCount}张产品实拍图。${photoCount ? "产品外观以标注的实拍图为依据，对标图仅用于参考设计。" : "本次没有产品实拍图，各卡片附图均为参考图／对标图，不能称为实拍图。依据产品资料、当前卡片参考图和当前要求设计，不照搬参考图，不声称已上传实拍图；模板中依赖实拍图的要求按实际未提供实拍图的情况处理，photoIndices必须返回空数组。"}
 用户要求是自由文本，标题、编号和段落格式不限；必须通读全文，不得因缺少“第一部分”等标题而忽略要求。下面的JSON字段只是返回格式，与用户正文的标题无关。
-仅返回一个JSON对象，不要Markdown：{"style":"依据全文中的视觉与风格要求制定整套统一设计规范", "images":[{"role":"尺寸图","layout":"依据全文要求生成此位置的布局，所有可见文案放copy里", "copy":["按用户当前规则生成的图上文案"],"thirdPart":"提取全文中的产品约束和必须遵守的要求；用户指定原样保留的文字必须原样保留", "fourthPart":"依据全文为此图片确定尺寸和分辨率；未指定的参数不要编造", "photoIndices":${photoCount ? "[0]" : "[]"}}]}。
-images必须恰好${roles.length}项，角色不重不漏；语言、字数、品牌、数量、配色、字体、尺寸及产品规则全部以用户当前要求为准。photoIndices从0开始，从标注的实拍图选择合适视角。`;
+仅返回一个JSON对象，不要Markdown：{"style":"依据全文中的视觉与风格要求制定整套统一设计规范", "images":[{"role":${JSON.stringify(roles[0] || ROLES[0])},"layout":"依据全文要求生成此位置的布局，所有可见文案放copy里", "copy":["按用户当前规则生成的图上文案"],"thirdPart":"提取全文中的产品约束和必须遵守的要求；用户指定原样保留的文字必须原样保留", "fourthPart":"依据全文为此图片确定尺寸和分辨率；未指定的参数不要编造", "photoIndices":${photoCount ? "[0]" : "[]"}}]}。
+images必须恰好${roles.length}项，角色不重不漏；每项role必须逐字使用上述卡片名称（包括空格），不要改写或新增位置名称。语言、字数、品牌、数量、配色、字体、尺寸及产品规则全部以用户当前要求为准。photoIndices从0开始，从标注的实拍图选择合适视角。`;
 }
 export function productSpecs(product) {
   const info = `${product.name} ${product.facts || ""}`;
@@ -189,20 +218,26 @@ export function parseSuiteResponse(
     );
   const seen = new Set();
   const prompts = value.images.map((item) => {
-    if (!item || !roles.includes(item.role) || seen.has(item.role))
+    const role = normalizePromptRole(item?.role);
+    if (!role || !roles.includes(role))
       throw new PromptValidationError(
-        "提示词无法对应到图片位置，请重新生成",
+        "提示词无法对应到图片位置：返回了无法识别或本次未要求的位置，请重新生成",
         "invalid_card",
-        roles.includes(item?.role) ? item.role : undefined,
       );
-    seen.add(item.role);
+    if (seen.has(role))
+      throw new PromptValidationError(
+        `提示词无法对应到图片位置：「${role}」重复，请重新生成`,
+        "invalid_card",
+        role,
+      );
+    seen.add(role);
     const indices = [...new Set(item.photoIndices || [])].filter(
       (i) => Number.isInteger(i) && i >= 0 && i < photoCount,
     );
     return {
-      role: item.role,
+      role,
       prompt: assemblePrompt(
-        item.role,
+        role,
         typeof item.layout === "string" ? item.layout : "",
         Array.isArray(item.copy)
           ? item.copy.filter((line) => typeof line === "string")

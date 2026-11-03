@@ -26,7 +26,7 @@ test(
       const original = await f.workflows.repo.view(),
         next = structuredClone(original);
       const updated = newProduct("B-UPDATE", "本次更新"),
-        fresh = newProduct("C * NEW / 01", "本次最后保存"),
+        fresh = newProduct("C * NEW /\n01\t套装", "本次最后保存"),
         tail = newProduct("D-SYNCED", "末尾已同步");
       next.products.push(updated as any, tail as any);
       next.sheetSnapshot = workflowSnapshot({

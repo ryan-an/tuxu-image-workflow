@@ -112,6 +112,11 @@ test(
         .getByRole("button", { name: "添加第一个产品", exact: true })
         .click();
       await page.locator('#product-form input[name="code"]').fill("FIRST-01");
+      await page.locator('#product-form input[name="name"]').fill("   ");
+      await page.locator('#product-form button[type="submit"]').click();
+      await page.getByText("产品名称不能为空", { exact: true }).waitFor();
+      assert.equal(await page.locator("#product-form").isVisible(), true);
+      assert.equal((await f.workflows.repo.view()).products.length, 0);
       await page
         .locator('#product-form input[name="name"]')
         .fill("我的第一个产品");
@@ -122,7 +127,10 @@ test(
       );
       await page.locator('#product-form button[type="submit"]').click();
       await page.locator(".task-card").first().waitFor();
-      await saved;
+      assert.equal((await saved).status(), 200);
+      const created = (await f.workflows.repo.view()).products[0];
+      assert.equal(created.photo, "");
+      assert.deepEqual(created.photos, []);
       assert.equal(
         (await f.workflows.repo.view()).products[0].name,
         "我的第一个产品",

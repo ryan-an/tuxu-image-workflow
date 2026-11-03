@@ -1,4 +1,4 @@
-import { ROLES } from "./model.js";
+import { normalizePromptRole } from "./prompt-roles.js";
 function stringAt(source, start) {
   let raw = "";
   for (let i = start; i < source.length; i++) {
@@ -28,8 +28,8 @@ export function streamedPrompts(source) {
   const starts = [...source.matchAll(/(?<!\\)"role"\s*:\s*"/g)];
   for (let i = 0; i < starts.length; i++) {
     const block = source.slice(starts[i].index, starts[i + 1]?.index),
-      role = field(block, "role");
-    if (!ROLES.includes(role)) continue;
+      role = normalizePromptRole(field(block, "role"));
+    if (!role) continue;
     const copies = [],
       copyStart = /"copy"\s*:\s*\[/.exec(block);
     if (copyStart) {

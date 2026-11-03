@@ -65,6 +65,7 @@ export interface Job {
   revisions?: Record<string, number>;
   referenceImages?: string[];
   referenceImageKind?: "product-photo" | "reference";
+  referenceImageContext?: string;
   prompt?: string;
   prompts?: any[];
   promptDrafts?: Record<string, string>;

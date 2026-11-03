@@ -35,7 +35,7 @@ export function requestedWorkspaceView(
 // Execution snapshots are required by workers and portable backups, but never
 // by task lists. Project in SQL so large frozen inputs are not parsed in Node.
 const jobPayload = `json_remove(payload,'$.productSnapshot','$.common','$.revisions',
-  '$.referenceImages','$.prompt','$.prompts','$.analysisResponse')`;
+  '$.referenceImages','$.referenceImageContext','$.prompt','$.prompts','$.analysisResponse')`;
 export const JOB_VIEW_COLUMNS = `id,status,stage,remote_id,created_at,${jobPayload} AS payload`;
 export function presentJob(job: Job, details = false) {
   const {
@@ -43,6 +43,7 @@ export function presentJob(job: Job, details = false) {
     common,
     revisions,
     referenceImages,
+    referenceImageContext,
     prompt,
     prompts,
     analysisResponse,

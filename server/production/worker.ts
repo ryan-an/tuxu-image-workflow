@@ -201,7 +201,8 @@ export class Worker {
       } else if (!job.remoteId) {
         let prompt = job.prompt!,
           photos = job.referenceImages!,
-          referenceImageKind = job.referenceImageKind;
+          referenceImageKind = job.referenceImageKind,
+          referenceImageContext = job.referenceImageContext;
         if (job.dependsOn) {
           const set = (await this.workflows.repo.job(job.dependsOn))!;
           const item = set.prompts!.find((p: any) => p.role === job.role),
@@ -211,6 +212,7 @@ export class Worker {
           const images = generationImages(product, task, item.photoIndices);
           photos = images.referenceImages;
           referenceImageKind = images.referenceImageKind;
+          referenceImageContext = images.referenceImageContext;
         }
         // Persist the uncertain-submission boundary BEFORE making the paid request.
         if (!(await this.workflows.repo.markStage(job, "submitting")))
@@ -222,6 +224,7 @@ export class Worker {
           key,
           signal,
           referenceImageKind,
+          referenceImageContext,
         );
         await this.workflows.repo.updateClaim(
           job,
@@ -230,6 +233,7 @@ export class Worker {
             current.prompt = prompt;
             current.referenceImages = photos;
             current.referenceImageKind = referenceImageKind;
+            current.referenceImageContext = referenceImageContext;
             current.stage = "polling";
             current.rateLimitRetries = 0;
             if (current.status !== "cancelled") current.status = "queued";

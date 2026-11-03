@@ -72,6 +72,7 @@ export interface Provider {
     key: string,
     signal: AbortSignal,
     referenceImageKind?: Job["referenceImageKind"],
+    referenceImageContext?: string,
   ): Promise<{ id: string }>;
   query(
     id: string,
@@ -295,6 +296,7 @@ export class GrsaiProvider implements Provider {
     key: string,
     signal: AbortSignal,
     referenceImageKind?: Job["referenceImageKind"],
+    referenceImageContext?: string,
   ) {
     const references = [];
     for (const source of photos)
@@ -303,6 +305,7 @@ export class GrsaiProvider implements Provider {
       prompt,
       referenceImages: references,
       referenceImageKind,
+      referenceImageContext,
     });
     const data = await this.request(
       "/v1/api/generate",

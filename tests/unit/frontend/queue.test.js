@@ -110,12 +110,12 @@ test("local analysis snapshots each product's requirements and reset returns to 
   assert.equal(state.jobs[2].common, state.common);
 });
 
-test("local workflows without real photos send each card's frozen references and label their source", async (t) => {
+test("local workflows without real photos send all frozen references and label the current card", async (t) => {
   const { product, state, queue, pairs } = setup();
   state.paused = true;
   product.photo = "";
   product.photos = [];
-  const expected = [...product.tasks[0].references];
+  const expected = product.tasks.flatMap((task) => task.references);
   const requests = [];
   t.mock.method(globalThis, "fetch", async (url, options) => {
     const input = JSON.parse(options.body);
@@ -128,15 +128,21 @@ test("local workflows without real photos send each card's frozen references and
       image: photo,
     });
   });
-  assert.equal(queue.enqueue(pairs.slice(0, 1), "workflow"), 2);
+  assert.equal(queue.enqueue(pairs.slice(1, 2), "workflow"), 2);
   product.photo = photo;
-  product.tasks[0].references = [];
+  product.tasks.forEach((task) => (task.references = []));
   state.paused = false;
   queue.pump();
   await until(() => state.jobs.every((job) => job.status === "completed"));
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0].referenceImages, expected);
   assert.equal(requests[0].referenceImageKind, "reference");
+  assert.ok(requests[0].referenceImageContext.includes("本次只生成「卖点图」"));
+  assert.ok(
+    requests[0].referenceImageContext.includes(
+      "当前要做的对标图：图片 2（卖点图）",
+    ),
+  );
   assert.ok(requests[0].prompt.includes("未提供实拍图"));
 });
 

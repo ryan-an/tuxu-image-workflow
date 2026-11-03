@@ -5,9 +5,16 @@ import { createFiles } from "../../../src/application/files.js";
 import { newProduct, addVersion } from "../../../shared/model.js";
 
 test("ZIP exports preserve all products when business codes sanitize to the same filename", async (t) => {
-  const products = ["SKU * 01", "SKU ? 01", "..", "CON"].map((code) =>
-    newProduct(code),
-  );
+  const codes = [
+    "SKU * 01",
+    "SKU ? 01",
+    "..",
+    "CON",
+    "SKU\n01",
+    "SKU\t01",
+    "SKU\r\n01",
+  ];
+  const products = codes.map((code) => newProduct(code));
   for (const [index, product] of products.entries())
     addVersion(
       product.tasks[0],
@@ -39,11 +46,11 @@ test("ZIP exports preserve all products when business codes sanitize to the same
   for (const entry of images) {
     const folder = entry.name.split("/")[0];
     assert.ok(folder && folder !== "." && folder !== "..");
-    assert.doesNotMatch(folder, /[<>:"\\|?*]/);
+    assert.doesNotMatch(folder, /[<>:"\\|?*\u0000-\u001f\u007f]/);
     assert.notEqual(folder, "CON");
   }
   assert.deepEqual(
     products.map((product) => product.code),
-    ["SKU * 01", "SKU ? 01", "..", "CON"],
+    codes,
   );
 });

@@ -13,6 +13,7 @@ import {
   DEFAULT_COMMON,
   LEGACY_DEFAULT_COMMON,
   parseSuiteResponse,
+  generationImages,
 } from "../../../shared/prompt-suite.js";
 const suiteFixture = () => ({
   style:
@@ -213,6 +214,20 @@ test("local adapter submits, polls, preserves IDs and hides the API key", async 
     assert.ok(withoutPhotosVision[0].text.includes("本次没有产品实拍图"));
     assert.ok(
       !withoutPhotosVision.some((item) => item.text?.startsWith("产品实拍图 ")),
+    );
+    const referenceInput = generationImages(product, product.tasks[1]);
+    await post("/api/workflow/image", {
+      prompt: "reference prompt",
+      ...referenceInput,
+    });
+    const referenceRequest = JSON.parse(
+      calls.filter((call) => call.url.endsWith("/generate")).at(-1).options
+        .body,
+    );
+    assert.deepEqual(referenceRequest.images, referenceInput.referenceImages);
+    assert.equal(referenceRequest.images.length, 10);
+    assert.ok(
+      referenceRequest.prompt.includes("当前要做的对标图：图片 2（卖点图）"),
     );
     const chatCalls = calls.filter((c) => c.url.endsWith("/api/v3/responses"));
     assert.equal(chatCalls.length, 2);

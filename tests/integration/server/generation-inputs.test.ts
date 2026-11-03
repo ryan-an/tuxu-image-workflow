@@ -18,7 +18,7 @@ for (const withPhotos of [false, true])
     "workflow",
     "full-workflow",
   ])
-    test(`${kind} ${withPhotos ? "uses selected real photos" : "uses only each card's labelled references"} and freezes image inputs across restart`, async (t) => {
+    test(`${kind} ${withPhotos ? "uses selected real photos" : "uses all references with the current card labelled"} and freezes image inputs across restart`, async (t) => {
       const f = await fixture();
       try {
         const otherImage = await f.workflows.assets.put(
@@ -36,7 +36,11 @@ for (const withPhotos of [false, true])
         product.photos = withPhotos ? [f.product.photo, otherImage] : [];
         product.tasks.forEach((task, index) => {
           task.references =
-            index === 2 ? [] : [index % 2 ? otherImage : f.product.photo];
+            index === 2
+              ? []
+              : index === 1
+                ? [otherImage, f.product.photo, otherImage]
+                : [index % 2 ? otherImage : f.product.photo];
           if (kind === "image") task.prompt = `已有提示词：${task.role}`;
         });
         await f.workflows.edit(differences(editable(before), editable(draft)));
@@ -48,7 +52,7 @@ for (const withPhotos of [false, true])
         const targets =
           kind === "prompt-set" || kind === "full-workflow"
             ? pairs(product)
-            : pairs(product).slice(0, 1);
+            : pairs(product).slice(1, 2);
         const response = await f.app.inject({
           method: "POST",
           url: "/api/jobs",
@@ -116,7 +120,9 @@ for (const withPhotos of [false, true])
             assert.equal(task.promptHistory.at(-1)?.prompt, prompt);
           } else assert.equal(task.prompt, prompt);
           if (promptOnly) continue;
-          const sources = withPhotos ? [otherImage] : original.references,
+          const sources = withPhotos
+              ? [otherImage]
+              : [f.product.photo, otherImage],
             request = requests.find((item) => item.prompt.endsWith(prompt)),
             job = saved.jobs.find((item) => item.taskId === taskId)!;
           assert.ok(request);
@@ -130,7 +136,24 @@ for (const withPhotos of [false, true])
           );
           if (!withPhotos && sources.length) {
             assert.match(request.prompt, /参考图／对标图，不是产品实拍图/);
-          } else assert.equal(request.prompt, prompt);
+            assert.ok(request.prompt.includes(`本次只生成「${task.role}」`));
+            assert.ok(request.prompt.includes("尺寸图：图片 1"));
+            assert.ok(request.prompt.includes("卖点图：图片 2、图片 1"));
+            if (original.references.length)
+              assert.ok(
+                request.prompt.includes(
+                  `当前要做的对标图：${original.role === "卖点图" ? "图片 2、图片 1" : original.references[0] === otherImage ? "图片 2" : "图片 1"}（${task.role}）`,
+                ),
+              );
+            else
+              assert.ok(
+                request.prompt.includes(`当前卡片「${task.role}」未提供对标图`),
+              );
+            assert.ok(request.prompt.includes(job.referenceImageContext));
+          } else {
+            assert.equal(request.prompt, prompt);
+            assert.equal(job.referenceImageContext, undefined);
+          }
           assert.equal(job.prompt, prompt);
           assert.equal(
             job.referenceImageKind,

@@ -26,8 +26,10 @@ import { assertImageQuota } from "./account-usage.js";
 import { requireMembership } from "./workspace-access.js";
 import type { Permission } from "../../shared/access.js";
 import { ROLES, newProduct, savePrompt } from "../../shared/model.js";
+import { productMetadataIssues } from "../../shared/product-validation.js";
 import {
   generationImages,
+  productPhotos,
   productRequirements,
 } from "../../shared/prompt-suite.js";
 import { baseUrl, MODELS } from "../../shared/provider-config.js";
@@ -47,26 +49,66 @@ import {
 const active = (j: Job) =>
   ["queued", "running", "interrupted"].includes(j.status);
 export function validateProduct(product: Product) {
-  if (
-    !product ||
-    typeof product.id !== "string" ||
-    !/^[A-Za-z0-9_-]{1,100}$/.test(product.id) ||
-    typeof product.code !== "string" ||
-    !product.code.trim() ||
-    /[\u0000-\u001f\u007f]/.test(product.code) ||
-    typeof product.name !== "string" ||
-    !product.name.trim() ||
-    typeof product.facts !== "string" ||
-    (product.promptRequirements != null &&
-      (typeof product.promptRequirements !== "string" ||
-        !product.promptRequirements.trim() ||
-        product.promptRequirements.length > 100000)) ||
-    !Array.isArray(product.tasks) ||
-    product.tasks.length !== 10 ||
-    new Set(product.tasks.map((t) => t.id)).size !== 10 ||
-    new Set(product.tasks.map((t) => t.role)).size !== 10
-  )
-    throw new AppError("产品资料或图片位置不完整");
+  const reasons: string[] = [],
+    issues: string[] = [];
+  const invalid = (reason: string, message: string) => {
+    reasons.push(reason);
+    issues.push(message);
+  };
+  if (!product || typeof product !== "object")
+    invalid("invalid_product", "产品数据格式无效");
+  else {
+    if (
+      typeof product.id !== "string" ||
+      !/^[A-Za-z0-9_-]{1,100}$/.test(product.id)
+    )
+      invalid("invalid_product_id", "产品标识格式无效");
+    for (const issue of productMetadataIssues(product))
+      invalid(issue.reason, issue.message);
+    if (!Array.isArray(product.tasks))
+      invalid("invalid_tasks", "图片位置列表格式无效");
+    else {
+      if (product.tasks.length !== 10)
+        invalid(
+          "invalid_task_count",
+          `图片位置应为 10 个，当前为 ${product.tasks.length} 个`,
+        );
+      if (product.tasks.some((task) => !task || typeof task !== "object"))
+        invalid("invalid_task", "图片位置数据格式无效");
+      if (
+        new Set(product.tasks.map((task) => task?.id)).size !==
+        product.tasks.length
+      )
+        invalid("duplicate_task_ids", "图片位置标识重复");
+      if (
+        new Set(product.tasks.map((task) => task?.role)).size !==
+        product.tasks.length
+      )
+        invalid("duplicate_task_roles", "图片位置类型重复");
+    }
+  }
+  if (reasons.length) {
+    const code =
+      typeof product?.code === "string"
+        ? product.code
+            .replace(/[\u0000-\u001f\u007f]/g, " ")
+            .trim()
+            .slice(0, 80)
+        : "";
+    throw new AppError(
+      `产品资料或图片位置不完整${code ? `（产品「${code}」）` : ""}：${issues.join("；")}`,
+      400,
+      {
+        event: "product.validation.failed",
+        ...(typeof product?.id === "string" &&
+        /^[A-Za-z0-9_-]{1,100}$/.test(product.id)
+          ? { productId: product.id }
+          : {}),
+        reasons,
+        taskCount: Array.isArray(product?.tasks) ? product.tasks.length : null,
+      },
+    );
+  }
   for (const t of product.tasks) {
     const reasons: string[] = [];
     const versions = Array.isArray(t.versions) ? t.versions : [];
@@ -755,9 +797,12 @@ export class Workflows {
             if (!row.prompt_credential)
               throw new AppError("请先配置豆包 API Key");
             const snapshot = structuredClone(product);
-            snapshot.tasks = snapshot.tasks.filter((t) =>
-              analysisTasks.some((target) => target.id === t.id),
-            );
+            // Without real photos, dependent generation needs all references.
+            // taskIds still limits analysis and prompt updates to selected cards.
+            if (productPhotos(snapshot).length)
+              snapshot.tasks = snapshot.tasks.filter((t) =>
+                analysisTasks.some((target) => target.id === t.id),
+              );
             snapshot.promptSets = [];
             snapshot.tasks.forEach((t) => {
               t.versions = [];

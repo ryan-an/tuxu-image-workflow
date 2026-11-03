@@ -70,7 +70,7 @@ test("dimension annotations retain all inner/outer measurements and compact unit
   );
 });
 
-test("complete suite saves all ten prompts and final text without content checks or warnings", async () => {
+test("complete suite with equivalent role names saves all ten prompts and final text without content checks or warnings", async () => {
   const f = await fixture(),
     originalFetch = globalThis.fetch;
   try {
@@ -87,10 +87,22 @@ test("complete suite saves all ten prompts and final text without content checks
       },
     ]);
     await f.workflows.enqueue(randomUUID(), pairs(f.product), "prompt-set");
+    const returnedRoles = [
+      "尺寸图",
+      "卖点图",
+      "细节图",
+      "场景1",
+      "场景2",
+      "场景3",
+      "A+(1)",
+      "A+(2)",
+      "A+(3)",
+      "A+(4)",
+    ];
     const text = JSON.stringify({
       style: "统一风格",
       images: f.product.tasks.map(({ role }, i) => ({
-        role,
+        role: returnedRoles[i],
         layout: "版面布局",
         thirdPart: `AI 产品约束 ${role}，按实际资料设计。`,
         copy:
@@ -122,6 +134,10 @@ test("complete suite saves all ten prompts and final text without content checks
     assert.equal(job.analysisResponse, text);
     assert.equal(job.receivedChars, text.length);
     assert.match(job.promptDrafts!["A+ 4"], /分辨率150$/);
+    assert.deepEqual(
+      Object.keys(job.promptDrafts!),
+      f.product.tasks.map((t) => t.role),
+    );
     assert.equal(job.promptWarnings, undefined);
     assert.ok(
       state.products[0].tasks.every(

@@ -47,7 +47,7 @@ export function generationPayload(config, input) {
     model,
     prompt:
       input.referenceImageKind === "reference" && input.referenceImages?.length
-        ? `本次未提供产品实拍图。随附图片均为当前卡片的参考图／对标图，不是产品实拍图；请结合产品资料和以下提示词设计，不要直接复刻参考图。\n\n${input.prompt}`
+        ? `本次未提供产品实拍图。随附图片均为参考图／对标图，不是产品实拍图；请结合产品资料和以下提示词设计，不要直接复刻参考图。${input.referenceImageContext ? `\n${input.referenceImageContext}` : ""}\n\n${input.prompt}`
         : input.prompt,
     images: input.referenceImages || [],
     replyType: "async",

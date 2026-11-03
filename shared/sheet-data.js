@@ -1,5 +1,6 @@
 import { ROLES, chosen, uid } from "./model.js";
 import { productPhotos } from "./prompt-suite.js";
+import { productCodeIssue } from "./product-validation.js";
 const HEADER = ["产品编号", "状态", "产品名称 / 资料", "内容", ...ROLES];
 export function removeProductRows(snapshot, product) {
   if (!snapshot) return snapshot;
@@ -768,6 +769,13 @@ export function validateSheetParse(sheet, mapping, layout, candidates) {
     issues.push("列对应关系超出表格范围，请在高级配置中检查。");
   if (new Set(columns).size !== columns.length)
     issues.push("多个字段使用了同一列，请在高级配置中调整列对应关系。");
+  for (const product of candidates) {
+    const issue = productCodeIssue(product.code);
+    if (issue)
+      issues.push(
+        `第 ${product.sourceRows[0]} 行：${issue.message}，请修改后再保存。`,
+      );
+  }
   const three =
     layout === "three" || (layout === "auto" && mapping.typeColumn >= 0);
   const seen = new Map();

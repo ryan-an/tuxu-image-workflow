@@ -1,4 +1,5 @@
 import { newProduct, savePrompt, findTask } from "../../shared/model.js";
+import { productMetadataIssues } from "../../shared/product-validation.js";
 import { api } from "../services/workspace-client.js";
 export function createFormCommands(context) {
   async function saveTaskPromptAndGenerate(productId, taskId, prompt) {
@@ -99,6 +100,9 @@ export function createFormCommands(context) {
       const isNew = form.dataset.new === "true",
         old = state.products.find((p) => p.id === form.dataset.product),
         code = values.code.trim();
+      const issues = productMetadataIssues({ ...values, code });
+      if (issues.length)
+        return notify(issues.map((issue) => issue.message).join("；"));
       if (
         state.products.some(
           (p) => p.code === code && (isNew || p.id !== old.id),
