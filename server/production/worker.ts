@@ -67,8 +67,7 @@ export class Worker {
       if (job.kind === "prompt-set") {
         if (!(await this.workflows.repo.markStage(job, "analyzing")))
           return true;
-        let lastProgress = 0,
-          lastPersist = 0;
+        let lastPersist = 0;
         const targets = job.productSnapshot!.tasks.filter(
           (t) => !job.taskIds || job.taskIds.includes(t.id),
         );
@@ -80,8 +79,6 @@ export class Worker {
           key,
           signal,
           async (text, final) => {
-            if (!final && Date.now() - lastProgress < 300) return;
-            lastProgress = Date.now();
             const drafts = Object.fromEntries(
               Object.entries(streamedPrompts(text)).filter(([role]) =>
                 targets.some((t) => t.role === role),
@@ -154,7 +151,6 @@ export class Worker {
             const set = {
               id: job.id,
               createdAt: Date.now(),
-              style: result.style,
               prompts: result.prompts,
             };
             if (!product.promptSets.some((s) => s.id === job.id))
@@ -209,7 +205,7 @@ export class Worker {
             product = set.productSnapshot!,
             task = product.tasks.find((t) => t.id === job.taskId)!;
           prompt = item.prompt;
-          const images = generationImages(product, task, item.photoIndices);
+          const images = generationImages(product, task);
           photos = images.referenceImages;
           referenceImageKind = images.referenceImageKind;
           referenceImageContext = images.referenceImageContext;

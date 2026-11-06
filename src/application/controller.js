@@ -14,6 +14,7 @@ import { WorkspaceClient } from "../services/workspace-client.js";
 import { RemoteQueue } from "../services/remote-queue.js";
 import { SheetBridge } from "../integrations/sheet-bridge.js";
 import { parseSheet } from "../../shared/sheet-data.js";
+import { productRequirements } from "../../shared/prompt-suite.js";
 import { actionAllowed, can } from "../../shared/access.js";
 import { setSessionWorkspace } from "../services/session-scope.js";
 import { WorkspaceCollaborationClient } from "../services/workspace-collaboration.js";
@@ -153,6 +154,17 @@ export function createApplicationController(
         promptOnly ||
         kind === "full-workflow" ||
         (kind === "workflow" && pairs.some(({ task }) => !task.prompt.trim()));
+      const missing = pairs.find(
+        ({ product, task }) =>
+          (promptOnly ||
+            kind === "full-workflow" ||
+            (kind === "workflow" && !task.prompt.trim())) &&
+          !productRequirements(product, state.common).trim(),
+      );
+      if (missing) {
+        showModal({ type: "common", productId: missing.product.id });
+        return notify("整套提示词要求为空，请填写要求或选择模板并保存后重试");
+      }
       if (
         state.settings.mode === "live" &&
         ((!promptOnly && !ui.hasKey) || (needsPrompt && !ui.hasPromptKey))

@@ -20,6 +20,7 @@ import {
 } from "../../../shared/doubao.js";
 import { GrsaiProvider } from "../../../server/production/provider.js";
 import { ROLES } from "../../../shared/model.js";
+import { ANALYSIS_SYSTEM_PROMPT } from "../../../shared/prompt-suite.js";
 
 const output = (text: string) =>
   Response.json({
@@ -222,17 +223,15 @@ test("analysis sends images to Doubao Responses while image generation uses Grsa
     if (String(url).endsWith("/responses"))
       return output(
         JSON.stringify({
-          style: "统一留白布局",
           images: ROLES.map((role, i) => ({
             role,
-            layout: "准确展示实拍产品",
-            copy: [
+            prompt: `准确展示实拍产品\n${
               i === 0
                 ? "25 Pack 24 x 28 cm Product Size"
                 : i === 6
                   ? "Test Made For Your Everyday Packing"
-                  : "Thoughtful Design For Your Everyday Packing",
-            ],
+                  : "Thoughtful Design For Your Everyday Packing"
+            }`,
             photoIndices: [0],
           })),
         }),
@@ -242,7 +241,7 @@ test("analysis sends images to Doubao Responses while image generation uses Grsa
   try {
     const state = await f.workflows.repo.view(),
       provider = new GrsaiProvider(f.workflows.assets);
-    await provider.analyze(
+    const analysis = await provider.analyze(
       f.product,
       state.common,
       state.settings,
@@ -262,20 +261,36 @@ test("analysis sends images to Doubao Responses while image generation uses Grsa
     assert.equal(calls[0].body.stream, true);
     assert.equal(calls[0].body.store, false);
     assert.deepEqual(calls[0].body.thinking, { type: "disabled" });
+    assert.deepEqual(
+      calls[0].body.input.map((message: any) => message.role),
+      ["system", "user"],
+    );
     assert.equal(
-      calls[0].body.input[0].content.filter(
-        (c: any) => c.type === "input_image",
-      ).length,
+      calls[0].body.input[0].content[0].text,
+      ANALYSIS_SYSTEM_PROMPT,
+    );
+    const userContent = calls[0].body.input.find(
+      (message: any) => message.role === "user",
+    ).content;
+    assert.ok(userContent[0].text.includes(state.common));
+    assert.ok(
+      analysis.prompts.every(
+        (item: any) => !item.prompt.includes(ANALYSIS_SYSTEM_PROMPT),
+      ),
+    );
+    assert.equal(
+      userContent.filter((c: any) => c.type === "input_image").length,
       1,
     );
     assert.ok(
-      calls[0].body.input[0].content.some(
+      userContent.some(
         (c: any) =>
           c.text?.includes("产品实拍图 0") && c.text.includes("图片 1"),
       ),
     );
     assert.equal(calls[1].url, "https://grsai.dakka.com.cn/v1/api/generate");
     assert.equal(calls[1].authorization, "Bearer fake-platform-key");
+    assert.equal(calls[1].body.prompt, "image prompt");
   } finally {
     globalThis.fetch = original;
     await f.close();
@@ -335,6 +350,7 @@ test("card assistant includes product, prompt, selected result and conversation 
     });
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().text, "可以改善留白与产品比例。");
+    assert.deepEqual(body.thinking, { type: "disabled" });
     const content = body.input[1].content;
     const context = JSON.parse(content[0].text.split("\n").slice(1).join("\n"));
     assert.equal(context.product.name, product.name);

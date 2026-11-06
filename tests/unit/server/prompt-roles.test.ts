@@ -22,13 +22,9 @@ const returnedRoles = [
   "A+(4)",
 ];
 const suite = () => ({
-  style: "模型给出的设计规范",
   images: returnedRoles.map((role, index) => ({
     role,
-    layout: `布局 ${index}`,
-    copy: [`Copy ${index}`],
-    thirdPart: `约束 ${index}`,
-    fourthPart: `尺寸 ${index}`,
+    prompt: `第一部分：布局 ${index}\nCopy ${index}\n第二部分：设计规范\n第三部分：约束 ${index}\n第四部分：尺寸 ${index}`,
     photoIndices: [index % 2],
   })),
 });
@@ -43,11 +39,7 @@ test("recorded role variants map to the standard cards even when returned out of
     ROLES,
   );
   for (const [index, item] of result.prompts.entries()) {
-    assert.ok(item.prompt.includes(`图片类型：${ROLES[index]}`));
-    assert.ok(item.prompt.includes(`布局 ${index}`));
-    assert.ok(item.prompt.includes(`“Copy ${index}”`));
-    assert.ok(item.prompt.includes(`约束 ${index}`));
-    assert.ok(item.prompt.endsWith(`尺寸 ${index}`));
+    assert.equal(item.prompt, suite().images[index].prompt);
     assert.deepEqual(item.photoIndices, [index % 2]);
   }
 });
@@ -132,4 +124,6 @@ test("single-card instructions demonstrate the requested role rather than the si
   assert.ok(instruction.includes('"role":"A+ 2"'));
   assert.ok(!instruction.includes('"role":"尺寸图"'));
   assert.match(instruction, /每项role必须逐字使用上述卡片名称/);
+  assert.match(instruction, /由你在每张prompt内完整写出四部分/);
+  assert.match(instruction, /不再添加标题、重排或拼接各部分/);
 });

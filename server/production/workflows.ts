@@ -471,6 +471,7 @@ export class Workflows {
                   "name",
                   "facts",
                   "promptRequirements",
+                  "promptTemplateId",
                   "photo",
                   "photos",
                   "photoThumbnail",
@@ -519,6 +520,7 @@ export class Workflows {
             "name",
             "facts",
             "promptRequirements",
+            "promptTemplateId",
             "photo",
             "photos",
             "photoThumbnail",
@@ -752,6 +754,10 @@ export class Workflows {
             kind === "full-workflow" ||
             (kind === "workflow" && tasks.some((t) => !t.prompt.trim()));
           const analysisTasks = tasks;
+          if (needsSet && !productRequirements(product, state.common).trim())
+            throw new AppError(
+              `产品「${product.code}」的整套提示词要求为空，请填写要求或选择模板并保存后重试`,
+            );
           const activeSets = state.jobs.filter(
             (j) =>
               j.productId === product.id &&

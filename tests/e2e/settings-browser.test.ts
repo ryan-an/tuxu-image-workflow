@@ -5,6 +5,149 @@ import { resolve } from "node:path";
 import { fixture, password } from "../support/production.js";
 import { artifactPath } from "../support/artifacts.cjs";
 import { Members } from "../../server/production/members.js";
+import { generationPayload } from "../../shared/provider-config.js";
+
+test(
+  "GPT size dropdown exposes all presets, follows the model and preserves saved sizes",
+  { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 45000 },
+  async () => {
+    const { chromium } = createRequire(import.meta.url)(
+      process.env.PLAYWRIGHT_MODULE!,
+    );
+    const f = await fixture(resolve("dist"));
+    const browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.CHROME_PATH,
+    });
+    try {
+      await f.workflows.updateSettings({
+        imageModel: "gpt-image-2",
+        baseUrl: "https://grsaiapi.com",
+      });
+      await f.app.listen({ host: "127.0.0.1", port: 0 });
+      const root = `http://127.0.0.1:${(f.app.server.address() as { port: number }).port}`;
+      const page = await browser.newPage({
+        viewport: { width: 1440, height: 1000 },
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (error: Error) => errors.push(error.message));
+      await page.goto(root);
+      await page.fill("#login-password", password);
+      await page.click('#login-form button[type="submit"]');
+      await page.locator("#settings-button").click();
+      assert.equal(
+        await page.locator("#prompt-model").inputValue(),
+        "doubao-seed-2-1-pro-260915",
+      );
+      assert.equal(
+        await page
+          .locator(
+            '#settings-form [name="mode"], #settings-form [name="baseUrl"]',
+          )
+          .count(),
+        0,
+      );
+      assert.doesNotMatch(
+        await page.locator(".modal-subtitle").textContent(),
+        /运行方式|生图节点/,
+      );
+      const size = page.locator('select[name="gptSize"]');
+      assert.equal(await size.inputValue(), "auto");
+      assert.equal(await size.locator("option").count(), 14);
+      assert.equal(await size.locator("optgroup").count(), 13);
+
+      for (const model of [
+        "gpt-image-2",
+        "gpt-image-2.5",
+        "gpt-image-2-vip",
+        "gpt-image-2.5-flare",
+        "gpt-image-2.5-sunburst",
+      ]) {
+        await page.selectOption("#image-model", model);
+        const extended = /vip|flare|sunburst/.test(model);
+        const sizes = await size
+          .locator("option")
+          .evaluateAll((options: HTMLOptionElement[]) =>
+            options.map((option) => option.value),
+          );
+        assert.equal(sizes.length, extended ? 44 : 14, model);
+        assert.equal(sizes.includes("3840x2160"), extended, model);
+        for (const gptSize of sizes) {
+          const payload: Record<string, unknown> = generationPayload(
+            {
+              imageModel: model,
+              gptSize,
+              quality: extended ? "medium" : "auto",
+            },
+            { prompt: "test" },
+          );
+          assert.equal(payload.aspectRatio, gptSize);
+        }
+      }
+      await size.selectOption("2048x2048");
+      await page.selectOption("#image-model", "gpt-image-2");
+      assert.equal(await size.inputValue(), "auto");
+      await size.selectOption("1536x1024");
+      await page.selectOption("#image-model", "gpt-image-2-vip");
+      assert.equal(await size.inputValue(), "1536x1024");
+      await size.selectOption("3840x2160");
+      const save = async () => {
+        const request = page.waitForRequest(
+          (request: any) =>
+            request.method() === "POST" &&
+            request.url().endsWith("/api/workflow/settings"),
+        );
+        await page.locator('#settings-form button[type="submit"]').click();
+        const payload = (await request).postDataJSON();
+        for (const name of ["mode", "baseUrl"])
+          assert.equal(Object.hasOwn(payload, name), false);
+        await page.locator("#settings-form").waitFor({ state: "detached" });
+      };
+      await save();
+      const settings = async () => {
+        const response = await page.request.get(
+          `${root}/api/workflow/settings`,
+        );
+        assert.equal(response.status(), 200);
+        return response.json();
+      };
+      assert.equal((await settings()).gptSize, "3840x2160");
+      assert.equal((await settings()).baseUrl, "https://grsaiapi.com");
+      assert.equal((await settings()).mode, "live");
+      await page.reload();
+      await page.locator("#settings-button").click();
+      assert.equal(await size.inputValue(), "3840x2160");
+      await page.setViewportSize({ width: 390, height: 844 });
+      const bounds = await size.boundingBox();
+      assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= 390);
+      await page.screenshot({
+        path: artifactPath("gpt-size-dropdown-mobile.png"),
+      });
+      await page.keyboard.press("Escape");
+
+      const response = await page.request.post(
+        `${root}/api/workflow/settings`,
+        {
+          data: { gptSize: "1536x1536" },
+        },
+      );
+      assert.equal(response.status(), 200);
+      await page.reload();
+      await page.locator("#settings-button").click();
+      assert.equal(await size.inputValue(), "1536x1536");
+      assert.match(
+        await size.locator("option:checked").textContent(),
+        /已保存尺寸/,
+      );
+      await save();
+      assert.equal((await settings()).gptSize, "1536x1536");
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await f.close();
+    }
+  },
+);
 
 test(
   "model preferences follow the current account and workspace across tabs, reloads and collaborative edits",
@@ -19,6 +162,7 @@ test(
       executablePath: process.env.CHROME_PATH,
     });
     try {
+      await f.workflows.updateSettings({ baseUrl: "https://grsaiapi.com" });
       await new Members(f.db).create({
         username: "personal-editor",
         displayName: "个人配置编辑者",
@@ -74,20 +218,15 @@ test(
         '#settings-form [name="customPromptModel"]',
         "ep-shared-browser",
       );
-      await owner.selectOption(
-        '#settings-form [name="baseUrl"]',
-        "https://grsaiapi.com",
-      );
       await owner.locator('#settings-form button[type="submit"]').click();
       await owner.locator("#settings-form").waitFor({ state: "detached" });
       const memberConfig = await member.request.get(
         `${root}/api/workflow/settings`,
         { headers: { "X-Workspace-Id": "default" } },
       );
-      assert.equal(
-        (await memberConfig.json()).promptModel,
-        "ep-shared-browser",
-      );
+      const sharedConfig = await memberConfig.json();
+      assert.equal(sharedConfig.promptModel, "ep-shared-browser");
+      assert.equal(sharedConfig.baseUrl, "https://grsaiapi.com");
       await checkSize(member, "2K");
       const created = await member.request.post(`${root}/api/workspaces`, {
         data: { name: "配置独立的工作区" },

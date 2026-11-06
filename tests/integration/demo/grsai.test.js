@@ -9,6 +9,7 @@ import {
 import { ROLES, newProduct } from "../../../shared/model.js";
 import { migrateAutoSizeDefaults } from "../../../shared/generation-settings.js";
 import {
+  ANALYSIS_SYSTEM_PROMPT,
   FIXED_PRODUCT_REQUIREMENTS,
   DEFAULT_COMMON,
   LEGACY_DEFAULT_COMMON,
@@ -16,20 +17,15 @@ import {
   generationImages,
 } from "../../../shared/prompt-suite.js";
 const suiteFixture = () => ({
-  style:
-    "主色#FFF8F3；辅色#EADFD8；强调色#A72D3F；文字#27313C。类似电商无衬线风；Inter Bold 80px/44px、Inter Regular 42px/24px、Inter Medium 32px/20px，免费商用OFL字体；细线边框及充足留白。",
   images: ROLES.map((role, i) => ({
     role,
-    layout: "重新安排产品位置、图标与英文标题，不照搬对标布局。",
-    copy: [
+    prompt: `第一部份：重新安排产品位置、图标与英文标题，不照搬对标布局。\n${
       i === 0
         ? "25 Pack 24 cm x 28 cm Outer Size"
         : i === 6
           ? "Blcculi Made For Your Everyday Packing"
-          : "Thoughtful Design For Your Everyday Packing",
-    ],
-    thirdPart: "AI 返回的产品约束：保持产品结构，使用少量英文文案。",
-    fourthPart: `AI 返回的画布：${i < 6 ? "1400X1000" : "1100X650"}像素，分辨率150。`,
+          : "Thoughtful Design For Your Everyday Packing"
+    }\n第二部份：主色#FFF8F3；辅色#EADFD8；强调色#A72D3F；文字#27313C。类似电商无衬线风；Inter Bold 80px/44px、Inter Regular 42px/24px、Inter Medium 32px/20px，免费商用OFL字体；细线边框及充足留白。\n第三部份：AI 返回的产品约束：保持产品结构，使用少量英文文案。\n第四部份：AI 返回的画布：${i < 6 ? "1400X1000" : "1100X650"}像素，分辨率150。`,
     photoIndices: [0],
   })),
 });
@@ -210,7 +206,7 @@ test("local adapter submits, polls, preserves IDs and hides the API key", async 
     const withoutPhotosVision = JSON.parse(
       calls.filter((call) => call.url.endsWith("/api/v3/responses")).at(-1)
         .options.body,
-    ).input[0].content;
+    ).input.find((message) => message.role === "user").content;
     assert.ok(withoutPhotosVision[0].text.includes("本次没有产品实拍图"));
     assert.ok(
       !withoutPhotosVision.some((item) => item.text?.startsWith("产品实拍图 ")),
@@ -235,7 +231,12 @@ test("local adapter submits, polls, preserves IDs and hides the API key", async 
       chatCalls[0].options.headers.Authorization,
       "Bearer fake-doubao-for-test",
     );
-    const vision = JSON.parse(chatCalls[0].options.body).input[0].content;
+    const analysisInput = JSON.parse(chatCalls[0].options.body).input;
+    assert.equal(analysisInput[0].role, "system");
+    assert.equal(analysisInput[0].content[0].text, ANALYSIS_SYSTEM_PROMPT);
+    const vision = analysisInput.find(
+      (message) => message.role === "user",
+    ).content;
     assert.equal(
       vision.filter((item) => item.type === "input_image").length,
       11,
@@ -261,7 +262,7 @@ test("local adapter submits, polls, preserves IDs and hides the API key", async 
       const optionalVision = JSON.parse(
         calls.filter((call) => call.url.endsWith("/api/v3/responses")).at(-1)
           .options.body,
-      ).input[0].content;
+      ).input.find((message) => message.role === "user").content;
       assert.equal(
         optionalVision.filter((item) => item.type === "input_image").length,
         allMissing ? 1 : 2,
@@ -300,10 +301,9 @@ test("suite contract checks structure without checking copy content", () => {
     "24 cm x 28 cm\n品牌：Blcculi",
   );
   const fixture = suiteFixture();
-  fixture.images[0].copy = ["短文案"];
-  fixture.images[6].copy = [
-    "one two three four five six seven eight nine ten eleven",
-  ];
+  fixture.images[0].prompt = "短文案";
+  fixture.images[6].prompt =
+    "one two three four five six seven eight nine ten eleven";
   const result = parseSuiteResponse(JSON.stringify(fixture), 1, product);
   assert.equal(result.prompts.length, 10);
   assert.equal(result.warnings, undefined);
@@ -332,26 +332,19 @@ test("default, legacy and custom templates never replace any model-returned sect
     assert.equal(result.prompts.length, 10);
     for (const [index, item] of fixture.images.entries()) {
       const prompt = result.prompts[index].prompt;
-      for (const text of [
-        item.layout,
-        ...item.copy,
-        fixture.style,
-        item.thirdPart,
-        item.fourthPart,
-      ])
-        assert.ok(prompt.includes(text));
+      assert.equal(prompt, item.prompt);
       assert.ok(!prompt.includes(FIXED_PRODUCT_REQUIREMENTS));
       assert.doesNotMatch(prompt, /1610X1610|970X600|2000X2000|分辨率300/);
     }
     const missing = structuredClone(fixture);
-    delete missing.images[0].thirdPart;
-    delete missing.images[0].fourthPart;
+    missing.images[0].prompt = "模型未给出尺寸；程序保留此正文。";
     const prompt = parseSuiteResponse(
       JSON.stringify(missing),
       1,
       product,
       common,
     ).prompts[0].prompt;
+    assert.equal(prompt, missing.images[0].prompt);
     assert.ok(!prompt.includes(common));
     assert.ok(!prompt.includes(FIXED_PRODUCT_REQUIREMENTS));
     assert.doesNotMatch(prompt, /1610X1610|分辨率300|2000X2000/);

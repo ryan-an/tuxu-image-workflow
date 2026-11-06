@@ -18,7 +18,7 @@ for (const withPhotos of [false, true])
     "workflow",
     "full-workflow",
   ])
-    test(`${kind} ${withPhotos ? "uses selected real photos" : "uses all references with the current card labelled"} and freezes image inputs across restart`, async (t) => {
+    test(`${kind} ${withPhotos ? "uses all real photos despite selected indices" : "uses all references with the current card labelled"} and freezes image inputs across restart`, async (t) => {
       const f = await fixture();
       try {
         const otherImage = await f.workflows.assets.put(
@@ -29,11 +29,24 @@ for (const withPhotos of [false, true])
             .toBuffer(),
           "image/png",
         );
+        const realPhotos = [f.product.photo, otherImage];
+        if (withPhotos)
+          for (const background of ["red", "green", "blue", "purple"])
+            realPhotos.push(
+              await f.workflows.assets.put(
+                await sharp({
+                  create: { width: 2, height: 2, channels: 3, background },
+                })
+                  .png()
+                  .toBuffer(),
+                "image/png",
+              ),
+            );
         const before = await f.workflows.repo.view(),
           draft = structuredClone(before),
           product = draft.products[0];
         product.photo = withPhotos ? f.product.photo : "";
-        product.photos = withPhotos ? [f.product.photo, otherImage] : [];
+        product.photos = withPhotos ? realPhotos : [];
         product.tasks.forEach((task, index) => {
           task.references =
             index === 2
@@ -86,6 +99,7 @@ for (const withPhotos of [false, true])
         const provider: Provider = new GrsaiProvider(f.workflows.assets);
         provider.analyze = async (snapshot) => {
           assert.equal(snapshot.photo, product.photo);
+          assert.deepEqual(snapshot.photos, product.photos);
           assert.deepEqual(
             snapshot.tasks.map((task) => task.references),
             product.tasks
@@ -121,7 +135,7 @@ for (const withPhotos of [false, true])
           } else assert.equal(task.prompt, prompt);
           if (promptOnly) continue;
           const sources = withPhotos
-              ? [otherImage]
+              ? realPhotos
               : [f.product.photo, otherImage],
             request = requests.find((item) => item.prompt.endsWith(prompt)),
             job = saved.jobs.find((item) => item.taskId === taskId)!;

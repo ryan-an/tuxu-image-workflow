@@ -14,7 +14,7 @@ const { artifactPath } = createRequire(import.meta.url)(
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 test(
-  "a previous Windows database updates to the current version and boots twice with accounts, sessions, settings and assets preserved",
+  "a previous Windows database updates and boots twice with data preserved and the prompt model initialized once",
   {
     skip:
       !process.env.TUXU_WINDOWS_PREVIOUS_BUNDLE ||
@@ -87,7 +87,7 @@ test(
     const db = database('data/workspace.sqlite'); await migrate(db);
     const { app, workflows } = await createApp({ db, assetDirectory: 'data/assets', credentialSecret: '${"12".repeat(32)}', password: 'upgrade-test-password', logger: false });
     try {
-      await workflows.updateSettings({ apiKey: 'upgrade-image-key', promptApiKey: 'upgrade-prompt-key' });
+      await workflows.updateSettings({ apiKey: 'upgrade-image-key', promptApiKey: 'upgrade-prompt-key', promptModel: 'ep-upgrade-before', baseUrl: 'https://grsaiapi.com' });
       const state = await workflows.repo.view();
       await workflows.edit([{ path: ['common'], before: state.common, value: 'preserved upgrade rules' }]);
       const product = newProduct('UPGRADE-01', 'preserved product');
@@ -213,6 +213,19 @@ test(
         ).json();
         assert.equal(settings.hasKey, true);
         assert.equal(settings.hasPromptKey, true);
+        assert.equal(settings.baseUrl, "https://grsaiapi.com");
+        assert.equal(
+          settings.promptModel,
+          restart === 0 ? "doubao-seed-2-1-pro-260915" : "ep-upgrade-after",
+        );
+        if (restart === 0) {
+          const configured = await fetch(`${origin}/api/workflow/settings`, {
+            method: "POST",
+            headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({ promptModel: "ep-upgrade-after" }),
+          });
+          assert.equal(configured.status, 200, await configured.text());
+        }
         const login = await fetch(`${origin}/api/auth/login`, {
           method: "POST",
           headers: { "content-type": "application/json", origin },

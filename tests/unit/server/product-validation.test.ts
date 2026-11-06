@@ -31,6 +31,11 @@ test("product validation names each invalid field and logs no product text", () 
       "本产品生成要求不能超过 100000 字",
       (p) => (p.promptRequirements = "私".repeat(100001)),
     ],
+    [
+      "invalid_prompt_template",
+      "提示词模板标识无效",
+      (p) => (p.promptTemplateId = "bad template id"),
+    ],
     ["invalid_tasks", "图片位置列表格式无效", (p) => (p.tasks = null as any)],
     [
       "invalid_task_count",

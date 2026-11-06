@@ -4,7 +4,7 @@ import {
   type FormHTMLAttributes,
   type RefObject,
 } from "react";
-import type { Product, PromptTemplate } from "../types";
+import type { Product } from "../types";
 import { useApplication } from "../context.tsx";
 import { Button } from "../design-system/Button";
 import { DialogActions } from "./DialogActions";
@@ -71,6 +71,12 @@ export function RequirementsDialog({ product }: { product: Product }) {
   const [saved, setSaved] = useState(() => ({
     text: productRequirements(product, state.common),
     before: product.promptRequirements ?? null,
+    templateId: product.promptTemplateId ?? null,
+    templateChoice: product.promptTemplateId
+      ? `template:${product.promptTemplateId}`
+      : product.promptRequirements == null
+        ? "default"
+        : "",
   }));
   const draftKey = requirementDraftKey(user, product.id);
   const [restored] = useState(() =>
@@ -80,9 +86,13 @@ export function RequirementsDialog({ product }: { product: Product }) {
     () => restored?.content ?? saved.text,
   );
   const [draftStored, setDraftStored] = useState(true);
-  const [undo, setUndo] = useState<string | null>(null);
-  const [selected, setSelected] = useState<PromptTemplate | null>(null);
-  const [templateChoice, setTemplateChoice] = useState("");
+  const [undo, setUndo] = useState<{
+    content: string;
+    templateChoice: string;
+  } | null>(null);
+  const [templateChoice, setTemplateChoice] = useState(
+    () => restored?.templateChoice ?? saved.templateChoice,
+  );
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -106,7 +116,18 @@ export function RequirementsDialog({ product }: { product: Product }) {
   const templates = Object.values(state.promptTemplates ?? {}).sort(
     (a, b) => b.updatedAt - a.updatedAt,
   );
-  const changed = draft !== saved.text;
+  const templateId = templateChoice.startsWith("template:")
+    ? templateChoice.slice(9)
+    : null;
+  const selected = templateId
+    ? (state.promptTemplates?.[templateId] ?? null)
+    : null;
+  const changed =
+    draft !== saved.text || templateChoice !== saved.templateChoice;
+  const emptyMessage =
+    !readOnly && !draft.trim()
+      ? "整套提示词要求不能为空，请填写内容或选择模板。"
+      : "";
   const analyzing = state.jobs.some(
     (job) =>
       job.productId === product.id &&
@@ -124,15 +145,23 @@ export function RequirementsDialog({ product }: { product: Product }) {
           ? "当前任务继续使用启动时的要求；修改用于下一次生成。"
           : "仅当前产品 · 保存后下次生成生效");
 
-  function changeDraft(text: string) {
+  function changeDraft(text: string, choice = templateChoice) {
     setDraft(text);
-    setDraftStored(writeRequirementDraft(draftKey, text, saved.text));
+    setDraftStored(
+      writeRequirementDraft(
+        draftKey,
+        text,
+        saved.text,
+        choice,
+        saved.templateChoice,
+      ),
+    );
     setError("");
     setNotice("");
   }
-  function replaceDraft(text: string) {
-    setUndo(draft);
-    changeDraft(text);
+  function replaceDraft(text: string, choice = templateChoice) {
+    setUndo({ content: draft, templateChoice });
+    changeDraft(text, choice);
   }
   async function work(action: () => Promise<void>) {
     if (pending.current) return;
@@ -155,12 +184,15 @@ export function RequirementsDialog({ product }: { product: Product }) {
     const template = value.startsWith("template:")
       ? (state.promptTemplates?.[value.slice(9)] ?? null)
       : null;
-    setSelected(template ? { ...template } : null);
-    if (!value) return;
+    if (!value) {
+      changeDraft(draft, value);
+      return;
+    }
     replaceDraft(
       value === "default" ? state.common : (template?.content ?? saved.text),
+      value,
     );
-    setNotice("已套用，可继续修改；保存后生效");
+    setNotice("已套用，可继续修改；点击保存后绑定当前产品");
   }
   function openNaming() {
     setName(selected?.name ?? "");
@@ -178,20 +210,30 @@ export function RequirementsDialog({ product }: { product: Product }) {
         updatedAt: Date.now(),
       };
       await controller.savePromptTemplate(template, !asNew ? selected : null);
-      setSelected(template);
-      setTemplateChoice(`template:${template.id}`);
+      const choice = `template:${template.id}`;
+      setTemplateChoice(choice);
+      changeDraft(draft, choice);
       setNaming(false);
       setNotice("模板已保存；用于当前产品还需点击保存");
     });
   }
   function restoreSaved() {
     const text = productRequirements(product, state.common);
-    setUndo(draft);
-    setSaved({ text, before: product.promptRequirements ?? null });
+    const choice = product.promptTemplateId
+      ? `template:${product.promptTemplateId}`
+      : product.promptRequirements == null
+        ? "default"
+        : "";
+    setUndo({ content: draft, templateChoice });
+    setSaved({
+      text,
+      before: product.promptRequirements ?? null,
+      templateId: product.promptTemplateId ?? null,
+      templateChoice: choice,
+    });
     setDraft(text);
-    setDraftStored(writeRequirementDraft(draftKey, text, text));
-    setTemplateChoice("");
-    setSelected(null);
+    setDraftStored(writeRequirementDraft(draftKey, text, text, choice, choice));
+    setTemplateChoice(choice);
     setError("");
     setNotice("已恢复当前产品保存的内容");
   }
@@ -317,6 +359,11 @@ export function RequirementsDialog({ product }: { product: Product }) {
               >
                 <option value="">套用模板（可选）</option>
                 <option value="default">默认要求</option>
+                {templateId && !selected && (
+                  <option value={templateChoice} disabled>
+                    原模板已删除（保留本产品要求）
+                  </option>
+                )}
                 {templates.map((template) => (
                   <option key={template.id} value={`template:${template.id}`}>
                     {template.name}
@@ -435,8 +482,6 @@ export function RequirementsDialog({ product }: { product: Product }) {
                 onClick={() =>
                   void work(async () => {
                     await controller.deletePromptTemplate(selected);
-                    setSelected(null);
-                    setTemplateChoice("");
                     setNaming(false);
                     setConfirmDelete(false);
                     setNotice("模板已删除，文本框内容已保留");
@@ -472,8 +517,16 @@ export function RequirementsDialog({ product }: { product: Product }) {
               product.id,
               draft,
               saved.before,
+              templateId,
+              saved.templateId,
             );
-            writeRequirementDraft(draftKey, draft, draft);
+            writeRequirementDraft(
+              draftKey,
+              draft,
+              draft,
+              templateChoice,
+              templateChoice,
+            );
             controller.closeModal();
           });
         }}
@@ -563,6 +616,8 @@ export function RequirementsDialog({ product }: { product: Product }) {
             value={readOnly ? saved.text : draft}
             onChange={(event) => changeDraft(event.target.value)}
             aria-describedby="requirements-effect"
+            aria-invalid={Boolean(emptyMessage) || undefined}
+            aria-errormessage={emptyMessage ? "requirements-error" : undefined}
             spellCheck={false}
             placeholder="写下文案、风格、产品外观和尺寸等要求，格式不限…"
             onKeyDown={(event) => {
@@ -612,7 +667,8 @@ export function RequirementsDialog({ product }: { product: Product }) {
                     aria-label="撤销替换"
                     disabled={busy}
                     onClick={() => {
-                      changeDraft(undo);
+                      changeDraft(undo.content, undo.templateChoice);
+                      setTemplateChoice(undo.templateChoice);
                       setUndo(null);
                     }}
                   >
@@ -638,9 +694,9 @@ export function RequirementsDialog({ product }: { product: Product }) {
           {notice || (changed ? "草稿已保留" : "与当前保存内容一致")}
         </span>
       )}
-      {error && (
-        <p className="requirements-error" role="alert">
-          {error}
+      {(emptyMessage || error) && (
+        <p id="requirements-error" className="requirements-error" role="alert">
+          {emptyMessage || error}
         </p>
       )}
     </div>

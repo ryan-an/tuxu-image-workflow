@@ -114,8 +114,9 @@ test("product requirements are isolated, durable, and frozen when analysis is qu
       return analyze(product, common, ...args);
     };
     const worker = new Worker(f.workflows, provider);
-    await worker.step();
-    await worker.step();
+    await f.due();
+    assert.equal(await worker.step(), true);
+    assert.equal(await worker.step(), true);
     assert.equal(received.get(f.product.id), "仅此产品：暖色背景，中文文案");
     assert.equal(received.get(other.id), initial.common);
     await f.workflows.enqueue(
@@ -123,7 +124,8 @@ test("product requirements are isolated, durable, and frozen when analysis is qu
       pairs(f.product).slice(0, 1),
       "prompt",
     );
-    await worker.step();
+    await f.due();
+    assert.equal(await worker.step(), true);
     assert.equal(received.get(f.product.id), "仅此产品：蓝色背景，英文文案");
     await f.workflows.edit([
       {
@@ -137,7 +139,8 @@ test("product requirements are isolated, durable, and frozen when analysis is qu
       pairs(f.product).slice(0, 1),
       "prompt",
     );
-    await worker.step();
+    await f.due();
+    assert.equal(await worker.step(), true);
     assert.equal(received.get(f.product.id), initial.common);
   } finally {
     await f.close();
@@ -171,6 +174,24 @@ test("legacy products inherit defaults and requirements edits validate and use s
       (await f.workflows.repo.view()).products[0].promptRequirements,
       "最后提交的修改",
     );
+  } finally {
+    await f.close();
+  }
+});
+
+test("empty effective requirements block analysis without creating any queued jobs", async () => {
+  const f = await fixture();
+  try {
+    const original = await f.workflows.repo.view();
+    await f.workflows.edit([
+      { path: ["common"], before: original.common, value: " \n " },
+    ]);
+    for (const kind of ["prompt", "prompt-set", "workflow", "full-workflow"])
+      await assert.rejects(
+        f.workflows.enqueue(randomUUID(), pairs(f.product), kind),
+        /整套提示词要求为空.*选择模板并保存/,
+      );
+    assert.deepEqual((await f.workflows.repo.view()).jobs, []);
   } finally {
     await f.close();
   }

@@ -36,6 +36,7 @@ export function newProduct(code, name = "", facts = "") {
     name: name || code,
     facts,
     promptRequirements: null,
+    promptTemplateId: null,
     photo: "",
     photoThumbnail: null,
     photos: [],
@@ -145,6 +146,9 @@ export function validBackup(value) {
         (typeof p.promptRequirements !== "string" ||
           !p.promptRequirements.trim() ||
           p.promptRequirements.length > 100000)) ||
+      (p.promptTemplateId != null &&
+        (typeof p.promptTemplateId !== "string" ||
+          !/^[A-Za-z0-9_-]{1,100}$/.test(p.promptTemplateId))) ||
       !Array.isArray(p.tasks) ||
       p.tasks.length !== ROLES.length
     )

@@ -20,46 +20,41 @@ function field(source, name) {
   const match = new RegExp('(?<!\\\\)"' + name + '"\\s*:\\s*"').exec(source);
   return match ? stringAt(source, match.index + match[0].length) : "";
 }
-// Partial output is a read-only preview, never a saved generation prompt.
+function imageBlocks(source) {
+  const images = /(?<!\\)"images"\s*:\s*\[/.exec(source);
+  if (!images) return [];
+  const blocks = [];
+  let start = -1,
+    depth = 0,
+    quoted = false,
+    escaped = false;
+  for (let i = images.index + images[0].length; i < source.length; i++) {
+    const char = source[i];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quoted = false;
+      continue;
+    }
+    if (char === '"') quoted = true;
+    else if (char === "{") {
+      if (depth++ === 0) start = i;
+    } else if (char === "}" && --depth === 0) {
+      blocks.push(source.slice(start, i + 1));
+      start = -1;
+    } else if (char === "]" && depth === 0) break;
+  }
+  if (start >= 0) blocks.push(source.slice(start));
+  return blocks;
+}
+// Decode the model's prompt string for preview without rewriting its contents.
 /** @returns {Record<string, string>} */
 export function streamedPrompts(source) {
-  const style = field(source, "style"),
-    result = {};
-  const starts = [...source.matchAll(/(?<!\\)"role"\s*:\s*"/g)];
-  for (let i = 0; i < starts.length; i++) {
-    const block = source.slice(starts[i].index, starts[i + 1]?.index),
-      role = normalizePromptRole(field(block, "role"));
-    if (!role) continue;
-    const copies = [],
-      copyStart = /"copy"\s*:\s*\[/.exec(block);
-    if (copyStart) {
-      let cursor = copyStart.index + copyStart[0].length;
-      while (cursor < block.length) {
-        while (/[\s,]/.test(block[cursor] || "x")) cursor++;
-        if (block[cursor] !== '"') break;
-        copies.push(stringAt(block, ++cursor));
-        for (; cursor < block.length; cursor++) {
-          if (block[cursor] === "\\") {
-            cursor++;
-            continue;
-          }
-          if (block[cursor] === '"') {
-            cursor++;
-            break;
-          }
-        }
-      }
-    }
-    result[role] = [
-      ["统一设计", style],
-      ["版面布局", field(block, "layout")],
-      ["图上文案", copies.join("\n")],
-      ["产品要求", field(block, "thirdPart")],
-      ["图片尺寸", field(block, "fourthPart")],
-    ]
-      .filter(([, value]) => value)
-      .map(([label, value]) => label + "\n" + value)
-      .join("\n\n");
+  const result = {};
+  for (const block of imageBlocks(source)) {
+    const role = normalizePromptRole(field(block, "role")),
+      prompt = field(block, "prompt");
+    if (role && prompt) result[role] = prompt;
   }
   return result;
 }

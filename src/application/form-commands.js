@@ -1,6 +1,7 @@
 import { newProduct, savePrompt, findTask } from "../../shared/model.js";
 import { productMetadataIssues } from "../../shared/product-validation.js";
 import { api } from "../services/workspace-client.js";
+import { imageGeneration } from "../view-models/image-generation.js";
 export function createFormCommands(context) {
   async function saveTaskPromptAndGenerate(productId, taskId, prompt) {
     if (!prompt.trim()) throw new Error("请先填写提示词");
@@ -17,7 +18,17 @@ export function createFormCommands(context) {
       const pair = findTask(context.state, productId, taskId);
       if (!pair.task) throw new Error("该图片位置已不存在");
       const count = await context.queue.enqueue([pair], "image");
-      if (!count) throw new Error("已有生图任务，请等待完成后重试");
+      if (!count) {
+        const generation = imageGeneration(
+          taskId,
+          context.state.jobs,
+          context.state.paused,
+        );
+        const status = generation
+          ? `${generation.label}${generation.progress !== null ? ` ${generation.progress}%` : ""}${generation.submittedBy ? `，由 ${generation.submittedBy} 提交` : ""}。${generation.recovery ? `请在卡片上点击“${generation.recovery.label}”` : "请查看卡片上的状态和进度"}`
+          : "任务状态已更新，请查看卡片或执行队列后再操作";
+        throw new Error(`已有生图任务：${status}；本次修改不影响原任务`);
+      }
       context.notify(
         "提示词已保存，图片已加入生成队列" +
           (context.state.paused ? "，队列已暂停" : ""),

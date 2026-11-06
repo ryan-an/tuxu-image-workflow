@@ -35,7 +35,10 @@ test(
     let source!: ReadableStreamDefaultController<Uint8Array>,
       calls = 0;
     let ended = false;
-    globalThis.fetch = async () => {
+    globalThis.fetch = async (_url, options) => {
+      assert.deepEqual(JSON.parse(options?.body as string).thinking, {
+        type: "disabled",
+      });
       calls++;
       return upstreamHeaders.promise;
     };
@@ -101,7 +104,11 @@ test(
         type: "response.output_text.delta",
         delta: "建议",
       });
-      source.enqueue(new Uint8Array([...first, ...second]));
+      const reasoning = encode({
+        type: "response.reasoning_summary_text.delta",
+        delta: "模型思考摘要",
+      });
+      source.enqueue(new Uint8Array([...reasoning, ...first, ...second]));
       await firstText.promise;
       assert.equal(
         ended,

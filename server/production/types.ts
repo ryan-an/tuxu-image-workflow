@@ -24,6 +24,7 @@ export interface Product {
   name: string;
   facts: string;
   promptRequirements?: string | null;
+  promptTemplateId?: string | null;
   photo: string;
   photos: string[];
   tasks: Position[];

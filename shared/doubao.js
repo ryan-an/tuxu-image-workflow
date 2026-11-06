@@ -13,13 +13,26 @@ export function migratePromptSettings(settings = {}) {
   };
 }
 
-export function responsesPayload(config, content, stream = false) {
+export function responsesPayload(
+  config,
+  content,
+  stream = false,
+  systemPrompt = "",
+) {
   return {
     model: config.promptModel || DOUBAO_DEFAULT_MODEL,
     stream,
     thinking: { type: "disabled" },
     store: false,
     input: [
+      ...(systemPrompt
+        ? [
+            {
+              role: "system",
+              content: [{ type: "input_text", text: systemPrompt }],
+            },
+          ]
+        : []),
       {
         role: "user",
         content: content.map((item) =>

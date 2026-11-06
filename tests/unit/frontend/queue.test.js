@@ -68,7 +68,9 @@ test("local live queue accepts optional references for prompts, images and full 
     for (const allMissing of [false, true]) {
       const { product, state, queue, pairs } = setup();
       state.paused = true;
+      product.photos = [photo, "data:image/png;base64,other-real-product"];
       product.tasks.forEach((task, index) => {
+        task.realPhotoIndices = [1];
         if (allMissing || index % 2 === 0) task.references = [];
         if (kind === "image") task.prompt = `已有提示词：${task.role}`;
       });
@@ -83,7 +85,7 @@ test("local live queue accepts optional references for prompts, images and full 
           0,
         );
       for (const job of state.jobs.filter((item) => item.kind === "image"))
-        assert.deepEqual(job.referenceImages, [photo]);
+        assert.deepEqual(job.referenceImages, product.photos);
     }
 });
 
@@ -188,9 +190,16 @@ test("single card analysis writes only its prompt and single card workflow submi
     globalThis.fetch = original;
   }
 });
-test("one set request gates ten images, and image references contain only real photos", async () => {
+test("one set request gates ten images, and each generation includes all real photos despite analysis selections", async () => {
   const original = globalThis.fetch;
   const { product, state, queue, writes, pairs } = setup();
+  product.photos = [
+    photo,
+    ...Array.from(
+      { length: 5 },
+      (_, index) => `data:image/png;base64,real-product-${index}`,
+    ),
+  ];
   let release;
   const gate = new Promise((resolve) => (release = resolve));
   let sets = 0,
@@ -203,7 +212,7 @@ test("one set request gates ten images, and image references contain only real p
     }
     const input = JSON.parse(options.body);
     images++;
-    assert.deepEqual(input.referenceImages, [photo]);
+    assert.deepEqual(input.referenceImages, product.photos);
     assert.ok(input.prompt.includes("第三部份"));
     return Response.json({
       id: `image-${images}`,

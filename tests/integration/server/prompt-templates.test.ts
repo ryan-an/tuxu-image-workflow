@@ -36,6 +36,11 @@ test("text templates persist, accept latest saves, and never change applied prod
         before: null,
         value: template.content,
       },
+      {
+        path: ["products", f.product.id, "promptTemplateId"],
+        before: null,
+        value: template.id,
+      },
     ]);
     await f.workflows.enqueue(randomUUID(), pairs(f.product), "prompt-set");
     const updated = { ...template, name: "冷色版", content: "背景冷灰。" };
@@ -77,6 +82,7 @@ test("text templates persist, accept latest saves, and never change applied prod
     assert.deepEqual(state.promptTemplates[template.id], updated);
     assert.equal(state.common, defaults);
     assert.equal(state.products[0].promptRequirements, template.content);
+    assert.equal(state.products[0].promptTemplateId, template.id);
     assert.equal(state.jobs[0].common, template.content);
     await f.workflows.edit([
       { path: ["promptTemplates", template.id], before: updated, value: null },
@@ -84,6 +90,7 @@ test("text templates persist, accept latest saves, and never change applied prod
     const after = await f.workflows.repo.view();
     assert.deepEqual(after.promptTemplates, {});
     assert.equal(after.products[0].promptRequirements, template.content);
+    assert.equal(after.products[0].promptTemplateId, template.id);
   } finally {
     await f.close();
   }

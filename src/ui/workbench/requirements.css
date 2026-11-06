@@ -100,6 +100,12 @@
   font-weight: 600;
   color: #3f436c;
 }
+.requirements-badge {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .requirements-summary p {
   margin: 7px 0 0;
   font-size: 11px;

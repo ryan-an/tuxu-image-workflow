@@ -33,6 +33,7 @@ export interface Product {
   name: string;
   facts: string;
   promptRequirements?: string | null;
+  promptTemplateId?: string | null;
   photo: string;
   photos: string[];
   tasks: ImageTask[];
@@ -204,6 +205,8 @@ export interface ApplicationController {
     productId: string,
     content: string,
     before: string | null,
+    templateId?: string | null,
+    beforeTemplateId?: string | null,
   ): Promise<void>;
   savePromptTemplate(
     template: PromptTemplate,

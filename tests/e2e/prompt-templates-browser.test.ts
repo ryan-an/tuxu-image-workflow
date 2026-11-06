@@ -4,6 +4,8 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { fixture, password } from "../support/production.js";
 import { artifactPath } from "../support/artifacts.cjs";
+import { newProduct } from "../../shared/model.js";
+import { differences, editable } from "../../shared/workspace-edits.js";
 
 test(
   "simple text editor supports templates, draft recovery, replacement, latest saves and narrow screens",
@@ -322,6 +324,194 @@ test(
       );
       await open();
       assert.equal(await editor.inputValue(), "当前窗口未保存的编辑");
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await f.close();
+    }
+  },
+);
+
+test(
+  "template selections stay bound to each product across drafts, reloads and template changes, and empty requirements show guidance",
+  { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 60000 },
+  async () => {
+    const { chromium } = createRequire(import.meta.url)(
+      process.env.PLAYWRIGHT_MODULE!,
+    );
+    const f = await fixture(resolve("dist"));
+    const browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.CHROME_PATH,
+    });
+    try {
+      const before = await f.workflows.repo.view();
+      const draft = structuredClone(before);
+      const other = newProduct("TEMPLATE-SECOND", "第二个模板产品");
+      draft.products.push(other as any);
+      const template = {
+        id: "warm",
+        name: "暖色模板",
+        content: before.common,
+        updatedAt: 1,
+      };
+      const identical = { ...template, id: "warm-copy", name: "相同正文模板" };
+      const cold = {
+        ...template,
+        id: "cold",
+        name: "冷色模板",
+        content: "冷灰背景，保留产品比例。",
+      };
+      draft.promptTemplates = { warm: template, "warm-copy": identical, cold };
+      await f.workflows.edit(differences(editable(before), editable(draft)));
+      await f.app.listen({ host: "127.0.0.1", port: 0 });
+      const page = await browser.newPage({
+        viewport: { width: 1440, height: 1000 },
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (error: Error) => errors.push(error.message));
+      await page.goto(
+        `http://127.0.0.1:${(f.app.server.address() as any).port}`,
+      );
+      await page.fill("#login-password", password);
+      await page.click('#login-form button[type="submit"]');
+      const panel = page.locator(".product-requirements");
+      const editor = page.locator("#product-requirements");
+      const choice = page.locator("#requirement-template");
+      const open = () =>
+        panel.getByRole("button", { name: "编辑要求", exact: true }).click();
+      const save = async () => {
+        await page
+          .getByRole("button", { name: "保存当前产品要求", exact: true })
+          .click();
+        await page.waitForFunction(
+          () => !document.querySelector<HTMLDialogElement>("#modal")?.open,
+        );
+      };
+      const switchProduct = async (id: string, code: string) => {
+        await page
+          .locator(
+            `#sidebar-content [data-action="open-product"][data-id="${id}"]`,
+          )
+          .click();
+        await page
+          .locator(".page-heading p")
+          .filter({ hasText: code })
+          .waitFor();
+      };
+      const reloadProduct = async (id: string, code: string) => {
+        await page.reload();
+        await switchProduct(id, code);
+      };
+      await switchProduct(f.product.id, f.product.code);
+      await open();
+      await choice.selectOption("template:warm");
+      assert.equal(await editor.inputValue(), before.common);
+      assert.equal(
+        await page
+          .getByRole("button", { name: "保存当前产品要求", exact: true })
+          .isEnabled(),
+        true,
+      );
+      await page.keyboard.press("Escape");
+      await open();
+      assert.equal(await choice.inputValue(), "template:warm");
+      await reloadProduct(f.product.id, f.product.code);
+      await open();
+      assert.equal(await choice.inputValue(), "template:warm");
+      await save();
+      let saved = (await f.workflows.repo.view()).products.find(
+        (p) => p.id === f.product.id,
+      )!;
+      assert.equal(saved.promptTemplateId, template.id);
+      assert.equal(saved.promptRequirements, before.common);
+      await panel.getByText("使用模板：暖色模板", { exact: true }).waitFor();
+      assert.equal(await panel.getByText(/来源模板：/).count(), 0);
+
+      await switchProduct(other.id, other.code);
+      await open();
+      assert.equal(await choice.inputValue(), "default");
+      await choice.selectOption("template:cold");
+      await save();
+      await switchProduct(f.product.id, f.product.code);
+      await open();
+      assert.equal(await choice.inputValue(), "template:warm");
+      await choice.selectOption("template:warm-copy");
+      await save();
+      await reloadProduct(f.product.id, f.product.code);
+      await open();
+      assert.equal(await choice.inputValue(), "template:warm-copy");
+      assert.equal(await editor.inputValue(), before.common);
+      await page.keyboard.press("Escape");
+
+      await f.workflows.edit([
+        {
+          path: ["promptTemplates", identical.id],
+          before: identical,
+          value: { ...identical, content: "模板后来改成了深色" },
+        },
+      ]);
+      await reloadProduct(f.product.id, f.product.code);
+      await open();
+      assert.equal(await choice.inputValue(), "template:warm-copy");
+      assert.equal(
+        await editor.inputValue(),
+        before.common,
+        "template edits must not replace the saved product snapshot",
+      );
+      await page.keyboard.press("Escape");
+      await f.workflows.edit([
+        { path: ["promptTemplates", identical.id], before: null, value: null },
+      ]);
+      await reloadProduct(f.product.id, f.product.code);
+      await open();
+      assert.equal(await choice.inputValue(), "template:warm-copy");
+      assert.equal(await editor.inputValue(), before.common);
+      await page.keyboard.press("Escape");
+      await switchProduct(other.id, other.code);
+      await open();
+      assert.equal(await choice.inputValue(), "template:cold");
+      assert.equal(await editor.inputValue(), cold.content);
+      await editor.fill(" \n ");
+      await page
+        .getByRole("alert")
+        .filter({ hasText: "整套提示词要求不能为空" })
+        .waitFor();
+      assert.equal(
+        await page
+          .getByRole("button", { name: "保存当前产品要求", exact: true })
+          .isDisabled(),
+        true,
+      );
+      saved = (await f.workflows.repo.view()).products.find(
+        (p) => p.id === other.id,
+      )!;
+      assert.equal(saved.promptRequirements, cold.content);
+      await choice.selectOption("default");
+      await save();
+      saved = (await f.workflows.repo.view()).products.find(
+        (p) => p.id === other.id,
+      )!;
+      assert.equal(saved.promptTemplateId, null);
+      assert.equal(saved.promptRequirements, null);
+      await f.workflows.edit([
+        { path: ["common"], before: before.common, value: "" },
+      ]);
+      await reloadProduct(other.id, other.code);
+      await panel.getByText("要求为空", { exact: true }).waitFor();
+      await panel
+        .getByRole("button", { name: "生成整套提示词", exact: true })
+        .click();
+      await editor.waitFor();
+      await page
+        .getByRole("alert")
+        .filter({ hasText: "整套提示词要求不能为空" })
+        .waitFor();
+      assert.equal(await editor.inputValue(), "");
+      assert.deepEqual((await f.workflows.repo.view()).jobs, []);
+      await page.screenshot({
+        path: artifactPath("requirements-empty-template-binding.png"),
+      });
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

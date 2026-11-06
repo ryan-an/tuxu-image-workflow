@@ -1,6 +1,7 @@
 import { baseUrl, generationPayload } from "../../shared/provider-config.js";
 import {
   productPhotos,
+  ANALYSIS_SYSTEM_PROMPT,
   suiteInstruction,
   parseSuiteResponse,
   PromptValidationError,
@@ -235,11 +236,14 @@ export class GrsaiProvider implements Provider {
       key,
       signal,
       doubao
-        ? responsesPayload(config, content, true)
+        ? responsesPayload(config, content, true, ANALYSIS_SYSTEM_PROMPT)
         : {
             model: config.promptModel,
             stream: true,
-            messages: [{ role: "user", content }],
+            messages: [
+              { role: "system", content: ANALYSIS_SYSTEM_PROMPT },
+              { role: "user", content },
+            ],
           },
       (response) =>
         doubao

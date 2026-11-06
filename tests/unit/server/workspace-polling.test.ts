@@ -1,10 +1,63 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { WorkspaceClient } from "../../../src/services/workspace-client.js";
+import { RemoteQueue } from "../../../src/services/remote-queue.js";
 import {
   emptyWorkspace,
   Repository,
 } from "../../../server/production/repository.js";
+
+test("enqueue waits for a fresh status read when an older poll is still in flight", async (t) => {
+  const state: any = { ...emptyWorkspace(), syncCursor: 1 };
+  const client = new WorkspaceClient(state, {
+    render: () => {},
+    sync: async () => {},
+    notify: () => {},
+  });
+  let release!: () => void;
+  let started!: () => void;
+  const reading = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const stalled = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let reads = 0;
+  const job = {
+    id: "shared-job",
+    status: "queued",
+    kind: "image",
+    progress: 46,
+    remoteId: "platform-task",
+  };
+  t.mock.method(client, "save", async () => {});
+  t.mock.method(client, "request", async (path: string) => {
+    if (path === "/api/jobs") return { count: 0 };
+    reads++;
+    if (reads === 1) {
+      started();
+      await stalled;
+    }
+    return {
+      cursor: reads,
+      products: [],
+      jobs: reads === 1 ? [] : [job],
+      deletedProducts: [],
+      deletedJobs: [],
+    };
+  });
+  const oldPoll = client.refresh();
+  await reading;
+  const enqueue = new RemoteQueue(state, client, () => {}).enqueue([]);
+  // Let the command finish while the original status response is still pending.
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  release();
+  assert.equal(await enqueue, 0);
+  await oldPoll;
+  assert.equal(reads, 2);
+  assert.equal(state.jobs[0]?.remoteId, job.remoteId);
+  assert.equal(state.jobs[0]?.progress, 46);
+});
 
 test("unchanged workspace reads only the revision and preserves the delta response", async () => {
   const queries: string[] = [];

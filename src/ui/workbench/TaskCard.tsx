@@ -133,7 +133,7 @@ export function TaskCard({ task }: { task: ImageTask }) {
             variant="primary"
             action="generate-image"
             data={{ task: task.id }}
-            disabled={busy || streaming}
+            disabled={busy || streaming || !!generation}
           >
             {task.versions.length ? "再生成" : "生成图片"}
           </ActionButton>

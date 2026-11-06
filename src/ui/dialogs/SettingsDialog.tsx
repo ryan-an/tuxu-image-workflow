@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MODELS } from "../../../shared/provider-config.js";
+import { gptImageSizeGroups } from "../../../shared/gpt-image-sizes.js";
 import { PROMPT_MODELS } from "../../../shared/service-models.js";
 import { ApplicationForm, useApplication } from "../context.tsx";
 import "./settings.css";
@@ -17,21 +18,29 @@ function Options({ values }: { values: string[] }) {
   ));
 }
 export function SettingsDialog() {
-  const { state, ui, isRemote, user } = useApplication(),
+  const { state, ui, user } = useApplication(),
     config = state.settings,
     canManageWorkspace = user.role === "owner";
   const [imageModel, setImageModel] = useState(config.imageModel),
     [promptModel, setPromptModel] = useState(config.promptModel),
+    [gptSize, setGptSize] = useState(config.gptSize || "auto"),
     [quality, setQuality] = useState(config.quality);
   const gpt = imageModel.startsWith("gpt-"),
     custom = promptModel === "__custom";
+  const sizeGroups = gptImageSizeGroups(imageModel);
+  const savedCustomSize =
+    imageModel === config.imageModel &&
+    config.gptSize &&
+    config.gptSize !== "auto" &&
+    !sizeGroups.some((group) => group.sizes.includes(config.gptSize))
+      ? config.gptSize
+      : null;
   return (
     <>
       <h2>{canManageWorkspace ? "模型配置" : "我的生图配置"}</h2>
       <p className="modal-subtitle">
         生图模型、比例和分辨率仅用于你在当前工作区发起的任务。
-        {canManageWorkspace &&
-          "豆包对话模型、运行方式和生图节点由整个工作区共用。"}
+        {canManageWorkspace && "豆包对话模型由整个工作区共用。"}
       </p>
       <ApplicationForm id="settings-form">
         {canManageWorkspace && (
@@ -64,24 +73,6 @@ export function SettingsDialog() {
                 placeholder="doubao-… 或 ep-…"
               />
             </label>
-            <div className="form-grid">
-              <label>
-                运行方式
-                <select name="mode" defaultValue={config.mode}>
-                  {!isRemote && (
-                    <option value="demo">演示模式 · 不调用付费接口</option>
-                  )}
-                  <option value="live">真实调用 · 豆包 + Grsai</option>
-                </select>
-              </label>
-              <label>
-                Grsai 生图节点
-                <select name="baseUrl" defaultValue={config.baseUrl}>
-                  <option value="https://grsai.dakka.com.cn">国内节点</option>
-                  <option value="https://grsaiapi.com">全球节点</option>
-                </select>
-              </label>
-            </div>
           </>
         )}
         <p className="field-note">我的生图配置 · 仅对本人在当前工作区生效</p>
@@ -93,7 +84,15 @@ export function SettingsDialog() {
               id="image-model"
               value={imageModel}
               onChange={(e) => {
-                setImageModel(e.target.value);
+                const model = e.target.value;
+                setImageModel(model);
+                if (
+                  model.startsWith("gpt-") &&
+                  !gptImageSizeGroups(model).some((group) =>
+                    group.sizes.includes(gptSize),
+                  )
+                )
+                  setGptSize("auto");
                 setQuality(
                   /vip|flare|sunburst/.test(e.target.value) ? "medium" : "auto",
                 );
@@ -138,25 +137,27 @@ export function SettingsDialog() {
         <div id="gpt-options" hidden={!gpt} className="form-grid">
           <label>
             GPT 尺寸 / 比例
-            <input
+            <select
               name="gptSize"
-              defaultValue={config.gptSize}
-              list="gpt-sizes"
-            />
-            <datalist id="gpt-sizes">
-              <Options
-                values={[
-                  "auto",
-                  "1024x1024",
-                  "1536x1024",
-                  "1024x1536",
-                  "2048x2048",
-                  "2880x2880",
-                  "16:9",
-                  "9:16",
-                ]}
-              />
-            </datalist>
+              value={gptSize}
+              onChange={(e) => setGptSize(e.target.value)}
+            >
+              <option value="auto">auto · 自动尺寸</option>
+              {savedCustomSize && (
+                <option value={savedCustomSize}>
+                  {savedCustomSize} · 已保存尺寸
+                </option>
+              )}
+              {sizeGroups.map(({ ratio, sizes }) => (
+                <optgroup key={ratio} label={ratio}>
+                  {sizes.map((size) => (
+                    <option key={size} value={size}>
+                      {size} · {ratio}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
           </label>
           <label>
             GPT 质量
@@ -172,8 +173,10 @@ export function SettingsDialog() {
           </label>
         </div>
         <p className="field-note">
-          比例与分辨率默认 auto。分辨率 auto
-          沿用模型默认。队列保留提交时的配置。
+          {gpt
+            ? "尺寸按比例分组，auto 沿用模型默认。切换型号时，不适用的尺寸恢复为 auto。"
+            : "比例与分辨率默认 auto。分辨率 auto 沿用模型默认。"}
+          队列保留提交时的配置。
         </p>
         <span id="settings-error" className="error-text">
           {ui.formError}

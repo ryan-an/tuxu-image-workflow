@@ -361,8 +361,11 @@ export class WorkspaceClient {
       await this.accept(remote, pending);
     });
   }
-  refresh() {
-    if (this.refreshing) return this.refreshing;
+  refresh({ afterCurrent = false } = {}) {
+    if (this.refreshing)
+      return afterCurrent
+        ? this.refreshing.catch(() => {}).then(() => this.refresh())
+        : this.refreshing;
     this.refreshing = this.serialize(async () => {
       this.capture();
       let remote,

@@ -36,6 +36,14 @@ export function Workbench() {
   const stats = productStats(product),
     photoCount = productPhotos(product).length,
     requirements = productRequirements(product, state.common),
+    requirementsMissing = !requirements.trim(),
+    customized = product.promptRequirements != null,
+    template = product.promptTemplateId
+      ? state.promptTemplates?.[product.promptTemplateId]
+      : null,
+    templateLabel = product.promptTemplateId
+      ? `使用模板：${template?.name ?? "原模板已删除"}`
+      : null,
     tasks = product.tasks.filter(
       (t) =>
         ui.filter === "all" ||
@@ -148,15 +156,30 @@ export function Workbench() {
                 </svg>
                 <h2 id="product-requirements-title">整套提示词要求</h2>
                 <Badge
-                  tone={requirements === state.common ? "brand" : "info"}
-                  className={`requirements-badge ${requirements !== state.common ? "customized" : ""}`}
+                  tone={
+                    requirementsMissing
+                      ? "warning"
+                      : customized
+                        ? "info"
+                        : "brand"
+                  }
+                  className={`requirements-badge ${customized ? "customized" : ""}`}
+                  title={templateLabel ?? undefined}
                 >
-                  {requirements === state.common
-                    ? "默认要求"
-                    : "本产品已自定义"}
+                  {requirementsMissing
+                    ? "要求为空"
+                    : templateLabel
+                      ? templateLabel
+                      : customized
+                        ? "本产品已自定义"
+                        : "默认要求"}
                 </Badge>
               </div>
-              <p>仅当前产品 · 修改后下次生成时生效</p>
+              <p>
+                {requirementsMissing
+                  ? "请填写要求或选择模板并保存后生成"
+                  : "仅当前产品 · 修改后下次生成时生效"}
+              </p>
             </div>
             <div className="requirements-actions">
               <ActionButton

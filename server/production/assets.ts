@@ -9,6 +9,7 @@ import sharp from "sharp";
 import type { Database } from "./types.js";
 import { AppError } from "./types.js";
 import { WORKSPACE } from "./repository.js";
+import { uploadedImage, UPLOAD_IMAGE_LIMIT } from "./upload-images.js";
 import {
   AnalysisImagePool,
   defaultAnalysisImagePool,
@@ -32,7 +33,7 @@ export class Assets {
   ) {
     this.root = resolve(root);
   }
-  async put(bytes: Buffer, mime: string) {
+  async put(bytes: Buffer, mime: string, { compressUpload = false } = {}) {
     mime = mime.split(";")[0].toLowerCase();
     const valid =
       (mime === "image/png" &&
@@ -50,6 +51,10 @@ export class Assets {
         /^GIF8[79]a$/.test(bytes.toString("ascii", 0, 6)));
     if (!valid || bytes.length > MAX_IMAGE)
       throw new AppError("图片格式无效或超过 40MB");
+    if (compressUpload && bytes.length > UPLOAD_IMAGE_LIMIT)
+      ({ bytes, mime } = await this.analysisPool.run(undefined, () =>
+        uploadedImage(bytes, mime),
+      ));
     const hash = createHash("sha256");
     if (this.workspaceId !== WORKSPACE)
       hash.update(this.workspaceId).update("\0");
@@ -198,7 +203,9 @@ export class Assets {
       if (!images.has(value))
         images.set(
           value,
-          this.put(Buffer.from(parsed[2], "base64"), parsed[1]),
+          this.put(Buffer.from(parsed[2], "base64"), parsed[1], {
+            compressUpload: true,
+          }),
         );
       return images.get(value);
     }
@@ -291,7 +298,14 @@ export class Assets {
     });
   }
   async download(source: string, signal: AbortSignal) {
-    if (source.startsWith("data:image/")) return this.normalize(source);
+    if (source.startsWith("data:image/")) {
+      const parsed =
+        /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/.exec(
+          source,
+        );
+      if (!parsed) throw new AppError("不支持的图片编码");
+      return this.put(Buffer.from(parsed[2], "base64"), parsed[1]);
+    }
     const { bytes, mime } = await downloadImage(source, signal);
     return this.put(bytes, mime);
   }

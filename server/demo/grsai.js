@@ -8,6 +8,7 @@ import {
 } from "../../shared/doubao.js";
 import {
   productPhotos,
+  ANALYSIS_SYSTEM_PROMPT,
   suiteInstruction,
   parseSuiteResponse,
 } from "../../shared/prompt-suite.js";
@@ -202,7 +203,7 @@ export function grsaiPlugin() {
           content.push(
             {
               type: "text",
-              text: `产品实拍图 ${index}：唯一产品外观依据，可在photoIndices中选择。`,
+              text: `产品实拍图 ${index}：唯一产品外观依据，每次生图都会附带全部产品实拍图。`,
             },
             { type: "image_url", image_url: { url } },
           ),
@@ -216,11 +217,19 @@ export function grsaiPlugin() {
             method: "POST",
             body: JSON.stringify(
               doubao
-                ? responsesPayload(config, content)
+                ? responsesPayload(
+                    config,
+                    content,
+                    false,
+                    ANALYSIS_SYSTEM_PROMPT,
+                  )
                 : {
                     model: config.promptModel || DEFAULT_CONFIG.promptModel,
                     stream: false,
-                    messages: [{ role: "user", content }],
+                    messages: [
+                      { role: "system", content: ANALYSIS_SYSTEM_PROMPT },
+                      { role: "user", content },
+                    ],
                   },
             ),
             signal,

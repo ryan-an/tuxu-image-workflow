@@ -27,5 +27,14 @@ export function productMetadataIssues(product) {
     else if (product.promptRequirements.length > 100000)
       invalid("requirements_too_long", "本产品生成要求不能超过 100000 字");
   }
+  if (
+    product.promptTemplateId != null &&
+    (typeof product.promptTemplateId !== "string" ||
+      !/^[A-Za-z0-9_-]{1,100}$/.test(product.promptTemplateId))
+  )
+    invalid(
+      "invalid_prompt_template",
+      "本产品的提示词模板标识无效，请重新选择模板",
+    );
   return issues;
 }

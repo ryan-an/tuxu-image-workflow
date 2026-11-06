@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ActionButton, useApplication } from "../context.tsx";
+import { PromptMarkdown } from "./PromptMarkdown.tsx";
 export function PromptPreview({
   text,
   streaming,
@@ -59,32 +60,9 @@ export function PromptPreview({
     )
       setEditing(false);
   }, [editing, text, streaming]);
-  const [visible, setVisible] = useState(text),
-    target = useRef(text),
+  const visible = text,
     viewport = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
-  target.current = text;
-  useEffect(() => {
-    if (!streaming || matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setVisible(text);
-      return;
-    }
-    setVisible((current) => (text.startsWith(current) ? current : text));
-    const timer = setInterval(
-      () =>
-        setVisible((current) => {
-          const next = target.current;
-          if (!next.startsWith(current)) return next;
-          return next.slice(
-            0,
-            current.length +
-              Math.max(3, Math.ceil((next.length - current.length) / 12)),
-          );
-        }),
-      24,
-    );
-    return () => clearInterval(timer);
-  }, [streaming, text]);
   useEffect(() => {
     if (!editing && follow.current && viewport.current)
       viewport.current.scrollTop = viewport.current.scrollHeight;
@@ -237,7 +215,7 @@ export function PromptPreview({
               }
             }}
           >
-            {visible}
+            <PromptMarkdown text={visible} />
             {streaming && <span className="typing-caret" aria-hidden="true" />}
           </div>
         ) : !interrupted ? (

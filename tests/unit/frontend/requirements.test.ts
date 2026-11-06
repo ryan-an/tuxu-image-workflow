@@ -4,7 +4,9 @@ import { newProduct } from "../../../shared/model.js";
 import {
   suiteInstruction,
   parseSuiteResponse,
+  productRequirements,
 } from "../../../shared/prompt-suite.js";
+import { createRequirementCommands } from "../../../src/application/requirements.js";
 import {
   requirementDraftKey,
   readRequirementDraft,
@@ -20,14 +22,10 @@ test("free text needs no numbered headings and model dimensions are not overridd
   assert.ok(suiteInstruction(product, text).includes(text));
   assert.match(suiteInstruction(product, text), /标题、编号和段落格式不限/);
   const response = {
-    style: "浅灰",
     images: [
       {
         role: product.tasks[0].role,
-        layout: "产品居中",
-        copy: ["Simple"],
-        thirdPart: "保持外观",
-        fourthPart: "1200×800",
+        prompt: "产品居中\nSimple\n浅灰\n保持外观\n1200×800",
       },
     ],
   };
@@ -41,7 +39,7 @@ test("free text needs no numbered headings and model dimensions are not overridd
       .prompt,
     /1200×800/,
   );
-  delete (response.images[0] as any).thirdPart;
+  response.images[0].prompt = "模型给出的正文";
   assert.equal(
     parseSuiteResponse(
       JSON.stringify(response),
@@ -90,6 +88,72 @@ test("drafts survive reload, clear after save, and use separate user, workspace 
   assert.equal(readRequirementDraft(requirementDraftKey(user, "other")), null);
   writeRequirementDraft(key, "已保存", "已保存");
   assert.equal(readRequirementDraft(key), null);
+  writeRequirementDraft(
+    key,
+    "相同正文",
+    "相同正文",
+    "template:custom",
+    "default",
+  );
+  assert.deepEqual(readRequirementDraft(key), {
+    content: "相同正文",
+    base: "相同正文",
+    templateChoice: "template:custom",
+    baseTemplateChoice: "default",
+  });
+  writeRequirementDraft(
+    key,
+    "相同正文",
+    "相同正文",
+    "template:custom",
+    "template:custom",
+  );
+  assert.equal(readRequirementDraft(key), null);
+});
+
+test("applying a template identical to defaults saves its source and freezes product text independently", async () => {
+  const state = emptyWorkspace();
+  const product = newProduct("bound-template");
+  state.products = [product as any];
+  const commands = createRequirementCommands({
+    canEdit: true,
+    state,
+    change() {},
+    notify() {},
+    persist: async () => {},
+  });
+  const original = state.common;
+  await commands.saveProductRequirements(
+    product.id,
+    original,
+    null,
+    "template",
+    null,
+  );
+  assert.equal(product.promptTemplateId, "template");
+  assert.equal(product.promptRequirements, original);
+  state.common = "默认要求后来发生变化";
+  assert.equal(productRequirements(product, state.common), original);
+  await assert.rejects(
+    commands.saveProductRequirements(
+      product.id,
+      " \n ",
+      original,
+      "template",
+      "template",
+    ),
+    /请填写生成要求/,
+  );
+  assert.equal(product.promptRequirements, original);
+  await commands.saveProductRequirements(
+    product.id,
+    state.common,
+    original,
+    null,
+    "template",
+  );
+  assert.equal(product.promptTemplateId, null);
+  assert.equal(product.promptRequirements, null);
 });
 
 test("dialog saves keep unrelated pending edits and preserve the original conflict baseline", async (t) => {

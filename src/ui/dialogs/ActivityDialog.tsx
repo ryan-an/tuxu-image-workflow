@@ -24,6 +24,7 @@ const fields: Record<string, string> = {
   code: "产品编号",
   facts: "产品资料",
   promptRequirements: "生成要求",
+  promptTemplateId: "生成要求来源模板",
   prompt: "提示词",
   references: "参考图",
   photos: "实拍图",

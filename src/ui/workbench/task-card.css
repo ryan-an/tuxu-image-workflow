@@ -127,6 +127,17 @@
   background: #f6f5ffed;
   backdrop-filter: blur(5px);
 }
+.generation-submitter {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+.generation-progress.needs-recovery .generation-art {
+  display: none;
+}
 .generation-art {
   position: relative;
   width: 92px;

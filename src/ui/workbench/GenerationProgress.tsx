@@ -1,3 +1,5 @@
+import { ActionButton } from "../context";
+
 export function GenerationProgress({
   generation,
   overlay,
@@ -7,14 +9,17 @@ export function GenerationProgress({
     label: string;
     detail: string;
     progress: number | null;
+    jobId: string;
+    submittedBy: string;
+    recovery: { action: string; label: string } | null;
   };
   overlay: boolean;
 }) {
-  const { progress, label, detail } = generation;
+  const { progress, label, detail, recovery, submittedBy, jobId } = generation;
   return (
     <div
-      className={`generation-progress ${overlay ? "is-overlay" : ""}`}
-      aria-busy="true"
+      className={`generation-progress ${overlay ? "is-overlay" : ""} ${recovery ? "needs-recovery" : ""}`}
+      aria-busy={!recovery}
     >
       <div className="generation-art" aria-hidden="true">
         <span className="generation-art-glow" />
@@ -33,27 +38,46 @@ export function GenerationProgress({
       <small className="generation-detail">
         {overlay ? `新版本 · ${detail}` : detail}
       </small>
-      <div className="generation-meter">
-        <div className="generation-meter-label">
-          <span>{progress === null ? "准备中" : "生成进度"}</span>
-          {progress !== null && (
-            <span className="generation-percent">{progress}%</span>
-          )}
-        </div>
-        <div
-          className={`generation-track ${progress === null ? "is-indeterminate" : ""}`}
-          role="progressbar"
-          aria-label="图片生成进度"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={progress ?? undefined}
-          aria-valuetext={progress === null ? label : `${label} ${progress}%`}
+      {submittedBy && (
+        <small
+          className="generation-submitter"
+          title={`提交人：${submittedBy}`}
         >
-          <i
-            style={{ width: progress === null ? undefined : `${progress}%` }}
-          />
+          提交人：{submittedBy}
+        </small>
+      )}
+      {recovery ? (
+        <ActionButton
+          action={recovery.action}
+          data={{ id: jobId }}
+          variant="secondary"
+          size="sm"
+        >
+          {recovery.label}
+        </ActionButton>
+      ) : (
+        <div className="generation-meter">
+          <div className="generation-meter-label">
+            <span>{progress === null ? "准备中" : "生成进度"}</span>
+            {progress !== null && (
+              <span className="generation-percent">{progress}%</span>
+            )}
+          </div>
+          <div
+            className={`generation-track ${progress === null ? "is-indeterminate" : ""}`}
+            role="progressbar"
+            aria-label="图片生成进度"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress ?? undefined}
+            aria-valuetext={progress === null ? label : `${label} ${progress}%`}
+          >
+            <i
+              style={{ width: progress === null ? undefined : `${progress}%` }}
+            />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

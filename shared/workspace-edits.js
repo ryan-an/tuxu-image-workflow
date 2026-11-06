@@ -26,6 +26,7 @@ export function editable(workspace) {
             name: p.name,
             facts: p.facts,
             promptRequirements: p.promptRequirements ?? null,
+            promptTemplateId: p.promptTemplateId ?? null,
             photo: p.photo || "",
             photos: p.photos || [],
             photoThumbnail: p.photoThumbnail ?? null,

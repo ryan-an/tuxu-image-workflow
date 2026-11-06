@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { newProduct } from "../../../shared/model.js";
-import { generationImages } from "../../../shared/prompt-suite.js";
+import {
+  generationImages,
+  suiteInstruction,
+} from "../../../shared/prompt-suite.js";
 import { generationPayload } from "../../../shared/provider-config.js";
 
 test("reference-only generation deduplicates the full suite and identifies every current reference by upload number", () => {
@@ -58,21 +61,51 @@ test("generation without any real photos or references remains text-only", () =>
   assert.equal(inputs.referenceImageContext, undefined);
 });
 
-test("either a legacy main photo or photos list keeps generation restricted to real photos", () => {
-  for (const photos of [
-    { photo: "real-main", photos: [] },
-    { photo: "", photos: ["real-main", "real-other"] },
+test("every generation includes all real photos despite saved selections, without reference images or a count cap", () => {
+  for (const { photo, photos, expected } of [
+    { photo: "real-main", photos: [], expected: ["real-main"] },
+    {
+      photo: "",
+      photos: ["real-main", "real-other"],
+      expected: ["real-main", "real-other"],
+    },
+    {
+      photo: "real-main",
+      photos: ["real-other", "real-main", "", "real-third"],
+      expected: ["real-main", "real-other", "real-third"],
+    },
+    {
+      photo: "real-main",
+      photos: Array.from({ length: 6 }, (_, index) => `real-${index}`),
+      expected: [
+        "real-main",
+        ...Array.from({ length: 6 }, (_, index) => `real-${index}`),
+      ],
+    },
   ]) {
-    const product = Object.assign(newProduct("real-photos"), photos);
+    const product = Object.assign(newProduct("real-photos"), { photo, photos });
     product.tasks[0].references = ["size"];
     product.tasks[1].references = ["selling"];
     const prompt = "原有生图提示词";
-    const inputs = generationImages(product, product.tasks[1], [0]);
-    const request = generationPayload({}, { prompt, ...inputs });
+    for (const indices of [undefined, [], [0], [1], [99]]) {
+      Object.assign(product.tasks[1], { realPhotoIndices: indices });
+      const inputs = generationImages(product, product.tasks[1]);
+      const request = generationPayload({}, { prompt, ...inputs });
 
-    assert.deepEqual(request.images, ["real-main"]);
-    assert.equal(inputs.referenceImageKind, "product-photo");
-    assert.equal(inputs.referenceImageContext, undefined);
-    assert.equal(request.prompt, prompt);
+      assert.deepEqual(request.images, expected);
+      assert.equal(inputs.referenceImageKind, "product-photo");
+      assert.equal(inputs.referenceImageContext, undefined);
+      assert.equal(request.prompt, prompt);
+      assert.deepEqual(product.photos, photos);
+    }
   }
+});
+
+test("analysis instructions request all real photo indices instead of selecting viewpoints", () => {
+  const product = Object.assign(newProduct("all-photos"), {
+    photos: Array.from({ length: 6 }, (_, index) => `real-${index}`),
+  });
+  const instruction = suiteInstruction(product, "用户当前要求");
+  assert.ok(instruction.includes('"photoIndices":[0,1,2,3,4,5]'));
+  assert.match(instruction, /每次生图始终附带全部产品实拍图/);
 });

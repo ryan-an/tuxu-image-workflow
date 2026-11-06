@@ -110,6 +110,7 @@ export function createSheet(context) {
     const snap = bridge.snapshot(),
       sheet = snap.sheets.preview,
       mapping = detectColumns(sheet);
+    state.sheetSnapshot = snap;
     for (const [r, cells] of Object.entries(sheet.cellData)) {
       if (
         String(cells[mapping.codeColumn]?.v) !== oldCode &&
@@ -146,7 +147,6 @@ export function createSheet(context) {
           );
         }
     }
-    state.sheetSnapshot = snap;
     bridge.batchLocations = null;
     bridge.capture();
   }

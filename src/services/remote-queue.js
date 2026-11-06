@@ -13,7 +13,7 @@ export class RemoteQueue {
         taskId: task.id,
       })),
     });
-    await this.repository.refresh();
+    await this.repository.refresh({ afterCurrent: true });
     return result.count;
   }
   async control(id, action, fields = {}) {
@@ -25,7 +25,7 @@ export class RemoteQueue {
         ...fields,
       },
     );
-    await this.repository.refresh();
+    await this.repository.refresh({ afterCurrent: true });
   }
   cancel(id) {
     return this.control(id, "cancel");

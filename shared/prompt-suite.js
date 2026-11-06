@@ -1,6 +1,29 @@
 import { ROLES } from "./model.js";
 import { normalizePromptRole } from "./prompt-roles.js";
 
+export const ANALYSIS_SYSTEM_PROMPT = `你是一名准确、可靠、善于理解用户需求的 AI 助手。
+
+认真理解用户的目标，结合当前对话和提供的资料完成任务。
+
+完整遵循用户明确提出的要求，保留重要条件和细节，
+不要擅自省略、替换或把具体要求概括成模糊描述。
+
+根据任务需要决定回答的详细程度。
+用户要求完整方案、详细分析或可直接使用的成品时，
+应充分展开并交付完整内容，不要只给概要或建议。
+
+输出应排版规整、结构清晰、层次分明，语言自然易懂。
+
+按内容含义分组，同一段落集中表达一类事项；较长内容合理分段，并列事项适当使用简短标签或分项。同类内容保持一致的组织方式，避免把多个主题堆在一个长段落中。
+
+说明与可直接使用的文案、数据应清楚区分，需要查找和核对的内容集中呈现，避免散落、重复或遗漏。
+
+以实际提供的资料为依据，保持事实、条件和前后表述一致，不声称使用未提供的素材。遇到无法同时满足的要求，应明确说明冲突，不编造信息，也不擅自改写用户要求保留的原文。
+
+涉及数值、单位、尺寸和比例时，检查其准确性与一致性；建议参数应符合实际用途和输出规格。
+
+优先遵循用户指定的语言、结构、格式和原文要求。`;
+
 export const FIXED_PRODUCT_REQUIREMENTS = `1. 必须严格使用我上传的实拍产品图片作为唯一产品参考来源。
 2. 生成结果中的产品必须与上传的实拍图高度一致，不得擅自修改产品本身。
 3. 最终图像必须让人明确识别为基于我上传实拍产品生成的真实场景图。
@@ -67,11 +90,7 @@ export function productPhotos(product) {
   ];
 }
 /** @returns {{ referenceImages: string[], referenceImageKind: "product-photo" | "reference", referenceImageContext?: string }} */
-export function generationImages(
-  product,
-  task,
-  indices = task.realPhotoIndices,
-) {
+export function generationImages(product, task) {
   const photos = productPhotos(product);
   if (!photos.length) {
     const cards = product.tasks || [task];
@@ -106,11 +125,8 @@ ${current ? `当前要做的对标图：${current}（${task.role}）。` : `当�
         : {}),
     };
   }
-  const selected = indices?.length
-    ? indices.map((i) => photos[i]).filter(Boolean)
-    : photos;
   return {
-    referenceImages: selected.length ? selected : photos,
+    referenceImages: photos,
     referenceImageKind: "product-photo",
   };
 }
@@ -140,25 +156,16 @@ export function outputSpec(role, common = DEFAULT_COMMON) {
     dpi: /分辨率\s*(\d+)/.exec(rule)?.[1] || "",
   };
 }
-export function assemblePrompt(
-  role,
-  layout,
-  copy,
-  style,
-  modelThird = "",
-  modelFourth = "",
-) {
-  // Templates guide analysis; every generated section comes from the response.
-  return `第一部份：图片的版面布局以及图片对应的文案\n图片类型：${role}\n${layout}\n图中仅出现以下文案：\n${copy.map((line) => `“${line}”`).join("\n")}\n\n第二部份：整套统一设计规范\n${style}\n\n第三部份：产品要求\n${modelThird}\n\n第四部份：图片尺寸\n${modelFourth}`;
-}
 export function suiteInstruction(product, common) {
   const roles = product.tasks.map((task) => task.role);
   const photoCount = productPhotos(product).length;
   return `以下全部是用户当前可编辑的提示词生成要求，请按当前版本执行，不套用其他默认规则：\n${common}\n\n产品名称：${product.name}\n产品编号：${product.code}\n产品信息：${product.facts || "资料暂缺；不要猜测规格。"}\n\n本次仅分析以下${roles.length}张卡片，严格按此顺序：${roles.join("、")}。共用要求中的整套数量仅作为设计背景，本次输出范围以上述卡片为准，不要输出其他位置。对标图是可选资料；部分或全部位置未提供对标图时，依据产品资料、实拍图、当前要求和图片类型自主设计，仍须输出所有指定卡片的完整提示词，不要求补图，不声称已识别未提供的对标图。
 产品实拍图也是可选资料。本次提供${photoCount}张产品实拍图。${photoCount ? "产品外观以标注的实拍图为依据，对标图仅用于参考设计。" : "本次没有产品实拍图，各卡片附图均为参考图／对标图，不能称为实拍图。依据产品资料、当前卡片参考图和当前要求设计，不照搬参考图，不声称已上传实拍图；模板中依赖实拍图的要求按实际未提供实拍图的情况处理，photoIndices必须返回空数组。"}
-用户要求是自由文本，标题、编号和段落格式不限；必须通读全文，不得因缺少“第一部分”等标题而忽略要求。下面的JSON字段只是返回格式，与用户正文的标题无关。
-仅返回一个JSON对象，不要Markdown：{"style":"依据全文中的视觉与风格要求制定整套统一设计规范", "images":[{"role":${JSON.stringify(roles[0] || ROLES[0])},"layout":"依据全文要求生成此位置的布局，所有可见文案放copy里", "copy":["按用户当前规则生成的图上文案"],"thirdPart":"提取全文中的产品约束和必须遵守的要求；用户指定原样保留的文字必须原样保留", "fourthPart":"依据全文为此图片确定尺寸和分辨率；未指定的参数不要编造", "photoIndices":${photoCount ? "[0]" : "[]"}}]}。
-images必须恰好${roles.length}项，角色不重不漏；每项role必须逐字使用上述卡片名称（包括空格），不要改写或新增位置名称。语言、字数、品牌、数量、配色、字体、尺寸及产品规则全部以用户当前要求为准。photoIndices从0开始，从标注的实拍图选择合适视角。`;
+用户要求是自由文本，标题、编号和段落格式不限；必须通读全文，不得因缺少“第一部分”等标题而忽略要求。下面的JSON只用于将完整提示词对应到卡片，不用于拆分正文。
+每项prompt由你直接写成该位置完整、可复制用于生图的最终提示词，标题、顺序、段落、文案及各部分内容全部按用户全文要求组织。用户要求四部分时，由你在每张prompt内完整写出四部分，包括用户要求每张重复的整套设计规范、固定原文及尺寸，不写“同上”或让程序补齐。用户指定原样保留的文字必须原样保留，指定某部分末尾的句子由你安排在该部分末尾。不要把正文拆到style、layout、copy、thirdPart、fourthPart等其他字段；程序会原样展示、保存和用于生图，不再添加标题、重排或拼接各部分。
+除用户明确要求简写外，应依据用户全文要求、对应参考图及实际产品资料充分展开具体、可执行的作图说明，保留适用于本图的条件和细节，不要让生图模型自行补齐用户已要求明确的内容。用户对图上文字规定的词数只约束可见文案，不是完整作图说明的长度限制；用户对整体提示词的长度或格式另有要求时仍按用户要求执行，不为凑长度编造信息。
+仅返回一个JSON对象，不要在JSON外添加Markdown或说明：{"images":[{"role":${JSON.stringify(roles[0] || ROLES[0])},"prompt":"由你按用户全文要求组织好的本张完整提示词正文，所有要求的部分均在此字符串内完整展开", "photoIndices":${JSON.stringify(Array.from({ length: photoCount }, (_, index) => index))}}]}。
+images必须恰好${roles.length}项，角色不重不漏；每项role必须逐字使用上述卡片名称（包括空格），不要改写或新增位置名称。语言、字数、品牌、数量、配色、字体、尺寸及产品规则全部以用户当前要求为准。photoIndices从0开始，列出本次全部实拍图编号；每次生图始终附带全部产品实拍图，不按视角筛选或删减。`;
 }
 export function productSpecs(product) {
   const info = `${product.name} ${product.facts || ""}`;
@@ -207,13 +214,11 @@ export function parseSuiteResponse(
   }
   if (
     !value ||
-    typeof value.style !== "string" ||
-    !value.style.trim() ||
     !Array.isArray(value.images) ||
     value.images.length !== roles.length
   )
     throw new PromptValidationError(
-      `提示词必须包含统一设计规范和完整${roles.length}张`,
+      `提示词必须包含完整${roles.length}张`,
       "incomplete_suite",
     );
   const seen = new Set();
@@ -231,28 +236,22 @@ export function parseSuiteResponse(
         role,
       );
     seen.add(role);
+    if (typeof item.prompt !== "string" || !item.prompt.trim())
+      throw new PromptValidationError(
+        `「${role}」未返回完整提示词正文，请重新生成`,
+        "empty_prompt",
+        role,
+      );
     const indices = [...new Set(item.photoIndices || [])].filter(
       (i) => Number.isInteger(i) && i >= 0 && i < photoCount,
     );
     return {
       role,
-      prompt: assemblePrompt(
-        role,
-        typeof item.layout === "string" ? item.layout : "",
-        Array.isArray(item.copy)
-          ? item.copy.filter((line) => typeof line === "string")
-          : typeof item.copy === "string"
-            ? [item.copy]
-            : [],
-        value.style,
-        typeof item.thirdPart === "string" ? item.thirdPart : "",
-        typeof item.fourthPart === "string" ? item.fourthPart : "",
-      ),
+      prompt: item.prompt,
       photoIndices: indices.length ? indices : photoCount ? [0] : [],
     };
   });
   return {
-    style: value.style,
     prompts: roles.map((role) => prompts.find((p) => p.role === role)),
   };
 }
@@ -268,8 +267,9 @@ export function demoSuite(product, common = DEFAULT_COMMON) {
       i = ROLES.indexOf(role);
     return {
       role,
-      layout: `演示布局：${i < 6 ? "方形" : "横版"}画面采用${["右侧产品、左侧尺寸标注", "错位卖点卡片与产品主体", "局部特写和留白标题", "自然桌面使用场景", "简洁包装工作台", "日常收纳场景", "左侧品牌标题、右侧产品", "分栏产品介绍", "实拍细节组合", "整套应用场景横幅"][i]}。配景、图标和文字位置重新设计；${photoCount ? "产品仅依据实拍图。" : "未提供实拍图，结合产品资料设计。"}${task.references.length ? "需真实视觉模型分析对标后完善。" : "此位置尚未提供对标图。"}`,
-      copy: [
+      prompt: `第一部份：演示布局
+${i < 6 ? "方形" : "横版"}画面采用${["右侧产品、左侧尺寸标注", "错位卖点卡片与产品主体", "局部特写和留白标题", "自然桌面使用场景", "简洁包装工作台", "日常收纳场景", "左侧品牌标题、右侧产品", "分栏产品介绍", "实拍细节组合", "整套应用场景横幅"][i]}。配景、图标和文字位置重新设计；${photoCount ? "产品仅依据实拍图。" : "未提供实拍图，结合产品资料设计。"}${task.references.length ? "需真实视觉模型分析对标后完善。" : "此位置尚未提供对标图。"}
+图上文案：${
         i === 0 && quantity && measurements.length === 2
           ? `${quantity} Pack ${measurements.join(" x ")} Outer Size`
           : i === 6 && brand
@@ -285,17 +285,22 @@ export function demoSuite(product, common = DEFAULT_COMMON) {
                 "Explore The Design Of Your Product",
                 "A Closer Look At Product Details",
                 "Designed To Fit Your Daily Routine",
-              ][i],
-      ],
-      thirdPart: photoCount
-        ? "演示产品要求：依据实拍图保持产品外观，结合产品资料设计。"
-        : "演示产品要求：未提供实拍图，依据产品资料和当前卡片参考图设计，不照搬参考图。",
-      fourthPart: `演示图片尺寸：${i < 6 ? "1610X1610" : "970X600"}像素，分辨率300。`,
+              ][i]
+      }
+
+第二部份：演示统一设计
+${style}
+
+第三部份：演示产品要求
+${photoCount ? "依据实拍图保持产品外观，结合产品资料设计。" : "未提供实拍图，依据产品资料和当前卡片参考图设计，不照搬参考图。"}
+
+第四部份：演示图片尺寸
+${i < 6 ? "1610X1610" : "970X600"}像素，分辨率300。`,
       photoIndices: photoCount ? [0] : [],
     };
   });
   return parseSuiteResponse(
-    JSON.stringify({ style, images }),
+    JSON.stringify({ images }),
     photoCount,
     undefined,
     common,

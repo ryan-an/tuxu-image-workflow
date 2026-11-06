@@ -26,6 +26,7 @@ import {
 } from "./transport-security.js";
 import { registerSheetImports } from "./sheet-imports.js";
 import type { ExecutionLimits } from "./execution-limits.js";
+import { analysisStream } from "./analysis-stream.js";
 export interface AppOptions {
   executionLimits?: ExecutionLimits;
   db: Database;
@@ -148,28 +149,25 @@ export async function createApp(options: AppOptions) {
     const workflows = request.workspace;
     reply.hijack();
     reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-store",
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-store, no-transform",
       "X-Accel-Buffering": "no",
+      Connection: "keep-alive",
     });
+    reply.raw.flushHeaders();
     reply.raw.write(": connected\n\n");
     streams.add(reply.raw);
-    const send = async (event: any) => {
-      if (!(await auth.authenticated(request).catch(() => false)))
-        return reply.raw.end();
-      if (
-        !reply.raw.destroyed &&
-        !reply.raw.writableEnded &&
-        !reply.raw.write(`data: ${JSON.stringify(event)}\n\n`)
-      )
-        reply.raw.end(); // Reconnection receives the latest snapshot instead of an unbounded backlog.
-    };
+    const send = analysisStream(reply.raw, () => auth.authenticated(request));
     workflows.analysisEvents.on("progress", send);
     for (const event of workflows.analysisEvents.latest.values()) send(event);
     const heartbeat = setInterval(async () => {
       if (!(await auth.authenticated(request).catch(() => false)))
         return reply.raw.end();
-      if (!reply.raw.destroyed && !reply.raw.writableEnded)
+      if (
+        !reply.raw.destroyed &&
+        !reply.raw.writableEnded &&
+        !reply.raw.writableNeedDrain
+      )
         reply.raw.write(": heartbeat\n\n");
     }, 15000);
     reply.raw.once("close", () => {

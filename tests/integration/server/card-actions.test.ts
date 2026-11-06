@@ -116,7 +116,8 @@ test("reanalyzing one card after a failed suite leaves sibling cards and jobs un
     failed.analyze = async () => {
       throw new ProviderError("分析失败", false, true);
     };
-    await new Worker(f.workflows, failed, () => {}).step();
+    await f.due();
+    assert.equal(await new Worker(f.workflows, failed, () => {}).step(), true);
     await new Worker(f.workflows, failed, () => {}).step();
     const before = await f.workflows.repo.view();
     const calls = counts(),
@@ -131,7 +132,8 @@ test("reanalyzing one card after a failed suite leaves sibling cards and jobs un
       ).count,
       1,
     );
-    await new Worker(f.workflows, provider).step();
+    await f.due();
+    assert.equal(await new Worker(f.workflows, provider).step(), true);
     const after = await f.workflows.repo.view();
     assert.deepEqual(
       after.products[0].tasks.filter((_, i) => i !== 2),
@@ -248,7 +250,11 @@ test("card reanalysis after an interrupted suite creates a separate scoped task"
       1,
     );
     const calls = counts();
-    await new Worker(f.workflows, fakeProvider(calls)).step();
+    await f.due();
+    assert.equal(
+      await new Worker(f.workflows, fakeProvider(calls)).step(),
+      true,
+    );
     const state = await f.workflows.repo.view();
     assert.equal(state.jobs[0].status, "interrupted");
     assert.equal(state.products[0].tasks[0].prompt, "prompt:尺寸图");
@@ -273,8 +279,7 @@ test("single card model request includes only its reference and accepts only its
       request = JSON.parse(String(options?.body));
       const image = {
         role: "细节图",
-        layout: "准确展示实拍产品",
-        copy: ["Thoughtful Design For Your Everyday Packing"],
+        prompt: "准确展示实拍产品\nThoughtful Design For Your Everyday Packing",
         photoIndices: [0],
       };
       return Response.json({
@@ -286,7 +291,6 @@ test("single card model request includes only its reference and accepts only its
               {
                 type: "output_text",
                 text: JSON.stringify({
-                  style: "统一留白布局",
                   images: extra
                     ? [image, { ...image, role: "场景 1" }]
                     : [image],
@@ -307,28 +311,28 @@ test("single card model request includes only its reference and accepts only its
         "test-key",
         new AbortController().signal,
       );
+    const userContent = () =>
+      request.input.find((message: any) => message.role === "user").content;
     const result = await analyze();
     assert.deepEqual(
       result.prompts.map((p: any) => p.role),
       ["细节图"],
     );
     assert.equal(
-      request.input[0].content.filter((c: any) => c.type === "input_image")
-        .length,
+      userContent().filter((c: any) => c.type === "input_image").length,
       1,
     );
-    assert.ok(request.input[0].content[0].text.includes("images必须恰好1项"));
+    assert.ok(userContent()[0].text.includes("images必须恰好1项"));
     product.tasks[0].references = [];
     const withoutReference = await analyze();
     assert.equal(withoutReference.prompts.length, 1);
     assert.equal(
-      request.input[0].content.filter((c: any) => c.type === "input_image")
-        .length,
+      userContent().filter((c: any) => c.type === "input_image").length,
       1,
     );
-    assert.ok(request.input[0].content[0].text.includes("对标图是可选资料"));
+    assert.ok(userContent()[0].text.includes("对标图是可选资料"));
     assert.ok(
-      request.input[0].content.some((c: any) =>
+      userContent().some((c: any) =>
         c.text?.includes("未提供对标图，请依据产品资料"),
       ),
     );
@@ -337,22 +341,18 @@ test("single card model request includes only its reference and accepts only its
     product.tasks[0].references = [f.product.photo];
     const withoutPhotos = await analyze();
     assert.deepEqual(withoutPhotos.prompts[0].photoIndices, []);
-    assert.ok(request.input[0].content[0].text.includes("本次没有产品实拍图"));
+    assert.ok(userContent()[0].text.includes("本次没有产品实拍图"));
     assert.ok(
-      !request.input[0].content.some((c: any) =>
-        c.text?.startsWith("产品实拍图 "),
-      ),
+      !userContent().some((c: any) => c.text?.startsWith("产品实拍图 ")),
     );
     assert.equal(
-      request.input[0].content.filter((c: any) => c.type === "input_image")
-        .length,
+      userContent().filter((c: any) => c.type === "input_image").length,
       1,
     );
     product.tasks[0].references = [];
     assert.equal((await analyze()).prompts.length, 1);
     assert.equal(
-      request.input[0].content.filter((c: any) => c.type === "input_image")
-        .length,
+      userContent().filter((c: any) => c.type === "input_image").length,
       0,
     );
     extra = true;

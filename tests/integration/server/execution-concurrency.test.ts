@@ -323,7 +323,8 @@ test("quota exhaustion and unknown acceptance never enter automatic rate-limit r
           : new Error("connection lost");
       };
       const worker = new Worker(f.workflows, provider, () => {});
-      await worker.step("prompt");
+      await f.due();
+      assert.equal(await worker.step("prompt"), true);
       const saved = (await f.workflows.repo.job(job.id))!;
       assert.equal(
         saved.status,

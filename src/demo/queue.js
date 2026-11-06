@@ -221,7 +221,6 @@ export class GenerationQueue {
         const set = {
           id: job.id,
           createdAt: Date.now(),
-          style: result.style,
           prompts: structuredClone(result.prompts),
         };
         (product.promptSets ||= []).push(set);
@@ -258,11 +257,7 @@ export class GenerationQueue {
           );
           Object.assign(
             job,
-            generationImages(
-              set.productSnapshot,
-              snapshotTask,
-              item.photoIndices,
-            ),
+            generationImages(set.productSnapshot, snapshotTask),
           );
         }
         if (!job.prompt) throw new Error("请先生成整套提示词");

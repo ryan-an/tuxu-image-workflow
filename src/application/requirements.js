@@ -19,20 +19,38 @@ export function createRequirementCommands(context) {
     context.state.promptTemplates = normalizePromptTemplates(
       next.promptTemplates,
     );
-    for (const product of context.state.products)
+    for (const product of context.state.products) {
       product.promptRequirements = next.products[product.id].promptRequirements;
+      product.promptTemplateId = next.products[product.id].promptTemplateId;
+    }
     context.change();
     await context.persist();
   }
   return {
-    async saveProductRequirements(productId, content, before) {
+    /**
+     * @param {string | null} [templateId]
+     * @param {string | null} [beforeTemplateId]
+     */
+    async saveProductRequirements(
+      productId,
+      content,
+      before,
+      templateId = null,
+      beforeTemplateId = null,
+    ) {
       if (!content.trim() || content.length > 100000)
         throw new Error("请填写生成要求，最多 100000 字");
       await commit([
         {
           path: ["products", productId, "promptRequirements"],
           before,
-          value: content === context.state.common ? null : content,
+          value:
+            !templateId && content === context.state.common ? null : content,
+        },
+        {
+          path: ["products", productId, "promptTemplateId"],
+          before: beforeTemplateId,
+          value: templateId,
         },
       ]);
       context.notify("已保存，下次生成提示词时生效");

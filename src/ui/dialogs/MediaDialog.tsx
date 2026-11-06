@@ -51,7 +51,8 @@ export function MediaDialog({
           role="status"
           aria-live="polite"
         >
-          {ui.mediaFeedback || "添加后自动保存，重复图片会跳过。"}
+          {ui.mediaFeedback ||
+            "添加后自动保存，重复图片会跳过。大于 6MB 的图片自动压缩，其余保留原图。"}
         </p>
       )}
       <div className="media-gallery-heading">

@@ -4,7 +4,6 @@ import sharp from "sharp";
 import { fixture } from "../../support/production.js";
 import { AnalysisImagePool } from "../../../server/production/analysis-images.js";
 import { GrsaiProvider } from "../../../server/production/provider.js";
-import { demoSuite } from "../../../shared/prompt-suite.js";
 
 test("large analysis copies are bounded and cached without changing original image bytes or generation sources", async () => {
   const f = await fixture();
@@ -52,15 +51,10 @@ test("analysis deduplicates repeated images and retains every role and product-p
     const product = state.products[0];
     let body: any;
     const phases: string[] = [];
-    const complete = demoSuite(product, state.common);
     const response = {
-      style: complete.style,
       images: product.tasks.map((task) => ({
         role: task.role,
-        layout: "test",
-        copy: ["test"],
-        thirdPart: "test",
-        fourthPart: "test",
+        prompt: "test",
         photoIndices: [0],
       })),
     };
@@ -87,7 +81,9 @@ test("analysis deduplicates repeated images and retains every role and product-p
         phases.push(phase.phase);
       },
     );
-    const content = body.input[0].content;
+    const content = body.input.find(
+      (message: any) => message.role === "user",
+    ).content;
     assert.equal(
       content.filter((item: any) => item.type === "input_image").length,
       1,
