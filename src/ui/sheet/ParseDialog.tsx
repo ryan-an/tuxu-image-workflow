@@ -1,3 +1,4 @@
+import { Select } from "../design-system/Select";
 import type { ParserContext, ColumnField } from "../types";
 import { useState } from "react";
 import { ROLES } from "../../../shared/model.js";
@@ -30,7 +31,7 @@ function ColumnSelect({
     { source, mapping } = context;
   const value = field ? mapping[field] : mapping.roles[roleIndex!];
   return (
-    <select
+    <Select
       aria-label={field ? COLUMN_LABELS[field] : ROLES[roleIndex!]}
       value={value ?? -1}
       onChange={(e) =>
@@ -44,7 +45,7 @@ function ColumnSelect({
           {source.cellData?.[mapping.headerRow]?.[c]?.v || `列 ${c + 1}`}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }
 export function ParseDialog({ context }: { context: ParserContext }) {
@@ -71,7 +72,7 @@ export function ParseDialog({ context }: { context: ParserContext }) {
           <div className="form-grid">
             <label>
               数据布局
-              <select
+              <Select
                 id="parse-layout"
                 value={layout}
                 onChange={(e) =>
@@ -81,7 +82,7 @@ export function ParseDialog({ context }: { context: ParserContext }) {
                 <option value="auto">自动识别</option>
                 <option value="three">每产品三行</option>
                 <option value="single">每行一个产品</option>
-              </select>
+              </Select>
             </label>
             <label>
               表头所在行

@@ -6,6 +6,7 @@ import { portableBackup } from "../services/backup.js";
 import { clipboardImageFiles } from "../integrations/media-upload.js";
 import { retryableQueueJobs } from "../../shared/queue-progress.js";
 import { PRODUCT_PAGE_SIZE } from "../view-models/product-page.js";
+import { productsNewestFirst } from "../../shared/product-order.js";
 
 import { productPhotos } from "../../shared/prompt-suite.js";
 import { removeProductRows } from "../../shared/sheet-data.js";
@@ -74,7 +75,7 @@ export function createCommands(context) {
       case "open-product":
       case "queue-open-product":
         if (a === "queue-open-product") {
-          const index = state.products.findIndex(
+          const index = productsNewestFirst(state.products).findIndex(
             (product) => product.id === data.id,
           );
           if (index < 0) {
@@ -107,7 +108,7 @@ export function createCommands(context) {
           )
         )
           throw new Error(
-            "该产品还有待执行、执行中或待核对任务，请先取消或处理后再删除",
+            "该产品还有待执行、执行中或待恢复任务，请先取消或处理后再删除",
           );
         await persist();
         if (repository) await repository.deleteProduct(product.id);
@@ -120,7 +121,8 @@ export function createCommands(context) {
         }
         bridge.replaceSnapshot(state.sheetSnapshot);
         if (state.activeProductId === product.id)
-          state.activeProductId = state.products[0]?.id || null;
+          state.activeProductId =
+            productsNewestFirst(state.products)[0]?.id || null;
         if (ui.assistant?.productId === product.id)
           setAssistant({ open: false });
         closeModal();
@@ -306,9 +308,6 @@ export function createCommands(context) {
         await queue.retry(data.id);
         break;
       }
-      case "reconcile-job":
-        showModal({ type: "reconcile", id: data.id });
-        break;
       case "choose-version":
         selectVersion(t, data.version, true);
         change();

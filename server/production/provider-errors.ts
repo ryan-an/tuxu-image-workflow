@@ -1,8 +1,12 @@
+import { grsaiFailureMessage } from "./grsai-errors.js";
+import { missingImageResultMessage } from "../../shared/image-result.js";
+
 export interface UpstreamFailure {
   status: number;
   code?: string;
   requestId?: string;
   action?: "open-model" | "check-model" | "check-key";
+  resultUnavailable?: boolean;
 }
 
 // Read only a bounded error body. Error responses can keep connections open.
@@ -65,6 +69,7 @@ export function platformFailure(
     requestId?: string | null;
     taskId?: string;
     doubao?: boolean;
+    grsai?: boolean;
     model?: string;
   },
 ) {
@@ -109,8 +114,27 @@ export function platformFailure(
     code: /^[\w.-]{1,120}$/.test(code) ? code : undefined,
     requestId: /^[\w.-]{1,200}$/.test(requestId) ? requestId : undefined,
   };
+  if (
+    options.grsai &&
+    options.taskId &&
+    (code === "-22" ||
+      missingImageResultMessage(reason) ||
+      missingImageResultMessage(failureReason))
+  )
+    detail.resultUnavailable = true;
   const reasons = [...new Set([reason, failureReason].filter(Boolean))];
-  let message = `${options.label}：${reasons.join("；") || "平台未提供具体失败原因"}`;
+  const translated = options.grsai
+    ? grsaiFailureMessage({
+        status: options.status,
+        code,
+        reason,
+        failureReason,
+        taskStatus: body?.status,
+      })
+    : undefined;
+  let message = `${options.label}：${translated || reasons.join("；") || "平台未提供具体失败原因"}`;
+  if (translated && reasons.length)
+    message += ` 平台原始信息：${reasons.join("；")}`;
   const identifiers = [
     options.status >= 400 ? `HTTP ${options.status}` : "",
     code ? `错误码：${code}` : "",

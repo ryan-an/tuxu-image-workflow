@@ -1,3 +1,4 @@
+import { Select } from "../design-system/Select";
 import { useEffect, useRef, useState } from "react";
 import { productPage } from "../../view-models/product-page.js";
 import { ProductPagination } from "./ProductPagination.tsx";
@@ -163,7 +164,7 @@ export function Sidebar({
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = 0;
     setScrollTop(0);
-  }, [page, ui.search]);
+  }, [page, ui.search, products[0]?.id]);
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - 2);
   const end = Math.min(
     products.length,
@@ -191,7 +192,7 @@ export function Sidebar({
       )}
       <div className="mobile-product-picker">
         <label htmlFor="mobile-product">产品 · {state.products.length}</label>
-        <select
+        <Select
           id="mobile-product"
           value={state.activeProductId || state.products[0]?.id || ""}
           onChange={(event) =>
@@ -204,7 +205,7 @@ export function Sidebar({
               {product.code} · {product.name}
             </option>
           ))}
-        </select>
+        </Select>
         <ActionButton
           className="icon-button"
           action="new-product"

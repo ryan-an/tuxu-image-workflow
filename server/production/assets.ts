@@ -9,7 +9,11 @@ import sharp from "sharp";
 import type { Database } from "./types.js";
 import { AppError } from "./types.js";
 import { WORKSPACE } from "./repository.js";
-import { uploadedImage, UPLOAD_IMAGE_LIMIT } from "./upload-images.js";
+import {
+  imageWithinLimit,
+  uploadedImage,
+  UPLOAD_IMAGE_LIMIT,
+} from "./upload-images.js";
 import {
   AnalysisImagePool,
   defaultAnalysisImagePool,
@@ -244,6 +248,26 @@ export class Assets {
     if (source.startsWith("data:image/")) return source;
     if (/^https:\/\//.test(source)) return source;
     throw new AppError("无效的素材地址");
+  }
+  async compressedProviderSource(
+    source: string,
+    maxBytes: number,
+    signal: AbortSignal,
+  ) {
+    const parsed =
+      /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/.exec(
+        source,
+      );
+    if (!parsed) throw new AppError("不支持的图片编码");
+    return this.analysisPool.run(signal, async () => {
+      const result = await imageWithinLimit(
+        Buffer.from(parsed[2], "base64"),
+        parsed[1],
+        maxBytes,
+      );
+      signal.throwIfAborted();
+      return `data:${result.mime};base64,${result.bytes.toString("base64")}`;
+    });
   }
   async analysisSource(source: string, signal?: AbortSignal) {
     signal?.throwIfAborted();

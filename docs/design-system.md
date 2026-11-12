@@ -8,6 +8,7 @@
 - `Badge.tsx` / `badge.css`：说明标签、计数和状态的共用外观。
 - `ProductStatusBadge.tsx`：把现有业务状态映射到 Badge，并处理进行中的转圈。
 - `Button.tsx` / `button.css`：按钮的语义变体、焦点和交互；`ActionButton` 继续封装应用命令，通过 Button 渲染。
+- `Select.tsx` / `select.css`：所有单选下拉框的控件与菜单外观，保留原生表单、标签及键盘语义。
 
 页面 CSS 负责布局、位置和响应式适配，禁止重新定义共用标签的文字色、背景、边框、字号或透明度。新增颜色先考虑现有语义，确实需要新语义时在 tokens 中增加。演示原型和第三方 Univer 自有主题不属于本规范的组件实现范围。
 
@@ -52,6 +53,12 @@
 焦点使用2px主色轮廓、3px间距和淡紫外环；悬停主色加深至 `#4938CF`。颜色过渡150ms，减少动态效果时关闭。危险操作同时使用明确的动词与颜色。
 
 紧凑编辑工具使用 `Button size="sm"`：桌面高度28px，触摸设备最小高度36px；尺寸由共用组件定义，不用页面选择器反复覆盖。保存使用 primary，普通操作 secondary，查找、全屏及恢复使用 ghost，删除使用 danger。
+
+## 下拉选择
+
+页面统一使用 `Select`，接受原生 `value` / `defaultValue`、`onChange`、`name`、`disabled`、`required`、`ref` 和无障碍属性，内容继续使用 `option` / `optgroup`。默认高度36px，`size="sm"` 为28px，触摸设备至少36px；页面 CSS 只调整宽度、间距和布局，不另设配色、边框、字号或箭头。
+
+控件使用白底、细边框、单个下拉箭头，键盘聚焦显示主色轮廓；长选中值省略显示，菜单内换行显示全文。支持的浏览器通过 `appearance: base-select` 使用顶层原生菜单，统一面板、滚动、选中勾选和比例分组，自动避让视口边缘及弹窗裁切。能力不足的浏览器保留原生菜单，高对比度模式也使用原生外观。组件只负责展示，不持有业务选择、不模拟更改事件，不干预模板草稿。浏览器能力依据见 [MDN 可定制 select](https://developer.mozilla.org/en-US/docs/Learn_web_development/Extensions/Forms/Customizable_select)。
 
 ## 文本编辑窗口审查
 

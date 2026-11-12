@@ -36,25 +36,31 @@ test("default suite preserves fixed requirements and role-specific output sizes"
   }
 });
 
-test("initialization upgrades only the saved legacy default and keeps product overrides", async () => {
+test("initialization clears automatic defaults and preserves saved product text and template bindings across restarts", async () => {
   const f = await fixture();
   try {
     const state = await f.workflows.repo.view();
-    state.common = LEGACY_DEFAULT_COMMON.replace(/\n/g, "\r\n");
-    state.products[0].promptRequirements = "我的独立要求";
-    await f.db.transaction(async (tx) => {
-      await f.workflows.repo.saveWorkspace(tx, state);
-      await f.workflows.repo.saveProduct(tx, state.products[0]);
-    });
-    await f.workflows.repo.initialize();
+    state.products[0].promptRequirements = DEFAULT_COMMON;
+    state.products[0].promptTemplateId = "saved-template";
+    for (const text of [LEGACY_DEFAULT_COMMON, DEFAULT_COMMON]) {
+      state.common = text.replace(/\n/g, "\r\n");
+      await f.db.transaction(async (tx) => {
+        await f.workflows.repo.saveWorkspace(tx, state);
+        await f.workflows.repo.saveProduct(tx, state.products[0]);
+      });
+      await f.reopen();
+      const migrated = await f.workflows.repo.view();
+      assert.equal(migrated.common, "");
+      assert.equal(migrated.products[0].promptRequirements, DEFAULT_COMMON);
+      assert.equal(migrated.products[0].promptTemplateId, "saved-template");
+      assert.equal(productRequirements(newProduct("new"), migrated.common), "");
+    }
     const migrated = await f.workflows.repo.view();
-    assert.equal(migrated.common, DEFAULT_COMMON);
-    assert.equal(migrated.products[0].promptRequirements, "我的独立要求");
     migrated.common = "我的默认要求";
     await f.db.transaction((tx) =>
       f.workflows.repo.saveWorkspace(tx, migrated),
     );
-    await f.workflows.repo.initialize();
+    await f.reopen();
     assert.equal((await f.workflows.repo.view()).common, "我的默认要求");
   } finally {
     await f.close();

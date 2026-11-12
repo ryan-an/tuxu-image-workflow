@@ -22,10 +22,10 @@ test(
       await f.db.transaction(async (tx) => {
         await tx.query("DELETE FROM products");
         for (let i = 0; i < 1000; i++)
-          await f.workflows.repo.saveProduct(
-            tx,
-            newProduct(`P${String(i).padStart(4, "0")}`, `产品${i}`, ""),
-          );
+          await f.workflows.repo.saveProduct(tx, {
+            ...newProduct(`P${String(i).padStart(4, "0")}`, `产品${i}`, ""),
+            createdAt: 1000 - i,
+          });
       });
       await f.app.listen({ host: "127.0.0.1", port: 0 });
       const root = `http://127.0.0.1:${(f.app.server.address() as any).port}`;

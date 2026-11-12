@@ -265,12 +265,7 @@ export async function createApp(options: AppOptions) {
       )
         throw new AppError("产品加载参数无效");
       const repo = request.workspace.repo;
-      const products = (
-        await repo.db.query(
-          "SELECT document FROM products WHERE workspace_id=$1 AND id IN (SELECT value FROM json_each($2)) ORDER BY code",
-          [repo.workspaceId, JSON.stringify(ids)],
-        )
-      ).rows.map((row) => row.document);
+      const products = await repo.productsById(repo.db, ids);
       if (products.length !== new Set(ids).size)
         throw new AppError("产品已不存在，请刷新列表", 404);
       const selected = new Set(ids);
@@ -519,15 +514,12 @@ export async function createApp(options: AppOptions) {
                 "pause",
                 "cancel",
                 "retry",
-                "reconcile",
                 "cancel-pending",
                 "cancel-product",
               ],
             },
             paused: { type: "boolean" },
             productId: { type: "string", maxLength: 100 },
-            remoteId: { type: "string", maxLength: 200 },
-            confirmNotAccepted: { type: "boolean" },
           },
         },
       },

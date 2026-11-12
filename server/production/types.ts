@@ -20,6 +20,8 @@ export interface Position {
 }
 export interface Product {
   id: string;
+  createdAt?: number;
+  createdOrder?: number;
   code: string;
   name: string;
   facts: string;
@@ -61,6 +63,8 @@ export interface Job {
   finishedAt?: number;
   dependsOn?: string;
   remoteId?: string;
+  resultUnavailable?: boolean;
+  replacesJobId?: string;
   productSnapshot?: Product;
   common?: string;
   revisions?: Record<string, number>;

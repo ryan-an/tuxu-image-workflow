@@ -1,6 +1,7 @@
 import { newProduct, addVersion, rulePrompt } from "../../shared/model.js";
-import { DEFAULT_COMMON, demoSuite } from "../../shared/prompt-suite.js";
+import { demoSuite } from "../../shared/prompt-suite.js";
 import { AUTO_SIZE_DEFAULTS } from "../../shared/generation-settings.js";
+import { DEFAULT_CONFIG } from "../../shared/provider-config.js";
 export function demoImage(product, role, variant = 0) {
   const canvas = document.createElement("canvas");
   canvas.width = 640;
@@ -96,7 +97,7 @@ export function demoImage(product, role, variant = 0) {
   return canvas.toDataURL("image/png");
 }
 export function initialState(oldSnapshot) {
-  const common = DEFAULT_COMMON;
+  const common = "";
   const products = Array.from({ length: 30 }, (_, i) =>
     newProduct(
       i === 0 ? "26-1732" : i === 1 ? "26-1683" : `26-${1800 + i}`,
@@ -157,7 +158,7 @@ export function initialState(oldSnapshot) {
     settings: {
       mode: "demo",
       baseUrl: "https://grsai.dakka.com.cn",
-      imageModel: "nano-banana-2",
+      imageModel: DEFAULT_CONFIG.imageModel,
       promptModel: "gemini-3.1-pro",
       ...AUTO_SIZE_DEFAULTS,
       quality: "auto",

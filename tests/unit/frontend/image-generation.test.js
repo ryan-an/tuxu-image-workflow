@@ -81,11 +81,11 @@ test("interrupted image tasks show recovery instead of disappearing or claiming 
     stage: "submitting",
   };
   const unknown = imageGeneration("card", [job]);
-  assert.equal(unknown.label, "生图待核对");
+  assert.equal(unknown.label, "生图待重试");
   assert.equal(unknown.progress, null);
   assert.deepEqual(unknown.recovery, {
-    action: "reconcile-job",
-    label: "核对平台",
+    action: "retry-job",
+    label: "重试任务",
   });
   const accepted = imageGeneration("card", [
     { ...job, remoteId: "platform-task" },
@@ -96,10 +96,10 @@ test("interrupted image tasks show recovery instead of disappearing or claiming 
     label: "继续查询",
   });
   const pending = imageGeneration("card", [{ ...job, stage: "pending" }]);
-  assert.equal(pending.label, "生图待恢复");
+  assert.equal(pending.label, "生图待重试");
   assert.deepEqual(pending.recovery, {
     action: "retry-job",
-    label: "恢复任务",
+    label: "重试任务",
   });
   assert.equal(
     imageGeneration("card", [{ ...job, mode: "demo" }]).recovery.action,

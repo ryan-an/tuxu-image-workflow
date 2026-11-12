@@ -1,5 +1,6 @@
 import { saveSnapshot } from "../integrations/storage.js";
-import { APP_KEY, validBackup, uid } from "../../shared/model.js";
+import { APP_KEY, validBackup, uid, ROLES } from "../../shared/model.js";
+import { normalizePromptRole } from "../../shared/prompt-roles.js";
 import { api } from "../services/workspace-client.js";
 import { safeFileComponent } from "../integrations/file-names.js";
 
@@ -47,6 +48,9 @@ export function createFiles(context) {
       usedFolders.add(folder.toLowerCase());
     }
     for (const { p, t, v } of images) {
+      const position = ROLES.indexOf(normalizePromptRole(t.role));
+      if (position < 0)
+        throw new Error(`无法确定图片「${t.role}」的固定下载编号`);
       const response = await fetch(v.source);
       if (!response.ok) throw new Error(`图片下载失败 (${response.status})`);
       const blob = await response.blob();
@@ -57,7 +61,7 @@ export function createFiles(context) {
             ? "webp"
             : "png";
       zip.file(
-        `${folders.get(p.id)}/${p.tasks.indexOf(t) + 1}-${safeFileComponent(t.role)}-V${v.number}.${ext}`,
+        `${folders.get(p.id)}/${position + 2}-${safeFileComponent(t.role)}-V${v.number}.${ext}`,
         await blob.arrayBuffer(),
       );
     }

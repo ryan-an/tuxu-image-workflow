@@ -14,6 +14,7 @@ import {
   ChatAPIError,
 } from "./chat-response.js";
 import { DOUBAO_BASE_URL, responsesPayload } from "../../shared/doubao.js";
+import { generationRequest } from "./generation-request.js";
 import {
   errorBody,
   isUpstreamFailure,
@@ -97,11 +98,14 @@ export class GrsaiProvider implements Provider {
       response.json(),
   ) {
     const started = Date.now();
+    const serialized = body ? JSON.stringify(body) : undefined;
     this.diagnostics({
       event: "platform.request",
       path,
       model: body?.model,
       streaming: body?.stream === true,
+      bodyBytes: serialized ? Buffer.byteLength(serialized) : 0,
+      imageCount: Array.isArray(body?.images) ? body.images.length : undefined,
     });
     const endpoint =
       path === "/responses" ? DOUBAO_BASE_URL : baseUrl(config.baseUrl);
@@ -113,7 +117,7 @@ export class GrsaiProvider implements Provider {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
-      ...(body ? { body: JSON.stringify(body) } : {}),
+      ...(serialized ? { body: serialized } : {}),
     });
     this.diagnostics({
       event: "platform.response",
@@ -139,6 +143,8 @@ export class GrsaiProvider implements Provider {
             ? data.id
             : undefined,
         doubao: path === "/responses",
+        grsai:
+          path === "/v1/api/generate" || path.startsWith("/v1/api/result?"),
         model: body?.model || config.promptModel,
       });
     if (!response.ok) {
@@ -303,14 +309,21 @@ export class GrsaiProvider implements Provider {
     referenceImageContext?: string,
   ) {
     const references = [];
-    for (const source of photos)
+    for (const source of photos) {
+      signal.throwIfAborted();
       references.push(await this.assets.providerSource(source));
-    const body = generationPayload(config, {
-      prompt,
-      referenceImages: references,
-      referenceImageKind,
-      referenceImageContext,
-    });
+    }
+    const body = await generationRequest(
+      generationPayload(config, {
+        prompt,
+        referenceImages: references,
+        referenceImageKind,
+        referenceImageContext,
+      }),
+      (source, maxBytes) =>
+        this.assets.compressedProviderSource(source, maxBytes, signal),
+      signal,
+    );
     const data = await this.request(
       "/v1/api/generate",
       config,
@@ -318,9 +331,14 @@ export class GrsaiProvider implements Provider {
       signal,
       body,
     );
-    if (typeof data.id !== "string" || !data.id)
-      throw new ProviderError("平台没有返回任务 ID，受理状态未知");
-    return { id: data.id };
+    const id = typeof data?.id === "string" ? data.id.trim() : "";
+    if (!id)
+      throw new ProviderError(
+        "平台未返回任务 ID，提交失败，请重试",
+        false,
+        true,
+      );
+    return { id };
   }
   async query(
     id: string,

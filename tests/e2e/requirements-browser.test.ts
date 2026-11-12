@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { fixture, password } from "../support/production.js";
 
 test(
-  "product requirements editor preserves drafts, isolates products, resets defaults and works on mobile",
+  "product requirements editor starts empty, preserves drafts, isolates saved products and works on mobile",
   { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 45000 },
   async () => {
     const { chromium } = createRequire(import.meta.url)(
@@ -18,7 +18,15 @@ test(
       executablePath: process.env.CHROME_PATH,
     });
     try {
+      await f.workflows.edit([
+        {
+          path: ["common"],
+          before: (await f.workflows.repo.view()).common,
+          value: "",
+        },
+      ]);
       const defaults = (await f.workflows.repo.view()).common;
+      assert.equal(defaults, "");
       await f.app.listen({ host: "127.0.0.1", port: 0 });
       const root = `http://127.0.0.1:${(f.app.server.address() as { port: number }).port}`;
       const page = await browser.newPage({
@@ -30,7 +38,7 @@ test(
       await page.fill("#login-password", password);
       await page.click('#login-form button[type="submit"]');
       const panel = page.locator(".product-requirements");
-      await panel.getByText("默认要求", { exact: true }).waitFor();
+      await panel.getByText("要求为空", { exact: true }).waitFor();
       await panel
         .getByRole("button", { name: "编辑要求", exact: true })
         .click();
@@ -109,8 +117,10 @@ test(
         .getByText("当前任务继续使用启动时的要求；修改用于下一次生成。")
         .waitFor();
       await editor.fill(`${custom}\n补充：保留更多留白。`);
-      await page.selectOption("#requirement-template", "default");
-      assert.equal(await editor.inputValue(), defaults);
+      await page
+        .getByRole("button", { name: "恢复已保存内容", exact: true })
+        .click();
+      assert.equal(await editor.inputValue(), custom);
       assert.equal(
         (await f.workflows.repo.view()).products[0].promptRequirements,
         custom,
@@ -147,14 +157,14 @@ test(
         });
       }
       await page.selectOption("#requirement-template", "");
-      await page.selectOption("#requirement-template", "default");
+      const revised = `${custom}\n补充：保留更多留白。`;
       await save.click();
       await page.waitForFunction(
         () => !document.querySelector<HTMLDialogElement>("#modal")?.open,
       );
-      await panel.getByText("默认要求", { exact: true }).waitFor();
+      await panel.getByText("本产品已自定义", { exact: true }).waitFor();
       state = await f.workflows.repo.view();
-      assert.equal(state.products[0].promptRequirements, null);
+      assert.equal(state.products[0].promptRequirements, revised);
       assert.equal(
         state.jobs[0].common,
         custom,
@@ -167,14 +177,14 @@ test(
       await page.locator('#product-form [name="code"]').fill("SECOND");
       await page.locator('#product-form [name="name"]').fill("第二个产品");
       await page.getByRole("button", { name: "保存产品", exact: true }).click();
-      await panel.getByText("默认要求", { exact: true }).waitFor();
+      await panel.getByText("要求为空", { exact: true }).waitFor();
       await panel
         .getByRole("button", { name: "编辑要求", exact: true })
         .click();
       assert.equal(
         await editor.inputValue(),
         defaults,
-        "new products must inherit defaults",
+        "new products must start with empty requirements",
       );
       await editor.fill("第二个产品独立要求：冷色背景。");
       await save.click();
@@ -182,11 +192,11 @@ test(
         () => !document.querySelector<HTMLDialogElement>("#modal")?.open,
       );
       await page.selectOption("#mobile-product", f.product.id);
-      await panel.getByText("默认要求", { exact: true }).waitFor();
+      await panel.getByText("本产品已自定义", { exact: true }).waitFor();
       await panel
         .getByRole("button", { name: "编辑要求", exact: true })
         .click();
-      assert.equal(await editor.inputValue(), defaults);
+      assert.equal(await editor.inputValue(), revised);
       state = await f.workflows.repo.view();
       assert.equal(state.common, defaults);
       assert.equal(

@@ -14,7 +14,7 @@ const { artifactPath } = createRequire(import.meta.url)(
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 test(
-  "a previous Windows database updates and boots twice with data preserved and the prompt model initialized once",
+  "a previous Windows database updates and boots twice with data preserved and model settings initialized once",
   {
     skip:
       !process.env.TUXU_WINDOWS_PREVIOUS_BUNDLE ||
@@ -87,13 +87,15 @@ test(
     const db = database('data/workspace.sqlite'); await migrate(db);
     const { app, workflows } = await createApp({ db, assetDirectory: 'data/assets', credentialSecret: '${"12".repeat(32)}', password: 'upgrade-test-password', logger: false });
     try {
-      await workflows.updateSettings({ apiKey: 'upgrade-image-key', promptApiKey: 'upgrade-prompt-key', promptModel: 'ep-upgrade-before', baseUrl: 'https://grsaiapi.com' });
+      await workflows.updateSettings({ apiKey: 'upgrade-image-key', promptApiKey: 'upgrade-prompt-key', promptModel: 'ep-upgrade-before', baseUrl: 'https://grsaiapi.com', imageModel: 'gpt-image-2-vip', quality: 'medium', gptSize: '1536x1024' });
       const state = await workflows.repo.view();
       await workflows.edit([{ path: ['common'], before: state.common, value: 'preserved upgrade rules' }]);
       const product = newProduct('UPGRADE-01', 'preserved product');
       await workflows.repo.saveProduct(db, product);
       const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'admin', password: 'upgrade-test-password' } });
       if (login.statusCode !== 200) throw new Error(login.body);
+      const saved = await app.inject({ method: 'POST', url: '/api/workflow/settings', headers: { cookie: String(login.headers['set-cookie']).split(';')[0] }, payload: { imageModel: 'gpt-image-2-vip', quality: 'medium', gptSize: '1536x1024' } });
+      if (saved.statusCode !== 200) throw new Error(saved.body);
       console.log('FIXTURE:' + JSON.stringify({ productId: product.id, cookie: String(login.headers['set-cookie']).split(';')[0], migrations: (await db.query('SELECT * FROM schema_migrations ORDER BY version')).rows }));
     } finally { await app.close(); await db.close(); }
   `,
@@ -106,6 +108,9 @@ test(
         .split(/\r?\n/)
         .find((line) => line.startsWith("FIXTURE:"))
         .slice(8),
+    );
+    const appliedVersions = new Set(
+      fixture.migrations.map((row) => row.version),
     );
     const firstMigration = await readFile(join(migrations, "001.sql"), "utf8");
     assert.ok(
@@ -215,14 +220,35 @@ test(
         assert.equal(settings.hasPromptKey, true);
         assert.equal(settings.baseUrl, "https://grsaiapi.com");
         assert.equal(
+          settings.imageModel,
+          restart === 0
+            ? appliedVersions.has("021.sql")
+              ? "gpt-image-2-vip"
+              : "gpt-image-2"
+            : "nano-banana-2",
+        );
+        assert.equal(
+          settings.quality,
+          restart === 0 && appliedVersions.has("021.sql") ? "medium" : "auto",
+        );
+        assert.equal(settings.gptSize, "1536x1024");
+        assert.equal(
           settings.promptModel,
-          restart === 0 ? "doubao-seed-2-1-pro-260915" : "ep-upgrade-after",
+          restart === 0
+            ? appliedVersions.has("019.sql")
+              ? "ep-upgrade-before"
+              : "doubao-seed-2-1-pro-260915"
+            : "ep-upgrade-after",
         );
         if (restart === 0) {
           const configured = await fetch(`${origin}/api/workflow/settings`, {
             method: "POST",
             headers: { ...headers, "content-type": "application/json" },
-            body: JSON.stringify({ promptModel: "ep-upgrade-after" }),
+            body: JSON.stringify({
+              promptModel: "ep-upgrade-after",
+              imageModel: "nano-banana-2",
+              quality: "auto",
+            }),
           });
           assert.equal(configured.status, 200, await configured.text());
         }

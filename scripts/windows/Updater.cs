@@ -304,8 +304,7 @@ internal static class Updater
             {
                 if (process.Id != ownPid)
                 {
-                    ProcessModule module = process.MainModule;
-                    if (module != null) executable = module.FileName;
+                    executable = ProcessImagePath(process.Id);
                 }
             }
             catch (System.ComponentModel.Win32Exception) { }
@@ -315,6 +314,30 @@ internal static class Updater
                 throw new Exception("图序仍在运行，请从右下角托盘菜单退出图序，再运行更新工具。");
         }
     }
+
+    private static string ProcessImagePath(int processId)
+    {
+        // MainModule can race a process that is still loading or already exiting.
+        // Query the executable path without enumerating its loaded modules.
+        IntPtr handle = OpenProcess(0x1000, false, processId);
+        if (handle == IntPtr.Zero) return null;
+        try
+        {
+            var path = new StringBuilder(32768);
+            int length = path.Capacity;
+            return QueryFullProcessImageName(handle, 0, path, ref length) ? path.ToString() : null;
+        }
+        finally { CloseHandle(handle); }
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(int access, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, int processId);
+    [DllImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryFullProcessImageName(IntPtr process, int flags, StringBuilder path, ref int size);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr handle);
 
     private static void CopyData(string source, string destination, bool top)
     {

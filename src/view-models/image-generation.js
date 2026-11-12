@@ -16,26 +16,17 @@ export function imageGeneration(taskId, jobs, paused = false) {
       latest.createdBy?.displayName || latest.createdBy?.username || "",
   };
   if (latest.status === "interrupted") {
-    const pending = latest.mode === "demo" || latest.stage === "pending";
     return {
       ...info,
       phase: "interrupted",
-      label: latest.remoteId
-        ? "生图已中断"
-        : pending
-          ? "生图待恢复"
-          : "生图待核对",
+      label: latest.remoteId ? "生图已中断" : "生图待重试",
       detail: latest.remoteId
         ? "已有平台任务，请继续查询结果"
-        : pending
-          ? "任务尚未提交，可恢复执行"
-          : "平台受理状态未知，请先核对",
+        : "未取得平台任务 ID，请重试",
       progress: null,
       recovery: latest.remoteId
         ? { action: "query-job", label: "继续查询" }
-        : pending
-          ? { action: "retry-job", label: "恢复任务" }
-          : { action: "reconcile-job", label: "核对平台" },
+        : { action: "retry-job", label: "重试任务" },
     };
   }
   const running = { ...info, recovery: null };

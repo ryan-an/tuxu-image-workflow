@@ -76,16 +76,19 @@ test("Windows updater preserves data and configuration, rejects live programs, a
   assert.match(lockedStart.stderr, /正在更新/);
   await unlink(join(root, "data/.update.lock"));
 
-  const active = spawn(node, ["-e", "setInterval(() => {}, 1000)"], { cwd: root, windowsHide: true, stdio: "ignore" });
-  await once(active, "spawn");
-  try {
-    const running = run();
-    assert.notEqual(running.status, 0);
-    assert.match(running.stderr, /仍在运行/);
-    await assert.rejects(access(join(root, "data/backups")));
-  } finally {
-    active.kill();
-    await once(active, "exit");
+  // Exercise fresh processes before their runtime modules have finished loading.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const active = spawn(node, ["-e", "setInterval(() => {}, 1000)"], { cwd: root, windowsHide: true, stdio: "ignore" });
+    await once(active, "spawn");
+    try {
+      const running = run();
+      assert.notEqual(running.status, 0);
+      assert.match(running.stderr, /仍在运行/);
+      await assert.rejects(access(join(root, "data/backups")));
+    } finally {
+      active.kill();
+      await once(active, "exit");
+    }
   }
   await sameData();
 

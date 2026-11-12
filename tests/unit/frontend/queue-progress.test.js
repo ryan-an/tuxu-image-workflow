@@ -118,7 +118,10 @@ test("opening a product from global progress locates its sidebar page and clears
   const { createCommands } = await import(
     "../../../src/application/commands.js"
   );
-  const products = Array.from({ length: 65 }, (_, i) => newProduct(`P${i}`));
+  const products = Array.from({ length: 65 }, (_, i) => ({
+    ...newProduct(`P${i}`),
+    createdAt: 65 - i,
+  }));
   const state = { products };
   const ui = { search: "another product", productPage: 1 };
   let loaded;

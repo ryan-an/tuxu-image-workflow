@@ -54,21 +54,13 @@ export function createFormCommands(context) {
     } = context;
     if (
       !event.target.matches(
-        "#settings-form,#credentials-form,#product-form,#prompt-form,#reconcile-form",
+        "#settings-form,#credentials-form,#product-form,#prompt-form",
       )
     )
       return;
     event.preventDefault();
     const form = event.target,
       values = Object.fromEntries(new FormData(form));
-    if (form.id === "reconcile-form") {
-      await queue.reconcile(form.dataset.id, {
-        remoteId: values.remoteId,
-        confirmNotAccepted: values.confirmNotAccepted === "on",
-      });
-      closeModal();
-      return;
-    }
     if (form.id === "prompt-form") {
       await saveTaskPromptAndGenerate(
         form.dataset.product,
@@ -123,6 +115,8 @@ export function createFormCommands(context) {
       if (isNew) {
         const p = newProduct(code, values.name, values.facts);
         state.products.push(p);
+        context.ui.search = "";
+        context.ui.productPage = 1;
         bridge.appendProduct(p);
         state.activeProductId = p.id;
       } else {

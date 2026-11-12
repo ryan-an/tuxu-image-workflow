@@ -3,6 +3,7 @@ import { api } from "../services/workspace-client.js";
 import { productPhotos } from "../../shared/prompt-suite.js";
 import { chosen } from "../../shared/model.js";
 import { PRODUCT_PAGE_SIZE } from "../view-models/product-page.js";
+import { productsNewestFirst } from "../../shared/product-order.js";
 import { editable, differences } from "../../shared/workspace-edits.js";
 
 import {
@@ -317,9 +318,9 @@ export function createSheet(context) {
         context.state.activeProductId = result.firstProductId;
         context.ui.search = "";
         context.ui.filter = "all";
-        const index = [...context.state.products]
-          .sort((a, b) => a.code.localeCompare(b.code))
-          .findIndex((p) => p.id === result.firstProductId);
+        const index = productsNewestFirst(context.state.products).findIndex(
+          (p) => p.id === result.firstProductId,
+        );
         context.ui.productPage = Math.floor(Math.max(0, index) / 30) + 1;
         context.render();
         context.closeModal();
@@ -402,8 +403,9 @@ export function createSheet(context) {
         context.ui.search = "";
         context.ui.productPage =
           Math.floor(
-            state.products.findIndex((p) => p.id === selectedId) /
-              PRODUCT_PAGE_SIZE,
+            productsNewestFirst(state.products).findIndex(
+              (p) => p.id === selectedId,
+            ) / PRODUCT_PAGE_SIZE,
           ) + 1;
       }
       closeModal();

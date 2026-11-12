@@ -83,7 +83,7 @@ test("failed suite prevents all dependent image submissions", async () => {
     await f.close();
   }
 });
-test("legacy import preserves histories and selection while blocking unknown in-flight submissions", async () => {
+test("legacy import preserves histories and selection and allows stopped submissions to retry", async () => {
   const f = await fixture();
   try {
     await f.db.query("DELETE FROM products");
@@ -130,13 +130,11 @@ test("legacy import preserves histories and selection while blocking unknown in-
     assert.ok(
       state.products[0].tasks[0].versions[0].source.startsWith("/api/assets/"),
     );
-    assert.equal(state.jobs[0].stage, "submitting");
-    await assert.rejects(
-      f.workflows.control(state.jobs[0].id, "retry", {
-        commandId: randomUUID(),
-      }),
-      /核对/,
-    );
+    assert.equal(state.jobs[0].stage, "pending");
+    await f.workflows.control(state.jobs[0].id, "retry", {
+      commandId: randomUUID(),
+    });
+    assert.equal((await f.workflows.repo.view()).jobs[0].status, "queued");
     await assert.rejects(
       f.workflows.importWorkspace(randomUUID(), workspace),
       /空工作区/,

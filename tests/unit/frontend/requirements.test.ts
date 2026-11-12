@@ -5,6 +5,9 @@ import {
   suiteInstruction,
   parseSuiteResponse,
   productRequirements,
+  DEFAULT_COMMON,
+  LEGACY_DEFAULT_COMMON,
+  migrateDefaultCommon,
 } from "../../../shared/prompt-suite.js";
 import { createRequirementCommands } from "../../../src/application/requirements.js";
 import {
@@ -109,10 +112,53 @@ test("drafts survive reload, clear after save, and use separate user, workspace 
     "template:custom",
   );
   assert.equal(readRequirementDraft(key), null);
+  const alternatives = {
+    "": "原来的手写草稿",
+    "template:other": "另一模板单独编辑的正文",
+  };
+  writeRequirementDraft(
+    key,
+    "已保存模板正文",
+    "已保存模板正文",
+    "template:current",
+    "template:current",
+    { ...alternatives, "template:current": "已保存模板正文" },
+  );
+  assert.deepEqual(readRequirementDraft(key), {
+    content: "已保存模板正文",
+    base: "已保存模板正文",
+    templateChoice: "template:current",
+    baseTemplateChoice: "template:current",
+    templateDrafts: alternatives,
+  });
+  assert.equal(readRequirementDraft(requirementDraftKey(user, "other")), null);
+  writeRequirementDraft(
+    key,
+    "已保存模板正文",
+    "已保存模板正文",
+    "template:current",
+    "template:current",
+  );
+  assert.equal(readRequirementDraft(key), null);
 });
 
-test("applying a template identical to defaults saves its source and freezes product text independently", async () => {
+test("unconfigured requirements start empty and old automatic defaults retire without changing custom text", () => {
   const state = emptyWorkspace();
+  const product: any = newProduct("empty-requirements");
+  assert.equal(state.common, "");
+  assert.equal(product.promptTemplateId, null);
+  assert.equal(productRequirements(product), "");
+  assert.equal(productRequirements(product, state.common), "");
+  for (const text of [DEFAULT_COMMON, LEGACY_DEFAULT_COMMON])
+    assert.equal(migrateDefaultCommon(text.replace(/\n/g, "\r\n")), "");
+  assert.equal(migrateDefaultCommon("已保存的共用要求"), "已保存的共用要求");
+  product.promptRequirements = DEFAULT_COMMON;
+  assert.equal(productRequirements(product, ""), DEFAULT_COMMON);
+});
+
+test("saving requirements always freezes product text and template source independently", async () => {
+  const state = emptyWorkspace();
+  state.common = DEFAULT_COMMON;
   const product = newProduct("bound-template");
   state.products = [product as any];
   const commands = createRequirementCommands({
@@ -153,7 +199,9 @@ test("applying a template identical to defaults saves its source and freezes pro
     "template",
   );
   assert.equal(product.promptTemplateId, null);
-  assert.equal(product.promptRequirements, null);
+  assert.equal(product.promptRequirements, state.common);
+  state.common = "共用要求再次变化";
+  assert.equal(product.promptRequirements, "默认要求后来发生变化");
 });
 
 test("dialog saves keep unrelated pending edits and preserve the original conflict baseline", async (t) => {

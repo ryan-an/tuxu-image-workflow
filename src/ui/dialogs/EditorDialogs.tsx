@@ -175,32 +175,6 @@ export function VersionDialog({
     </div>
   );
 }
-export function ReconcileDialog({ id }: { id?: string }) {
-  return (
-    <>
-      <h2>核对平台任务</h2>
-      <p>
-        先到平台确认受理情况。填写原任务 ID
-        会继续查询；只有确认平台未受理后，才允许重新提交。
-      </p>
-      <ApplicationForm id="reconcile-form" data-id={id}>
-        <label>
-          平台任务 ID
-          <input name="remoteId" />
-        </label>
-        <label>
-          <input type="checkbox" name="confirmNotAccepted" />
-          我已核对，平台没有受理原请求
-        </label>
-        <DialogActions>
-          <button type="submit" className="primary">
-            保存核对结果
-          </button>
-        </DialogActions>
-      </ApplicationForm>
-    </>
-  );
-}
 export function PasteDialog() {
   return (
     <>

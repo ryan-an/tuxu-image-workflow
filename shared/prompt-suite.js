@@ -79,9 +79,11 @@ ${FIXED_PRODUCT_REQUIREMENTS}
 分辨率300`;
 
 export function migrateDefaultCommon(common) {
-  return common?.replace(/\r\n/g, "\n").trim() === LEGACY_DEFAULT_COMMON
-    ? DEFAULT_COMMON
-    : common;
+  const normalized = common?.replace(/\r\n/g, "\n").trim();
+  // Retire automatically supplied text, keeping saved product snapshots intact.
+  return [LEGACY_DEFAULT_COMMON, DEFAULT_COMMON].includes(normalized)
+    ? ""
+    : (common ?? "");
 }
 
 export function productPhotos(product) {
@@ -130,7 +132,7 @@ ${current ? `当前要做的对标图：${current}（${task.role}）。` : `当�
     referenceImageKind: "product-photo",
   };
 }
-export function productRequirements(product, common = DEFAULT_COMMON) {
+export function productRequirements(product, common = "") {
   return product?.promptRequirements ?? common;
 }
 export function requirementSection(common, number) {

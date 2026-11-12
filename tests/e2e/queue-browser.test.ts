@@ -35,6 +35,7 @@ test(
             `Q${String(i).padStart(3, "0")}`,
             `产品${i}`,
           ) as Product;
+          product.createdAt = 1000 - i;
           if (i === 64) addVersion(product.tasks[0], f.product.photo, "ready");
           await f.workflows.repo.saveProduct(tx, product);
         }
@@ -381,8 +382,7 @@ test(
             status: "interrupted" as const,
             stage: "submitting",
             role: "卖点图",
-            error:
-              "请求中断，平台受理状态未知。请核对平台后填写原任务 ID，或确认未受理后再重新提交。",
+            error: "请求中断，未取得平台任务 ID。可直接重试提交。",
           },
           {
             status: "queued" as const,
@@ -564,9 +564,18 @@ test(
         await page.locator(".batch-queue-table tbody tr").count(),
         1,
       );
-      await page.locator('[data-action="reconcile-job"]').click();
-      await page.getByRole("heading", { name: "核对平台任务" }).waitFor();
-      await page.keyboard.press("Escape");
+      await page
+        .locator('.batch-queue-table [data-action="retry-job"]')
+        .click();
+      await page
+        .getByRole("button", { name: "重试任务", exact: true })
+        .waitFor({ state: "detached" });
+      assert.equal(await page.getByText(/核对平台/).count(), 0);
+      const resubmission = (await f.workflows.repo.view()).jobs.find(
+        (job) => job.role === "卖点图",
+      );
+      assert.equal(resubmission?.status, "queued");
+      assert.equal(resubmission?.stage, "pending");
       if (process.env.QUEUE_SCREENSHOT)
         await page.screenshot({
           path: artifactPath("queue-product-controls.png"),

@@ -57,7 +57,7 @@ test("task diagnostics retain transport code while hiding credentials", async ()
     const logs: any[] = [];
     await new Worker(f.workflows, provider, (event) => logs.push(event)).step();
     const job = (await f.workflows.repo.view()).jobs[0];
-    assert.equal(job.status, "interrupted");
+    assert.equal(job.status, "failed");
     assert.match(job.error, /UND_ERR_HEADERS_TIMEOUT/);
     assert.doesNotMatch(job.error, /fake-platform-key|fake-doubao-key/);
     assert.ok(job.finishedAt);

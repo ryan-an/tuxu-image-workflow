@@ -5,7 +5,6 @@ import {
   PromptDialog,
   ProductDialog,
   VersionDialog,
-  ReconcileDialog,
   PasteDialog,
   PromptHistory,
 } from "./EditorDialogs.tsx";
@@ -46,8 +45,6 @@ function DialogContent({ modal }: { modal: Modal }) {
       return <ApiKeysDialog />;
     case "parser":
       return <ParseDialog context={ui.parser!} />;
-    case "reconcile":
-      return <ReconcileDialog id={modal.id} />;
     case "paste":
       return <PasteDialog />;
     case "prompt-history":

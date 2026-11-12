@@ -67,7 +67,6 @@
   color: var(--color-muted);
 }
 .accounts-page input,
-.accounts-page select,
 .password-form input {
   width: 100%;
   min-width: 0;

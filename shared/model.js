@@ -32,6 +32,7 @@ export function newTask(role, reference = "") {
 export function newProduct(code, name = "", facts = "") {
   return {
     id: uid(),
+    createdAt: Date.now(),
     code,
     name: name || code,
     facts,

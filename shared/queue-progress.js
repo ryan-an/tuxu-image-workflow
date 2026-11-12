@@ -3,11 +3,6 @@ import { latestJobs, executionStatus, queueJobWorking } from "./job-status.js";
 export const QUEUE_PRODUCT_PAGE_SIZE = 30;
 export const latestQueueJobs = (state, productId) =>
   latestJobs(state.jobs, productId);
-export const needsQueueReconciliation = (job) =>
-  job.mode !== "demo" &&
-  !job.remoteId &&
-  !!job.stage &&
-  !["pending", "completed"].includes(job.stage);
 
 export function retryableQueueJobs(state, jobs = latestQueueJobs(state)) {
   const byId = new Map(state.jobs.map((job) => [job.id, job]));
@@ -23,7 +18,6 @@ export function retryableQueueJobs(state, jobs = latestQueueJobs(state)) {
   return jobs.filter(
     (job) =>
       job.status === "failed" &&
-      !needsQueueReconciliation(job) &&
       (!job.dependsOn || byId.get(job.dependsOn)?.status === "completed") &&
       !targets(job).some((id) => active.has(key(job, id))),
   );
@@ -141,11 +135,7 @@ export function queueProgress(state, page = 1, status = "all", search = "") {
       info,
       active,
       retryable: retries.get(product.id) || 0,
-      recovery: jobs.find(
-        (job) =>
-          job.status === "interrupted" ||
-          (job.status === "failed" && needsQueueReconciliation(job)),
-      ),
+      recovery: jobs.find((job) => job.status === "interrupted"),
     });
   }
   const total = matches.length;

@@ -30,14 +30,22 @@ const suiteFixture = () => ({
   })),
 });
 test("nano and GPT use their documented parameters", () => {
-  const nano = generationPayload(DEFAULT_CONFIG, {
-    prompt: "test",
-    referenceImages: ["data:image/png;base64,abc"],
-  });
+  const nano = generationPayload(
+    { ...DEFAULT_CONFIG, imageModel: "nano-banana-2" },
+    {
+      prompt: "test",
+      referenceImages: ["data:image/png;base64,abc"],
+    },
+  );
   assert.ok(!("imageSize" in nano));
   assert.equal(nano.aspectRatio, "auto");
   const manual = generationPayload(
-    { ...DEFAULT_CONFIG, aspectRatio: "16:9", imageSize: "2K" },
+    {
+      ...DEFAULT_CONFIG,
+      imageModel: "nano-banana-2",
+      aspectRatio: "16:9",
+      imageSize: "2K",
+    },
     { prompt: "test" },
   );
   assert.equal(manual.imageSize, "2K");

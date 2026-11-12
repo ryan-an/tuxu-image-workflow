@@ -1,3 +1,4 @@
+import { Select } from "../design-system/Select";
 import {
   useRef,
   useState,
@@ -74,24 +75,41 @@ export function RequirementsDialog({ product }: { product: Product }) {
     templateId: product.promptTemplateId ?? null,
     templateChoice: product.promptTemplateId
       ? `template:${product.promptTemplateId}`
-      : product.promptRequirements == null
-        ? "default"
-        : "",
+      : "",
   }));
   const draftKey = requirementDraftKey(user, product.id);
   const [restored] = useState(() =>
     readOnly ? null : readRequirementDraft(draftKey),
   );
-  const [draft, setDraft] = useState<string>(
-    () => restored?.content ?? saved.text,
+  const restoredChoice =
+    restored?.templateChoice === "default"
+      ? ""
+      : (restored?.templateChoice ?? saved.templateChoice);
+  const hasRestoredDraft = Boolean(
+    restored &&
+      (restored.content !== restored.base ||
+        restoredChoice !==
+          (restored.baseTemplateChoice === "default"
+            ? ""
+            : (restored.baseTemplateChoice ?? saved.templateChoice))),
+  );
+  const [draft, setDraft] = useState<string>(() =>
+    hasRestoredDraft ? restored.content : saved.text,
   );
   const [draftStored, setDraftStored] = useState(true);
   const [undo, setUndo] = useState<{
     content: string;
     templateChoice: string;
   } | null>(null);
-  const [templateChoice, setTemplateChoice] = useState(
-    () => restored?.templateChoice ?? saved.templateChoice,
+  const [templateChoice, setTemplateChoice] = useState(() =>
+    hasRestoredDraft ? restoredChoice : saved.templateChoice,
+  );
+  const [templateDrafts, setTemplateDrafts] = useState<Record<string, string>>(
+    () => ({
+      [saved.templateChoice]: saved.text,
+      ...restored?.templateDrafts,
+      [templateChoice]: draft,
+    }),
   );
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
@@ -104,7 +122,7 @@ export function RequirementsDialog({ product }: { product: Product }) {
   const pending = useRef(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState(
-    restored && restored.content !== saved.text
+    hasRestoredDraft && restored.content !== saved.text
       ? restored.base === saved.text
         ? "已恢复未保存的草稿"
         : "已恢复草稿；已保存内容有更新，可恢复查看。"
@@ -146,7 +164,9 @@ export function RequirementsDialog({ product }: { product: Product }) {
           : "仅当前产品 · 保存后下次生成生效");
 
   function changeDraft(text: string, choice = templateChoice) {
+    const nextDrafts = { ...templateDrafts, [choice]: text };
     setDraft(text);
+    setTemplateDrafts(nextDrafts);
     setDraftStored(
       writeRequirementDraft(
         draftKey,
@@ -154,6 +174,7 @@ export function RequirementsDialog({ product }: { product: Product }) {
         saved.text,
         choice,
         saved.templateChoice,
+        nextDrafts,
       ),
     );
     setError("");
@@ -178,21 +199,22 @@ export function RequirementsDialog({ product }: { product: Product }) {
     }
   }
   function chooseTemplate(value: string) {
+    if (value === templateChoice) return;
     setTemplateChoice(value);
     setNaming(false);
     setConfirmDelete(false);
     const template = value.startsWith("template:")
       ? (state.promptTemplates?.[value.slice(9)] ?? null)
       : null;
-    if (!value) {
-      changeDraft(draft, value);
-      return;
-    }
-    replaceDraft(
-      value === "default" ? state.common : (template?.content ?? saved.text),
-      value,
+    const text = Object.hasOwn(templateDrafts, value)
+      ? templateDrafts[value]
+      : (template?.content ?? "");
+    replaceDraft(text, value);
+    setNotice(
+      value
+        ? "已切换模板，可继续修改；点击保存后绑定当前产品"
+        : "已恢复未选择模板时的内容",
     );
-    setNotice("已套用，可继续修改；点击保存后绑定当前产品");
   }
   function openNaming() {
     setName(selected?.name ?? "");
@@ -209,21 +231,41 @@ export function RequirementsDialog({ product }: { product: Product }) {
         content: draft,
         updatedAt: Date.now(),
       };
-      await controller.savePromptTemplate(template, !asNew ? selected : null);
+      await controller.savePromptTemplate(template, !asNew ? selected : null, {
+        id: product.id,
+        before: saved.before,
+        beforeTemplateId: saved.templateId,
+      });
       const choice = `template:${template.id}`;
+      const nextDrafts = { ...templateDrafts, [choice]: draft };
       setTemplateChoice(choice);
-      changeDraft(draft, choice);
+      setTemplateDrafts(nextDrafts);
+      setSaved({
+        text: draft,
+        before: draft,
+        templateId: template.id,
+        templateChoice: choice,
+      });
+      setDraftStored(
+        writeRequirementDraft(
+          draftKey,
+          draft,
+          draft,
+          choice,
+          choice,
+          nextDrafts,
+        ),
+      );
       setNaming(false);
-      setNotice("模板已保存；用于当前产品还需点击保存");
+      setNotice("模板已保存并绑定当前产品");
     });
   }
   function restoreSaved() {
     const text = productRequirements(product, state.common);
     const choice = product.promptTemplateId
       ? `template:${product.promptTemplateId}`
-      : product.promptRequirements == null
-        ? "default"
-        : "";
+      : "";
+    const nextDrafts = { ...templateDrafts, [choice]: text };
     setUndo({ content: draft, templateChoice });
     setSaved({
       text,
@@ -232,7 +274,10 @@ export function RequirementsDialog({ product }: { product: Product }) {
       templateChoice: choice,
     });
     setDraft(text);
-    setDraftStored(writeRequirementDraft(draftKey, text, text, choice, choice));
+    setTemplateDrafts(nextDrafts);
+    setDraftStored(
+      writeRequirementDraft(draftKey, text, text, choice, choice, nextDrafts),
+    );
     setTemplateChoice(choice);
     setError("");
     setNotice("已恢复当前产品保存的内容");
@@ -351,14 +396,14 @@ export function RequirementsDialog({ product }: { product: Product }) {
               >
                 套用模板
               </label>
-              <select
+              <Select
+                size="sm"
                 id="requirement-template"
                 value={templateChoice}
                 disabled={busy}
                 onChange={(e) => chooseTemplate(e.target.value)}
               >
-                <option value="">套用模板（可选）</option>
-                <option value="default">默认要求</option>
+                <option value="">未选择模板</option>
                 {templateId && !selected && (
                   <option value={templateChoice} disabled>
                     原模板已删除（保留本产品要求）
@@ -369,7 +414,7 @@ export function RequirementsDialog({ product }: { product: Product }) {
                     {template.name}
                   </option>
                 ))}
-              </select>
+              </Select>
               <Button
                 size="sm"
                 variant="secondary"
@@ -526,6 +571,7 @@ export function RequirementsDialog({ product }: { product: Product }) {
               draft,
               templateChoice,
               templateChoice,
+              templateDrafts,
             );
             controller.closeModal();
           });

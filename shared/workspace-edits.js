@@ -243,6 +243,7 @@ export function mergeView(state, remote, pending = []) {
     if (!products.some((existing) => existing.id === id))
       products.push({
         ...p,
+        createdAt: state.products.find((local) => local.id === id)?.createdAt,
         promptSets: [],
         tasks: Object.values(p.tasks).map(({ imports = [], ...t }) => ({
           ...t,

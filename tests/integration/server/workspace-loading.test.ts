@@ -219,8 +219,14 @@ test("loading a product preserves edits made during the request and does not tur
     a.name = "typed while the detail was loading";
     release();
     await reading;
-    assert.equal(state.products[0].name, "typed while the detail was loading");
-    assert.equal(state.products[1]._summary, undefined);
+    assert.equal(
+      state.products.find((p: any) => p.id === a.id).name,
+      "typed while the detail was loading",
+    );
+    assert.equal(
+      state.products.find((p: any) => p.id === b.id)._summary,
+      undefined,
+    );
     assert.equal(state.syncCursor, 7);
     const edits = differences(editable(client.baseline), editable(state));
     assert.equal(edits.length, 1);

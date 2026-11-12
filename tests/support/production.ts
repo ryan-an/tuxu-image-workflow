@@ -4,6 +4,7 @@ import { join, dirname, basename, resolve } from "node:path";
 import { database, migrate } from "../../server/production/database.js";
 import { createApp } from "../../server/production/app.js";
 import { newProduct } from "../../shared/model.js";
+import { DEFAULT_COMMON } from "../../shared/prompt-suite.js";
 import { editable, differences } from "../../shared/workspace-edits.js";
 import type { Product } from "../../server/production/types.js";
 import type { Provider } from "../../server/production/provider.js";
@@ -58,6 +59,8 @@ export async function fixture(
   product.tasks.forEach((t) => (t.references = [png]));
   const empty = await workflows.repo.view(),
     newState = structuredClone(empty);
+  // Most workflow tests start with explicitly configured analysis requirements.
+  newState.common = `${DEFAULT_COMMON}\n测试工作区已保存的生成要求。`;
   newState.products.push(product);
   await workflows.edit(differences(editable(empty), editable(newState)));
   const state = await workflows.repo.view();

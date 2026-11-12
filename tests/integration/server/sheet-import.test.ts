@@ -761,7 +761,7 @@ test("parse preview and save count only real changes and select the last saved p
     h.state.products.find((p: any) => p.code === "NEW-LAST").id,
   );
   assert.equal(h.context.ui.search, "");
-  assert.equal(h.context.ui.productPage, 2);
+  assert.equal(h.context.ui.productPage, 1);
   assert.match(notices.at(-1)!, /新增 1 个，更新 1 个/);
   assert.deepEqual(
     products[1],

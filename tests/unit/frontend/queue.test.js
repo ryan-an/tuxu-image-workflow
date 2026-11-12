@@ -295,7 +295,7 @@ test("queue status keeps separate card analyses and shows accepted polling jobs 
   assert.equal(productQueueInfo(state, product).label, "生成中");
 });
 
-test("bulk retry excludes uncertain requests and failed dependency children", () => {
+test("bulk retry includes failed requests but waits for failed dependency parents", () => {
   const { state, queue, pairs } = setup();
   state.paused = true;
   queue.enqueue(pairs, "workflow");
@@ -306,7 +306,10 @@ test("bulk retry excludes uncertain requests and failed dependency children", ()
     [parent.id],
   );
   parent.stage = "analyzing";
-  assert.equal(retryableQueueJobs(state).length, 0);
+  assert.deepEqual(
+    retryableQueueJobs(state).map((j) => j.id),
+    [parent.id],
+  );
   parent.status = "completed";
   assert.equal(retryableQueueJobs(state).length, 10);
 });

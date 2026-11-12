@@ -1,9 +1,9 @@
+import { Select } from "../design-system/Select";
 import { useJobHistory } from "../../application/use-job-history";
 import { useQueueProgress } from "../../application/use-queue-progress";
 import { useEffect, useState } from "react";
 import type { Job } from "../types";
 import type { QueueProgressRow } from "../../services/queue-progress";
-import { needsQueueReconciliation } from "../../../shared/queue-progress.js";
 import { queueJobWorking } from "../../../shared/job-status.js";
 import { ActionButton, useApplication } from "../context.tsx";
 import { ProductThumbnail } from "../products/Sidebar.tsx";
@@ -117,20 +117,10 @@ function QueueProductRow({
           </ActionButton>
           {recovery && (
             <ActionButton
-              action={
-                recovery.remoteId
-                  ? "query-job"
-                  : needsQueueReconciliation(recovery)
-                    ? "reconcile-job"
-                    : "retry-job"
-              }
+              action={recovery.remoteId ? "query-job" : "retry-job"}
               data={{ id: recovery.id }}
             >
-              {recovery.remoteId
-                ? "继续查询"
-                : needsQueueReconciliation(recovery)
-                  ? "核对平台"
-                  : "恢复任务"}
+              {recovery.remoteId ? "继续查询" : "重试任务"}
             </ActionButton>
           )}
           {active && (
@@ -232,7 +222,7 @@ function JobRow({ job }: { job: Job }) {
               {job.status === "failed"
                 ? "失败原因"
                 : job.status === "interrupted"
-                  ? "需要核对"
+                  ? "任务中断"
                   : "任务说明"}
             </strong>
             <p>{job.error}</p>
@@ -492,7 +482,7 @@ export function QueueDashboard() {
               }}
             />
             <label>
-              <select
+              <Select
                 aria-label="任务状态"
                 value={filter}
                 onChange={(event) => {
@@ -502,10 +492,10 @@ export function QueueDashboard() {
               >
                 <option value="all">全部任务</option>
                 <option value="active">执行中 / 待执行</option>
-                <option value="attention">失败 / 待核对</option>
+                <option value="attention">失败 / 待恢复</option>
                 <option value="completed">已完成</option>
                 <option value="cancelled">已取消</option>
-              </select>
+              </Select>
             </label>
             <span role="status">
               {history.loading ? "更新中…" : `${history.total} 条记录`}
@@ -572,7 +562,7 @@ export function QueueDashboard() {
               }}
             />
             <label>
-              <select
+              <Select
                 aria-label="产品进度筛选"
                 value={productFilter}
                 onChange={(event) => {
@@ -588,7 +578,7 @@ export function QueueDashboard() {
                 <option value="selected">已选齐</option>
                 <option value="active">进行中</option>
                 <option value="attention">有异常</option>
-              </select>
+              </Select>
             </label>
             <span role="status">
               {progress.loading

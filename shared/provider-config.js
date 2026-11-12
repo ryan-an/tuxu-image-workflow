@@ -21,7 +21,7 @@ export const MODELS = [
 export const DEFAULT_CONFIG = {
   mode: "demo",
   baseUrl: "https://grsai.dakka.com.cn",
-  imageModel: "nano-banana-2",
+  imageModel: "gpt-image-2",
   promptProvider: "doubao",
   promptModel: DOUBAO_DEFAULT_MODEL,
   ...AUTO_SIZE_DEFAULTS,

@@ -202,7 +202,7 @@ test("migration upgrades old prompt settings while preserving Grsai credentials"
     const row = (await db.query("SELECT * FROM workspace")).rows[0];
     assert.equal(row.document.settings.promptModel, DOUBAO_DEFAULT_MODEL);
     assert.equal(row.document.settings.promptProvider, "doubao");
-    assert.equal(row.document.settings.imageModel, "nano-banana-2");
+    assert.equal(row.document.settings.imageModel, "gpt-image-2");
     assert.equal(row.credential, "encrypted-image-key");
     assert.equal(row.prompt_credential, null);
   } finally {

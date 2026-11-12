@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { JOB_VIEW_COLUMNS, presentJob } from "./workspace-loading.js";
+import {
+  JOB_VIEW_COLUMNS,
+  presentJob,
+  hydrateProduct,
+} from "./workspace-loading.js";
 import { leaseDuration, type ExecutionLane } from "./execution-limits.js";
 import { credentialVersion } from "./credentials.js";
 import {
@@ -8,17 +12,14 @@ import {
   CONCURRENCY_FIELDS,
 } from "../../shared/execution-settings.js";
 import { DEFAULT_CONFIG } from "../../shared/provider-config.js";
-import {
-  DEFAULT_COMMON,
-  migrateDefaultCommon,
-} from "../../shared/prompt-suite.js";
+import { migrateDefaultCommon } from "../../shared/prompt-suite.js";
 import { AppError } from "./types.js";
 import type { Database, Queryable, Workspace, Job, Product } from "./types.js";
 export const WORKSPACE = "default";
 export function emptyWorkspace(): Workspace {
   return {
     schema: 2,
-    common: DEFAULT_COMMON,
+    common: "",
     promptTemplates: {},
     settings: { ...DEFAULT_CONFIG, mode: "live" },
     concurrency: 2,
@@ -117,10 +118,10 @@ export class Repository {
     ).rows;
     const products = (
       await tx.query(
-        "SELECT p.document FROM products p JOIN sync_entities s ON s.kind='product' AND s.entity_id=p.id AND s.workspace_id=p.workspace_id WHERE s.revision > $1 AND p.workspace_id=$2 ORDER BY p.code",
+        "SELECT p.document,p.rowid AS product_order FROM products p JOIN sync_entities s ON s.kind='product' AND s.entity_id=p.id AND s.workspace_id=p.workspace_id WHERE s.revision > $1 AND p.workspace_id=$2 ORDER BY p.code",
         [since, this.workspaceId],
       )
-    ).rows.map((p) => p.document);
+    ).rows.map(hydrateProduct);
     const jobs = (
       await tx.query(
         "SELECT j.* FROM jobs j JOIN sync_entities s ON s.kind='job' AND s.entity_id=j.id AND s.workspace_id=j.workspace_id WHERE s.revision > $1 AND j.workspace_id=$2 ORDER BY j.created_at,j.id",
@@ -182,10 +183,10 @@ export class Repository {
     if (!ids.length) return [];
     return (
       await tx.query(
-        "SELECT document FROM products WHERE workspace_id=$1 AND id IN (SELECT value FROM json_each($2)) ORDER BY code",
+        "SELECT document,rowid AS product_order FROM products WHERE workspace_id=$1 AND id IN (SELECT value FROM json_each($2)) ORDER BY code",
         [this.workspaceId, JSON.stringify(ids)],
       )
-    ).rows.map((row) => row.document);
+    ).rows.map(hydrateProduct);
   }
   async saveWorkspaceFields(tx: Queryable, fields: Record<string, unknown>) {
     const values: any[] = [this.workspaceId];
@@ -214,7 +215,7 @@ export class Repository {
       [this.workspaceId],
     );
     const products = await tx.query(
-      "SELECT document FROM products WHERE workspace_id=$1 ORDER BY code",
+      "SELECT document,rowid AS product_order FROM products WHERE workspace_id=$1 ORDER BY code",
       [this.workspaceId],
     );
     const jobs = await tx.query(
@@ -223,7 +224,7 @@ export class Repository {
     );
     return {
       ...rows[0].document,
-      products: products.rows.map((p) => p.document),
+      products: products.rows.map(hydrateProduct),
       jobs: jobs.rows.map(hydrateJob),
     };
   }
@@ -235,12 +236,22 @@ export class Repository {
     );
   }
   async saveProduct(tx: Queryable, product: Product) {
+    const { createdOrder, ...document } = product;
+    const createdAt =
+      Number.isSafeInteger(product.createdAt) && product.createdAt! >= 0
+        ? product.createdAt!
+        : Date.now();
     const result = await tx.query(
-      `INSERT INTO products(id,workspace_id,code,document) VALUES($1,$2,$3,$4)
-   ON CONFLICT(id) DO UPDATE SET code=excluded.code,document=excluded.document WHERE products.workspace_id=excluded.workspace_id`,
-      [product.id, this.workspaceId, product.code, product],
+      `INSERT INTO products(id,workspace_id,code,document) VALUES($1,$2,$3,json_set($4,'$.createdAt',$5))
+   ON CONFLICT(id) DO UPDATE SET code=excluded.code,
+   document=json_set(excluded.document,'$.createdAt',COALESCE(json_extract(products.document,'$.createdAt'),0))
+   WHERE products.workspace_id=excluded.workspace_id
+   RETURNING rowid AS product_order,json_extract(document,'$.createdAt') AS created_at`,
+      [product.id, this.workspaceId, product.code, document, createdAt],
     );
     if (!result.rowCount) throw new AppError("产品 ID 已存在，无法导入", 409);
+    product.createdAt = result.rows[0].created_at;
+    product.createdOrder = result.rows[0].product_order;
   }
   async saveJob(tx: Queryable, job: Job, delayMs = 0) {
     await tx.query(
@@ -288,7 +299,8 @@ export class Repository {
         )
       ).rows[0];
       if (workspace.archived_at !== null) return null;
-      // An expired paid submission is uncertain. Never resubmit it automatically.
+      // Resume saved platform IDs; an unfinished submission without an ID fails
+      // and can be retried explicitly by the user.
       const expired = (
         await tx.query(
           "SELECT * FROM jobs WHERE status='running' AND lease_until < $1 AND workspace_id=$2",
@@ -298,12 +310,17 @@ export class Repository {
       for (const row of expired) {
         const job = hydrateJob(row);
         job.status =
-          job.remoteId || job.stage === "pending" ? "queued" : "interrupted";
+          job.remoteId || job.stage === "pending" ? "queued" : "failed";
         job.error =
-          job.status === "interrupted"
-            ? "执行进程中断，平台受理状态未知；请核对平台后处理，禁止盲目重试"
+          job.status === "failed"
+            ? job.kind === "prompt-set"
+              ? "提示词分析中断，请重试"
+              : "图片提交中断，未取得平台任务 ID，请重试"
             : "";
-        if (job.status === "interrupted") job.finishedAt = now;
+        if (job.status === "failed") {
+          job.stage = "pending";
+          job.finishedAt = now;
+        } else if (job.remoteId) job.stage = "polling";
         await this.saveJob(tx, job);
         if (job.attemptId)
           await tx.query(

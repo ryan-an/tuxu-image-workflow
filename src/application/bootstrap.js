@@ -1,11 +1,11 @@
 import { loadSnapshot } from "../integrations/storage.js";
 import { APP_KEY, uid } from "../../shared/model.js";
 import { normalizePromptTemplates } from "../../shared/prompt-templates.js";
+import { productsNewestFirst } from "../../shared/product-order.js";
 import { api } from "../services/workspace-client.js";
 
 import { migrateAutoSizeDefaults } from "../../shared/generation-settings.js";
 import {
-  DEFAULT_COMMON,
   FIXED_PRODUCT_REQUIREMENTS,
   migrateDefaultCommon,
 } from "../../shared/prompt-suite.js";
@@ -27,7 +27,6 @@ export async function loadWorkspace({ canImport = true } = {}) {
         state = await api("/api/workspace/startup");
       }
     }
-    state.activeProductId = state.products[0]?.id;
   } else {
     state = await loadSnapshot(APP_KEY);
     if (!state?.schema) {
@@ -42,7 +41,7 @@ export async function loadWorkspace({ canImport = true } = {}) {
   }
   if (!state.promptWorkflowVersion) {
     state.previousCommon = state.common;
-    state.common = DEFAULT_COMMON;
+    state.common = "";
     state.promptWorkflowVersion = 1;
     for (const job of state.jobs)
       if (
@@ -81,5 +80,8 @@ export async function loadWorkspace({ canImport = true } = {}) {
   }
   state.settings = migratePromptSettings(state.settings);
 
+  state.products = productsNewestFirst(state.products);
+  if (production || !state.products.some((p) => p.id === state.activeProductId))
+    state.activeProductId = state.products[0]?.id;
   return { state, hasKey, hasPromptKey, unfinished, production };
 }

@@ -6,6 +6,10 @@ import {
 } from "../../shared/workspace-edits.js";
 import { sessionHeaders, analysisEventsUrl } from "./session-scope.js";
 import { WORKSPACE_GENERATION_FIELDS } from "../../shared/generation-settings.js";
+import {
+  compareProductsNewestFirst,
+  productsNewestFirst,
+} from "../../shared/product-order.js";
 export async function api(
   path,
   body,
@@ -124,8 +128,8 @@ export class WorkspaceClient {
     return {
       ...this.baseline,
       ...result.document,
-      products: [...products, ...updates.values()].sort((a, b) =>
-        a.code.localeCompare(b.code),
+      products: [...products, ...updates.values()].sort(
+        compareProductsNewestFirst,
       ),
     };
   }
@@ -285,6 +289,7 @@ export class WorkspaceClient {
           );
     }
     mergeView(this.state, remote, pending);
+    this.state.products = productsNewestFirst(this.state.products);
     if (this.state.sheetLoaded !== false) await this.syncSheet(previousSheet);
     const changed = changes.filter(
       (change) => change.reference || change.prompt || change.result,
@@ -415,7 +420,7 @@ export class WorkspaceClient {
               this.baseline.products,
               delta.products,
               delta.deletedProducts,
-            ).sort((a, b) => a.code.localeCompare(b.code)),
+            ).sort(compareProductsNewestFirst),
             jobs: delta.replaceJobs
               ? delta.jobs
               : merge(this.baseline.jobs, delta.jobs, delta.deletedJobs),

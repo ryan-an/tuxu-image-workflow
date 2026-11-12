@@ -1,5 +1,6 @@
+import { Select } from "../design-system/Select";
 import { useState } from "react";
-import { MODELS } from "../../../shared/provider-config.js";
+import { DEFAULT_CONFIG, MODELS } from "../../../shared/provider-config.js";
 import { gptImageSizeGroups } from "../../../shared/gpt-image-sizes.js";
 import { PROMPT_MODELS } from "../../../shared/service-models.js";
 import { ApplicationForm, useApplication } from "../context.tsx";
@@ -7,8 +8,8 @@ import "./settings.css";
 import { DialogActions } from "./DialogActions";
 
 const imageModels = [
-  "nano-banana-2",
-  ...MODELS.filter((m) => m !== "nano-banana-2"),
+  DEFAULT_CONFIG.imageModel,
+  ...MODELS.filter((m) => m !== DEFAULT_CONFIG.imageModel),
 ];
 function Options({ values }: { values: string[] }) {
   return values.map((value) => (
@@ -49,7 +50,7 @@ export function SettingsDialog() {
             <input type="hidden" name="promptProvider" value="doubao" />
             <label>
               豆包对话模型
-              <select
+              <Select
                 name="promptModel"
                 id="prompt-model"
                 value={promptModel}
@@ -63,7 +64,7 @@ export function SettingsDialog() {
                   ]}
                 />
                 <option value="__custom">其他豆包模型 / Endpoint ID</option>
-              </select>
+              </Select>
             </label>
             <label id="custom-prompt-model" hidden={!custom}>
               火山方舟 Model ID / Endpoint ID
@@ -79,7 +80,7 @@ export function SettingsDialog() {
         <div className="form-grid">
           <label>
             生图模型
-            <select
+            <Select
               name="imageModel"
               id="image-model"
               value={imageModel}
@@ -99,13 +100,13 @@ export function SettingsDialog() {
               }}
             >
               <Options values={imageModels} />
-            </select>
+            </Select>
           </label>
         </div>
         <div id="nano-options" hidden={gpt} className="form-grid">
           <label>
             图片比例
-            <select name="aspectRatio" defaultValue={config.aspectRatio}>
+            <Select name="aspectRatio" defaultValue={config.aspectRatio}>
               <Options
                 values={[
                   "auto",
@@ -125,19 +126,19 @@ export function SettingsDialog() {
                   "8:1",
                 ]}
               />
-            </select>
+            </Select>
           </label>
           <label>
             分辨率
-            <select name="imageSize" defaultValue={config.imageSize}>
+            <Select name="imageSize" defaultValue={config.imageSize}>
               <Options values={["auto", "1K", "2K", "4K"]} />
-            </select>
+            </Select>
           </label>
         </div>
         <div id="gpt-options" hidden={!gpt} className="form-grid">
           <label>
             GPT 尺寸 / 比例
-            <select
+            <Select
               name="gptSize"
               value={gptSize}
               onChange={(e) => setGptSize(e.target.value)}
@@ -157,11 +158,11 @@ export function SettingsDialog() {
                   ))}
                 </optgroup>
               ))}
-            </select>
+            </Select>
           </label>
           <label>
             GPT 质量
-            <select
+            <Select
               name="quality"
               value={quality}
               onChange={(e) => setQuality(e.target.value)}
@@ -169,7 +170,7 @@ export function SettingsDialog() {
               <Options
                 values={["auto", "low", "medium", "high", "xhigh", "max"]}
               />
-            </select>
+            </Select>
           </label>
         </div>
         <p className="field-note">

@@ -6,6 +6,7 @@ import { currentProduct, formatTime } from "../selectors";
 import { PromptPreview } from "./PromptPreview.tsx";
 import { GenerationProgress } from "./GenerationProgress.tsx";
 import { imageGeneration } from "../../view-models/image-generation.js";
+import { unavailableImageResult } from "../../../shared/image-result.js";
 import { analysisProgress } from "../../../shared/analysis-progress.js";
 import "./task-card.css";
 import { ProductStatusBadge } from "../ProductStatusBadge";
@@ -271,7 +272,7 @@ export function TaskCard({ task }: { task: ImageTask }) {
             action="retry-job"
             data={{ id: lastJob.id }}
           >
-            重试
+            {unavailableImageResult(lastJob) ? "重新生成" : "重试"}
           </ActionButton>
         </div>
       )}

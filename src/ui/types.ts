@@ -29,6 +29,8 @@ export interface ImageTask {
 export interface Product {
   _summary?: boolean;
   id: string;
+  createdAt?: number;
+  createdOrder?: number;
   code: string;
   name: string;
   facts: string;
@@ -80,6 +82,8 @@ export interface Job {
   mode: string;
   stage?: string;
   remoteId?: string;
+  resultUnavailable?: boolean;
+  replacesJobId?: string;
   dependsOn?: string;
   progress?: number;
   promptDrafts?: Record<string, string>;
@@ -151,7 +155,6 @@ export interface Modal {
     | "settings"
     | "api-keys"
     | "parser"
-    | "reconcile"
     | "paste"
     | "prompt-history"
     | "activity";
@@ -211,6 +214,11 @@ export interface ApplicationController {
   savePromptTemplate(
     template: PromptTemplate,
     before: PromptTemplate | null,
+    product?: {
+      id: string;
+      before: string | null;
+      beforeTemplateId: string | null;
+    },
   ): Promise<void>;
   deletePromptTemplate(template: PromptTemplate): Promise<void>;
   subscribe(listener: () => void): () => void;

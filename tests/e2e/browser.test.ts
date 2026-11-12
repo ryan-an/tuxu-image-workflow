@@ -760,11 +760,11 @@ test(
         true,
       );
       await f.db.query(
-        "UPDATE jobs SET status='interrupted',stage='analyzing' WHERE kind='prompt-set' AND status='running'",
+        "UPDATE jobs SET status='interrupted',stage='analyzing',owner=NULL,lease_until=NULL WHERE kind='prompt-set' AND status='running'",
       );
       await reopened.click('[data-action="view"][data-view="workbench"]');
       const recovery = reopened.locator(
-        '.requirements-actions [data-action="reconcile-job"]',
+        '.requirements-actions [data-action="retry-job"]',
       );
       await recovery.waitFor();
       assert.equal(await recovery.isEnabled(), true);
@@ -774,17 +774,17 @@ test(
         await reopened
           .locator("#modal")
           .evaluate((dialog: HTMLDialogElement) => dialog.open),
-        true,
+        false,
       );
-      await reopened.click('[data-action="close-modal"]');
+      assert.equal(await reopened.getByText(/核对平台/).count(), 0);
       await f.db.query(
-        "UPDATE jobs SET payload=json_remove(json_set(payload,'$.error','平台请求失败 (429)'),'$.promptDrafts') WHERE id=$1",
+        "UPDATE jobs SET status='failed',stage='pending',payload=json_remove(json_set(payload,'$.error','平台请求失败 (429)'),'$.promptDrafts') WHERE id=$1",
         [liveJob.id],
       );
       f.workflows.analysisEvents.publish({
         id: liveJob.id,
         finished: true,
-        status: "interrupted",
+        status: "failed",
         error: "平台请求失败 (429)",
       });
       await reopened.waitForFunction(() =>
@@ -798,7 +798,7 @@ test(
       assert.equal(await reopened.locator(".typing-caret").count(), 0);
       assert.equal(await reopened.locator(".prompt-waiting").count(), 0);
       await f.db.query(
-        "UPDATE jobs SET status='running' WHERE kind='prompt-set' AND status='interrupted'",
+        "UPDATE jobs SET status='running' WHERE kind='prompt-set' AND status IN ('interrupted','failed')",
       );
       await reopened.evaluate(() =>
         document.dispatchEvent(new Event("visibilitychange")),

@@ -44,6 +44,7 @@ async function seedB(t: Awaited<ReturnType<typeof teams>>) {
   const state = await t.workflowsB.repo.view(),
     after = structuredClone(state);
   const product = newProduct("TEST-01", "B团队产品", "仅 B 可见") as Product;
+  product.promptRequirements = "B团队已保存的要求：依据产品资料设计。";
   const bytes = await sharp({
     create: { width: 2, height: 2, channels: 4, background: "#ffffff" },
   })
@@ -71,6 +72,7 @@ test("provisioning an owner creates an empty independent team and scoped member 
     ).json();
     assert.deepEqual(empty.products, []);
     assert.deepEqual(empty.jobs, []);
+    assert.equal(empty.common, "");
     const settings = (
       await f.app.inject({ url: "/api/workflow/settings", headers: b })
     ).json();

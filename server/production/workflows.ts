@@ -31,8 +31,10 @@ import {
   generationImages,
   productPhotos,
   productRequirements,
+  migrateDefaultCommon,
 } from "../../shared/prompt-suite.js";
 import { baseUrl, MODELS } from "../../shared/provider-config.js";
+import { unavailableImageResult } from "../../shared/image-result.js";
 import { migratePromptSettings } from "../../shared/doubao.js";
 import { Repository } from "./repository.js";
 import { Credentials, credentialVersion } from "./credentials.js";
@@ -353,7 +355,7 @@ export class Workflows {
       if (!product) throw new AppError("产品不存在或已删除", 404);
       if (state.jobs.some((job) => job.productId === id && active(job)))
         throw new AppError(
-          "该产品还有待执行、执行中或待核对任务，请先取消或处理后再删除",
+          "该产品还有待执行、执行中或待恢复任务，请先取消或处理后再删除",
           409,
         );
       const running = await tx.query(
@@ -924,7 +926,7 @@ export class Workflows {
             child.finishedAt = Date.now();
             await this.repo.saveJob(tx, child);
           }
-        } else if (action === "retry" || action === "reconcile") {
+        } else if (action === "retry") {
           const row = (
             await tx.query("SELECT owner,lease_until FROM jobs WHERE id=$1", [
               id,
@@ -934,18 +936,6 @@ export class Workflows {
             throw new AppError("执行请求尚未结束，请稍后处理", 409);
           if (!["failed", "cancelled", "interrupted"].includes(job.status))
             return { ok: true };
-          if (action === "reconcile") {
-            if (
-              job.kind === "image" &&
-              typeof input.remoteId === "string" &&
-              input.remoteId.trim()
-            )
-              job.remoteId = input.remoteId.trim();
-            else if (input.confirmNotAccepted !== true)
-              throw new AppError("请填写平台任务 ID，或明确确认平台未受理");
-            job.stage = job.remoteId ? "polling" : "pending";
-          } else if (!job.remoteId && job.stage !== "pending")
-            throw new AppError("受理状态未知，需要先核对平台任务", 409);
           if (
             state.jobs.some(
               (j) =>
@@ -959,6 +949,41 @@ export class Workflows {
             )
           )
             throw new AppError("已有相同位置的执行任务", 409);
+          if (unavailableImageResult(job)) {
+            const creator = actor
+              ? {
+                  id: actor.id,
+                  username: actor.username,
+                  displayName: actor.displayName,
+                }
+              : job.createdBy;
+            const replacement: Job = {
+              id: randomUUID(),
+              productId: job.productId,
+              productName: job.productName,
+              taskId: job.taskId,
+              kind: "image",
+              role: job.role,
+              status: "queued",
+              stage: "pending",
+              mode: "live",
+              createdAt: Math.max(Date.now(), job.createdAt + 1),
+              createdBy: creator,
+              config: structuredClone(job.config),
+              prompt: job.prompt,
+              referenceImages: job.referenceImages,
+              referenceImageKind: job.referenceImageKind,
+              referenceImageContext: job.referenceImageContext,
+              replacesJobId: job.id,
+              error: "",
+            };
+            await this.repo.insertJob(tx, replacement);
+            if (actor)
+              await assertImageQuota(tx, actor.id, this.repo.workspaceId);
+            return { ok: true, restartedJobId: replacement.id };
+          }
+          job.stage = job.remoteId ? "polling" : "pending";
+          if (!job.remoteId) delete job.progress;
           let imageJobs = job.kind === "image" ? 1 : 0;
           if (actor)
             job.lastRetriedBy = {
@@ -1044,7 +1069,10 @@ export class Workflows {
           throw new AppError("无效工作流备份");
         const taskIds = new Set<string>(),
           productIds = new Set<string>();
-        for (const product of imported.products) {
+        const restoredProducts = [...imported.products].sort(
+          (a, b) => (a.createdOrder ?? 0) - (b.createdOrder ?? 0),
+        );
+        for (const product of restoredProducts) {
           validateProduct(product);
           if (productIds.has(product.id)) throw new AppError("产品 ID 重复");
           productIds.add(product.id);
@@ -1055,7 +1083,9 @@ export class Workflows {
           await this.repo.saveProduct(tx, product);
         }
         state.common =
-          typeof imported.common === "string" ? imported.common : state.common;
+          typeof imported.common === "string"
+            ? migrateDefaultCommon(imported.common)
+            : state.common;
         try {
           state.promptTemplates = normalizePromptTemplates(
             imported.promptTemplates,
@@ -1112,15 +1142,9 @@ export class Workflows {
             mode: "live",
             owner: undefined,
             status: wasActive ? "cancelled" : old.status,
-            stage: old.remoteId
-              ? "polling"
-              : wasActive && old.status !== "queued"
-                ? old.kind === "image"
-                  ? "submitting"
-                  : "analyzing"
-                : "pending",
+            stage: old.remoteId ? "polling" : "pending",
             error: wasActive
-              ? "迁移任务已停止，请核对平台后继续查询或重新生成"
+              ? "迁移任务已停止，可继续查询或重新生成"
               : old.error,
           } as Job;
           job.dependsOn = undefined;

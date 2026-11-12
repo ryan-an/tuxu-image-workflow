@@ -368,17 +368,11 @@ dialog.requirements-modal > div > .modal-close {
 .requirements-template-bar {
   flex: 1;
 }
-.requirements-modal .requirements-template-bar select {
+.requirements-modal .requirements-template-bar .ui-select {
   width: 240px;
   max-width: 100%;
   min-width: 0;
-  height: 28px;
-  padding: 0 26px 0 9px;
   margin: 0;
-  font-size: 12px;
-  color: var(--color-text);
-  background-color: var(--color-canvas);
-  border-color: var(--color-border);
 }
 .requirements-editor-tools {
   margin-left: auto;
@@ -615,7 +609,7 @@ dialog.requirements-modal .requirements-editor-expanded #product-requirements {
   .requirements-template-bar {
     flex: 1;
   }
-  .requirements-modal .requirements-template-bar select {
+  .requirements-modal .requirements-template-bar .ui-select {
     flex: 1;
     width: auto;
   }

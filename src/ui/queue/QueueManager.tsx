@@ -123,7 +123,7 @@ export function QueueManager({
             variant="secondary"
             size="sm"
             disabled={!retryable}
-            title="仅重试可恢复的失败任务，受理状态未知的任务需要先核对平台"
+            title="重试失败任务；已有平台任务 ID 时继续查询原任务"
           >
             重试失败{retryable ? `（${retryable}）` : ""}
           </ActionButton>

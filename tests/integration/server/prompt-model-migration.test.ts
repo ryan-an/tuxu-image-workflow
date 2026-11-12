@@ -54,7 +54,9 @@ test("019 initializes every workspace's prompt model once while preserving keys,
     const products = (await f.db.query("SELECT * FROM products")).rows;
     await f.db.query("DELETE FROM schema_migrations WHERE version='019.sql'");
     const history = (
-      await f.db.query("SELECT * FROM schema_migrations ORDER BY version")
+      await f.db.query(
+        "SELECT * FROM schema_migrations WHERE version<'019.sql' ORDER BY version",
+      )
     ).rows;
 
     await migrate(f.db);

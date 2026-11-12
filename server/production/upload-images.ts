@@ -4,7 +4,19 @@ import { AppError } from "./types.js";
 export const UPLOAD_IMAGE_LIMIT = 6 * 1024 * 1024;
 
 export async function uploadedImage(bytes: Buffer, mime: string) {
-  if (bytes.length <= UPLOAD_IMAGE_LIMIT) return { bytes, mime };
+  return imageWithinLimit(bytes, mime, UPLOAD_IMAGE_LIMIT);
+}
+
+export async function imageWithinLimit(
+  bytes: Buffer,
+  mime: string,
+  limit: number,
+) {
+  if (!Number.isSafeInteger(limit) || limit < 1)
+    throw new AppError(
+      "本次请求没有足够的图片空间，请减少附图或缩短提示词后重试",
+    );
+  if (bytes.length <= limit) return { bytes, mime };
 
   try {
     const image = sharp(bytes, {
@@ -32,17 +44,18 @@ export async function uploadedImage(bytes: Buffer, mime: string) {
           .resize(width, height, { fit: "inside", withoutEnlargement: true })
           .webp({ quality })
           .toBuffer();
-        if (result.length < UPLOAD_IMAGE_LIMIT)
-          return { bytes: result, mime: "image/webp" };
+        if (result.length < limit) return { bytes: result, mime: "image/webp" };
         size = result.length;
       }
       if (width === 1 && height === 1) break;
-      const scale = Math.min(0.85, Math.sqrt(UPLOAD_IMAGE_LIMIT / size) * 0.95);
+      const scale = Math.min(0.85, Math.sqrt(limit / size) * 0.95);
       width = Math.max(1, Math.floor(width * scale));
       height = Math.max(1, Math.floor(height * scale));
     }
   } catch {
     throw new AppError("图片自动压缩失败，请选择有效或较小的图片后重试");
   }
-  throw new AppError("图片无法压缩到 6MB 以下，请选择较小的图片后重试");
+  throw new AppError(
+    "图片无法压缩到本次请求所需的大小，请选择较小的图片后重试",
+  );
 }

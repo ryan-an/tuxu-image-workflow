@@ -210,7 +210,7 @@ export class Worker {
           referenceImageKind = images.referenceImageKind;
           referenceImageContext = images.referenceImageContext;
         }
-        // Persist the uncertain-submission boundary BEFORE making the paid request.
+        // Persist the execution stage before sending the platform request.
         if (!(await this.workflows.repo.markStage(job, "submitting")))
           return true;
         const result = await this.provider.submit(
@@ -222,10 +222,26 @@ export class Worker {
           referenceImageKind,
           referenceImageContext,
         );
+        const remoteId = typeof result?.id === "string" ? result.id.trim() : "";
+        if (!remoteId)
+          throw new ProviderError(
+            "平台未返回任务 ID，提交失败，请重试",
+            false,
+            true,
+          );
+        // Keep the returned ID in memory too, so the error handler can persist it
+        // if the first database write fails after the platform accepted the job.
+        Object.assign(job, {
+          remoteId,
+          prompt,
+          referenceImages: photos,
+          referenceImageKind,
+          referenceImageContext,
+        });
         await this.workflows.repo.updateClaim(
           job,
           async (_tx, _state, current) => {
-            current.remoteId = result.id;
+            current.remoteId = remoteId;
             current.prompt = prompt;
             current.referenceImages = photos;
             current.referenceImageKind = referenceImageKind;
@@ -249,6 +265,8 @@ export class Worker {
             async (_tx, _state, current) => {
               current.progress = result.progress || 0;
               current.failures = 0;
+              current.error = "";
+              delete current.resultUnavailable;
               current.rateLimitRetries = 0;
               if (current.status !== "cancelled") current.status = "queued";
               return 2500;
@@ -283,6 +301,8 @@ export class Worker {
               }
               current.status = "completed";
               current.stage = "completed";
+              current.error = "";
+              delete current.resultUnavailable;
               current.progress = 100;
               current.finishedAt = Date.now();
               await this.workflows.repo.saveProduct(tx, product);
@@ -325,6 +345,14 @@ export class Worker {
       await this.workflows.repo.updateClaim(
         job,
         async (_tx, _state, current) => {
+          if (job.remoteId && !current.remoteId) {
+            current.remoteId = job.remoteId;
+            current.prompt = job.prompt;
+            current.referenceImages = job.referenceImages;
+            current.referenceImageKind = job.referenceImageKind;
+            current.referenceImageContext = job.referenceImageContext;
+            current.stage = "polling";
+          }
           if (current.status === "cancelled") return;
           const message = error instanceof Error ? error.message : "执行失败";
           current.error = key ? message.replaceAll(key, "[已隐藏]") : message;
@@ -332,10 +360,16 @@ export class Worker {
             error instanceof ProviderError ? error.validation : undefined;
           if (transportCode) current.error += ` (${transportCode})`;
           current.failures = (current.failures || 0) + 1;
+          const missingResult =
+            error instanceof ProviderError &&
+            error.upstream?.resultUnavailable === true;
+          if (missingResult) current.resultUnavailable = true;
+          else delete current.resultUnavailable;
           if (job.timings)
             current.timings = { ...job.timings, completedAt: Date.now() };
           if (
             !controller.signal.aborted &&
+            (current.kind === "prompt-set" || !!current.remoteId) &&
             retryableRateLimit(error) &&
             (current.rateLimitRetries || 0) < 3
           ) {
@@ -357,18 +391,13 @@ export class Worker {
             );
             return delay;
           }
-          if (
-            !current.remoteId &&
-            ["submitting", "analyzing"].includes(current.stage)
-          ) {
-            const definitive =
-              error instanceof ProviderError && error.definitive;
-            current.status = definitive ? "failed" : "interrupted";
-            if (definitive) current.stage = "pending";
-            else current.error += "；平台受理状态未知，请核对后处理";
+          if (!current.remoteId) {
+            current.status = "failed";
+            current.stage = "pending";
           } else if (
             current.remoteId &&
-            !(error instanceof ProviderError && error.definitive) &&
+            (missingResult ||
+              !(error instanceof ProviderError && error.definitive)) &&
             current.failures < 5
           )
             current.status = "queued";

@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { fixture, password, pairs } from "../support/production.js";
+import {
+  fixture,
+  password,
+  pairs,
+  fakeProvider,
+  counts,
+} from "../support/production.js";
+import { Worker } from "../../server/production/worker.js";
 import { artifactPath } from "../support/artifacts.cjs";
 import { Members } from "../../server/production/members.js";
 
@@ -266,7 +273,7 @@ test(
       assert.equal((await f.workflows.repo.view()).jobs.length, 1);
       await update("interrupted");
       await second
-        .getByRole("button", { name: "核对平台", exact: true })
+        .getByRole("button", { name: "重试任务", exact: true })
         .waitFor();
       await b.setViewportSize({ width: 390, height: 844 });
       await second.locator(".generation-progress").scrollIntoViewIfNeeded();
@@ -281,11 +288,40 @@ test(
         true,
       );
       await second
-        .getByRole("button", { name: "核对平台", exact: true })
+        .getByRole("button", { name: "重试任务", exact: true })
         .click();
-      await b
-        .getByRole("heading", { name: "核对平台任务", exact: true })
+      await second
+        .locator(".generation-progress strong")
+        .getByText("等待生成", { exact: true })
         .waitFor();
+      assert.equal(await b.getByText(/核对平台/).count(), 0);
+      assert.equal(await b.locator('[name="remoteId"]').count(), 0);
+      const calls = counts(),
+        provider = fakeProvider(calls);
+      provider.submit = async () => {
+        calls.submit++;
+        return { id: "" };
+      };
+      await f.due();
+      await new Worker(f.workflows, provider, () => {}).step();
+      await second
+        .locator(".inline-error")
+        .getByText(/平台未返回任务 ID.*提交失败/)
+        .waitFor();
+      assert.equal(
+        await second.locator('[data-action="generate-image"]').isEnabled(),
+        true,
+      );
+      await second.locator('.inline-error [data-action="retry-job"]').click();
+      await second
+        .locator(".generation-progress strong")
+        .getByText("等待生成", { exact: true })
+        .waitFor();
+      const retried = (await f.workflows.repo.view()).jobs[0];
+      assert.equal(retried.stage, "pending");
+      assert.equal(retried.remoteId, undefined);
+      assert.equal(calls.submit, 1);
+      assert.equal(await b.getByText(/核对平台/).count(), 0);
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

@@ -71,9 +71,10 @@ test("change cursor returns only committed changed entities, deletions and idle 
 });
 
 test("1000 products project only 30, retain off-page writes, restore originals and preserve page edits", async () => {
-  const products = Array.from({ length: 1000 }, (_, i) =>
-    newProduct(`P${String(i).padStart(4, "0")}`),
-  );
+  const products = Array.from({ length: 1000 }, (_, i) => ({
+    ...newProduct(`P${String(i).padStart(4, "0")}`),
+    createdAt: 1000 - i,
+  }));
   products[30].photo = "/api/assets/" + "a".repeat(64);
   const state: any = {
     products,

@@ -83,7 +83,8 @@ test("image result reasons reach saved jobs and remain failed without a second p
     await worker.step();
     const job = (await f.workflows.repo.view()).jobs[0];
     assert.equal(job.status, "failed");
-    assert.match(job.error || "", /生图模型调用失败：生成内容未通过审核/);
+    assert.match(job.error || "", /生图模型调用失败：生成的图片未通过平台审核/);
+    assert.match(job.error || "", /平台原始信息：生成内容未通过审核/);
     assert.match(job.error || "", /output_moderation.*image-platform-task/);
     assert.ok(!job.error?.includes("fake-platform-key"));
     assert.equal(await worker.step(), false);

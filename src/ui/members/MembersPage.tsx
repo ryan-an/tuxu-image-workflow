@@ -1,3 +1,4 @@
+import { Select } from "../design-system/Select";
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { roleLabels, type WorkspaceMember } from "../../../shared/access";
@@ -10,7 +11,8 @@ import { useApplication } from "../context";
 const roleDescriptions = {
   owner:
     "拥有工作区的完整管理权限，可管理团队成员、API Key、产品资料和生成结果。",
-  editor: "可创建和编辑产品、调整提示词与个人生成设置、生成图片、选图和导出结果。",
+  editor:
+    "可创建和编辑产品、调整提示词与个人生成设置、生成图片、选图和导出结果。",
   viewer: "可查看产品资料、提示词和生成结果，下载图片。",
 };
 
@@ -65,10 +67,10 @@ function MemberForm({
       </label>
       <label>
         角色
-        <select name="role" defaultValue={account.role}>
+        <Select name="role" defaultValue={account.role}>
           <option value="editor">编辑者</option>
           <option value="viewer">查看者</option>
-        </select>
+        </Select>
       </label>
       <MonthlyQuotaField limit={account.monthlyLimit} />
       <label className="account-checkbox">
@@ -192,10 +194,10 @@ export function MembersPage() {
         >
           <label>
             成员角色
-            <select name="role" defaultValue="editor" disabled={model.pending}>
+            <Select name="role" defaultValue="editor" disabled={model.pending}>
               <option value="editor">编辑者</option>
               <option value="viewer">查看者</option>
-            </select>
+            </Select>
           </label>
           <Button type="submit" variant="primary" disabled={model.pending}>
             生成邀请链接
@@ -244,10 +246,10 @@ export function MembersPage() {
             </label>
             <label>
               角色
-              <select name="role" defaultValue="editor">
+              <Select name="role" defaultValue="editor">
                 <option value="editor">编辑者</option>
                 <option value="viewer">查看者</option>
-              </select>
+              </Select>
             </label>
             <label>
               <span className="account-target-hint">

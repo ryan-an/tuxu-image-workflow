@@ -62,7 +62,7 @@ export function SuitePromptButton({
           active
             ? "cancel-product-analysis"
             : interrupted
-              ? "reconcile-job"
+              ? "retry-job"
               : selected.action
         }
         data={
@@ -81,7 +81,7 @@ export function SuitePromptButton({
         {active
           ? "生成整套提示词中，点击终止"
           : interrupted
-            ? "提示词生成中断，核对后重试"
+            ? "提示词生成中断，点击重试"
             : generating
               ? "本套图片生成中"
               : selected.label}

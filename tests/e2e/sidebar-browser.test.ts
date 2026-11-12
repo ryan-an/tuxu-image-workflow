@@ -45,7 +45,8 @@ test(
         ],
       ];
       const products = samples.map(
-        ([code, name]) => newProduct(code, name) as Product,
+        ([code, name], index) =>
+          ({ ...newProduct(code, name), createdAt: 1000 - index }) as Product,
       );
       await f.db.transaction(async (tx) => {
         await tx.query("DELETE FROM products");

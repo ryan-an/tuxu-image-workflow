@@ -79,6 +79,8 @@ function presentJobs(jobs: Job[], products: WorkspaceView["products"]) {
 export function summarizeProduct(product: Product) {
   return {
     id: product.id,
+    createdAt: product.createdAt ?? 0,
+    createdOrder: product.createdOrder,
     code: product.code,
     name: product.name,
     photo: product.photos?.[0] || product.photo || "",
@@ -111,6 +113,7 @@ export function presentWorkspace(state: any, view: WorkspaceView) {
 
 const productSummary = `json_object(
   'id',p.id,'code',p.code,'name',json_extract(p.document,'$.name'),
+  'createdAt',json_extract(p.document,'$.createdAt'),
   'photo',COALESCE(json_extract(p.document,'$.photos[0]'),json_extract(p.document,'$.photo'),''),
   '_summary',json('true'),
   'tasks',json((SELECT json_group_array(json_object(
@@ -119,6 +122,15 @@ const productSummary = `json_object(
     'primaryId',json_extract(t.value,'$.primaryId'),
     'selectedIds',json(COALESCE(json_extract(t.value,'$.selectedIds'),'[]'))
   )) FROM json_each(p.document,'$.tasks') t)))`;
+
+// Database insertion order also orders records from before timestamps existed.
+export function hydrateProduct(row: any): Product {
+  return {
+    ...row.document,
+    createdAt: row.document.createdAt ?? 0,
+    createdOrder: row.product_order,
+  };
+}
 
 export async function readWorkspaceJobs(
   tx: Queryable,
@@ -203,7 +215,7 @@ export async function readWorkspace(
   const products = (
     await tx.query(
       `SELECT CASE WHEN $2='all' OR p.id IN (SELECT value FROM json_each($3))
-    THEN p.document ELSE ${productSummary} END AS document FROM products p
+    THEN p.document ELSE ${productSummary} END AS document,p.rowid AS product_order FROM products p
     WHERE p.workspace_id=$1 AND ($4 IS NULL OR EXISTS (SELECT 1 FROM sync_entities s
       WHERE s.workspace_id=p.workspace_id AND s.kind='product' AND s.entity_id=p.id AND s.revision > $4))
     ORDER BY p.code`,
@@ -214,7 +226,7 @@ export async function readWorkspace(
         since ?? null,
       ],
     )
-  ).rows.map((row) => row.document);
+  ).rows.map(hydrateProduct);
   const jobs = await readWorkspaceJobs(tx, workspaceId, view.products);
   const jobTotal = (
     await tx.query("SELECT count(*) AS total FROM jobs WHERE workspace_id=$1", [

@@ -21,7 +21,6 @@ test(
     });
     try {
       await f.workflows.updateSettings({
-        imageModel: "gpt-image-2",
         baseUrl: "https://grsaiapi.com",
       });
       await f.app.listen({ host: "127.0.0.1", port: 0 });
@@ -35,6 +34,14 @@ test(
       await page.fill("#login-password", password);
       await page.click('#login-form button[type="submit"]');
       await page.locator("#settings-button").click();
+      assert.equal(
+        await page.locator("#image-model").inputValue(),
+        "gpt-image-2",
+      );
+      assert.equal(
+        await page.locator("#image-model option").first().getAttribute("value"),
+        "gpt-image-2",
+      );
       assert.equal(
         await page.locator("#prompt-model").inputValue(),
         "doubao-seed-2-1-pro-260915",
@@ -189,6 +196,7 @@ test(
       };
       const saveSize = async (page: any, size: string) => {
         await page.locator("#settings-button").click();
+        await page.selectOption("#image-model", "nano-banana-2");
         assert.equal(
           await page.locator("#settings-form .api-key-field").count(),
           0,
@@ -335,6 +343,9 @@ test(
             0,
           );
           assert.equal((await form.textContent()).includes("API Key"), false);
+          await form
+            .locator('[name="imageModel"]')
+            .selectOption("nano-banana-2");
           await form.locator('[name="imageSize"]').selectOption("2K");
           const request = page.waitForRequest(
             (request: any) =>

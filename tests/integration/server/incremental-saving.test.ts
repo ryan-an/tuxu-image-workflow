@@ -37,6 +37,9 @@ test("delta saves read only named products, preserve sheets and never read jobs 
       await f.workflows.repo.saveProduct(tx, other);
       await f.workflows.repo.saveWorkspaceFields(tx, { sheetSnapshot: sheet });
     });
+    const otherStored = (
+      await f.db.query("SELECT document FROM products WHERE id=$1", [other.id])
+    ).rows[0].document;
     const sql: string[] = [];
     const transaction = f.db.transaction.bind(f.db);
     t.mock.method(
@@ -92,7 +95,7 @@ test("delta saves read only named products, preserve sheets and never read jobs 
           other.id,
         ])
       ).rows[0].document,
-      other,
+      otherStored,
     );
     assert.deepEqual(
       (await f.db.query("SELECT document FROM workspace WHERE id='default'"))

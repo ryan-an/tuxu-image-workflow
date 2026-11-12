@@ -234,7 +234,7 @@ test("workspace workers drain ready work independently of idle teams and preserv
     assert.equal(
       (
         await f.db.query(
-          "SELECT COUNT(*) AS count FROM jobs WHERE status='interrupted'",
+          "SELECT COUNT(*) AS count FROM jobs WHERE status='failed'",
         )
       ).rows[0].count,
       40,
@@ -243,7 +243,7 @@ test("workspace workers drain ready work independently of idle teams and preserv
     assert.equal(
       (
         await f.db.query(
-          "SELECT COUNT(*) AS count FROM jobs WHERE status='interrupted'",
+          "SELECT COUNT(*) AS count FROM jobs WHERE status='failed'",
         )
       ).rows[0].count,
       40,
@@ -311,7 +311,7 @@ test("definitive 429 backs off the affected model, preserves other models, and r
   }
 });
 
-test("quota exhaustion and unknown acceptance never enter automatic rate-limit retries", async () => {
+test("quota exhaustion and disconnected requests fail without automatic rate-limit retries", async () => {
   for (const code of ["QuotaExceeded", "unknown-acceptance"]) {
     const f = await fixture();
     try {
@@ -326,10 +326,7 @@ test("quota exhaustion and unknown acceptance never enter automatic rate-limit r
       await f.due();
       assert.equal(await worker.step("prompt"), true);
       const saved = (await f.workflows.repo.job(job.id))!;
-      assert.equal(
-        saved.status,
-        code === "QuotaExceeded" ? "failed" : "interrupted",
-      );
+      assert.equal(saved.status, "failed");
       assert.equal(await worker.step("prompt"), false);
       assert.equal(saved.rateLimitUntil, undefined);
     } finally {

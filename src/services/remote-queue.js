@@ -44,10 +44,7 @@ export class RemoteQueue {
   }
   async resumeInterrupted() {
     await this.pause(false);
-    this.notify("受理状态未知的任务需要逐条核对平台；其他任务由服务端继续执行");
-  }
-  reconcile(id, fields) {
-    return this.control(id, "reconcile", fields);
+    this.notify("队列已继续；失败任务可直接重试");
   }
   pump() {
     return this.repository.save();

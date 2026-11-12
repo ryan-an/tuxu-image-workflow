@@ -103,6 +103,29 @@ test("image submission preserves HTTP and business errors instead of reporting m
   }
 });
 
+test("image submission rejects missing, blank and invalid platform IDs as retryable-by-user failures", async (t) => {
+  const provider = new GrsaiProvider({} as any);
+  for (const body of [{}, { id: "" }, { id: "  " }, { id: 123 }, null]) {
+    t.mock.method(globalThis, "fetch", async () => Response.json(body));
+    await assert.rejects(
+      provider.submit("prompt", [], config, key, signal()),
+      (error: any) => {
+        assert.ok(error instanceof ProviderError);
+        assert.equal(error.definitive, true);
+        assert.match(error.message, /未返回任务 ID.*提交失败.*重试/);
+        assert.doesNotMatch(error.message, /核对/);
+        return true;
+      },
+    );
+  }
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ id: " platform-task " }),
+  );
+  assert.deepEqual(await provider.submit("prompt", [], config, key, signal()), {
+    id: "platform-task",
+  });
+});
+
 test("image polling preserves violation and failure reasons with the original task ID", async () => {
   const original = globalThis.fetch;
   const provider = new GrsaiProvider({} as any);

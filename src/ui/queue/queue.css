@@ -254,8 +254,7 @@
   gap: 8px;
   white-space: nowrap;
 }
-.batch-queue .queue-detail-filter input,
-.batch-queue .queue-detail-filter select {
+.batch-queue .queue-detail-filter input {
   min-width: 0;
   min-height: 32px;
   margin: 0;
@@ -265,7 +264,7 @@
   background: #fff;
   color: #344054;
 }
-.batch-queue .queue-detail-filter select {
+.batch-queue .queue-detail-filter .ui-select {
   width: 100%;
 }
 
@@ -406,8 +405,7 @@
   margin-top: 10px;
   color: #7b8598;
 }
-.batch-queue .queue-detail-filter input:focus-visible,
-.batch-queue .queue-detail-filter select:focus-visible {
+.batch-queue .queue-detail-filter input:focus-visible {
   outline: 2px solid #8b80e5;
   outline-offset: 3px;
 }
@@ -458,9 +456,6 @@
   }
   .batch-queue .queue-detail-filter input {
     width: 100%;
-    min-height: 36px;
-  }
-  .batch-queue .queue-detail-filter select {
     min-height: 36px;
   }
   .batch-queue .queue-detail-filter > span {

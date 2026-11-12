@@ -54,3 +54,77 @@ test("ZIP exports preserve all products when business codes sanitize to the same
     codes,
   );
 });
+
+test("selected ZIPs use fixed role numbers from 2, leave gaps and ignore card array order", async (t) => {
+  const product = newProduct("FIXED-NUMBERS");
+  for (const task of product.tasks)
+    addVersion(task, `https://example.test/${task.role}`, "prompt");
+  product.tasks[6].role = "A+(1)";
+  product.tasks.reverse();
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (url) =>
+      new Response(String(url), { headers: { "content-type": "image/png" } }),
+  );
+  let archive;
+  const viewerSelections = Object.fromEntries(
+    product.tasks.map((task) => [
+      task.id,
+      ["尺寸图", "细节图", "A+(1)", "A+ 4"].includes(task.role)
+        ? task.selectedIds
+        : [],
+    ]),
+  );
+  const files = createFiles({
+    state: { products: [product] },
+    currentProduct: () => product,
+    canEdit: false,
+    ui: { downloadSelections: viewerSelections },
+    notify() {},
+    downloadBlob(blob) {
+      archive = blob;
+    },
+  });
+  await files.downloadSelected();
+  let zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  assert.deepEqual(
+    Object.values(zip.files)
+      .filter((entry) => !entry.dir)
+      .map((entry) => entry.name)
+      .sort(),
+    [
+      "FIXED-NUMBERS/11-A+ 4-V1.png",
+      "FIXED-NUMBERS/2-尺寸图-V1.png",
+      "FIXED-NUMBERS/4-细节图-V1.png",
+      "FIXED-NUMBERS/8-A+(1)-V1.png",
+    ],
+  );
+  const allFiles = createFiles({
+    state: { products: [product] },
+    notify() {},
+    downloadBlob(blob) {
+      archive = blob;
+    },
+  });
+  await allFiles.downloadSelected(true);
+  zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  assert.deepEqual(
+    Object.values(zip.files)
+      .filter((entry) => !entry.dir)
+      .map((entry) => entry.name.split("/")[1])
+      .sort(),
+    [
+      "2-尺寸图-V1.png",
+      "3-卖点图-V1.png",
+      "4-细节图-V1.png",
+      "5-场景 1-V1.png",
+      "6-场景 2-V1.png",
+      "7-场景 3-V1.png",
+      "8-A+(1)-V1.png",
+      "9-A+ 2-V1.png",
+      "10-A+ 3-V1.png",
+      "11-A+ 4-V1.png",
+    ].sort(),
+  );
+});

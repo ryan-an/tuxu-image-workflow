@@ -162,7 +162,7 @@ test("new worker resumes persisted remote ID without a second paid submission", 
     await f.close();
   }
 });
-test("uncertain paid submission requires explicit reconciliation and never auto-resubmits", async () => {
+test("a submission without a returned ID fails and can be retried directly", async () => {
   const f = await fixture();
   try {
     await f.workflows.edit([
@@ -180,6 +180,7 @@ test("uncertain paid submission requires explicit reconciliation and never auto-
     ]);
     const calls = counts(),
       provider = fakeProvider(calls);
+    const submit = provider.submit;
     provider.submit = async () => {
       calls.submit++;
       throw new Error("connection lost");
@@ -192,25 +193,30 @@ test("uncertain paid submission requires explicit reconciliation and never auto-
     const worker = new Worker(f.workflows, provider);
     await worker.step();
     const job = (await f.workflows.repo.view()).jobs[0];
-    assert.equal(job.status, "interrupted");
-    await assert.rejects(
-      f.workflows.control(job.id, "retry", { commandId: randomUUID() }),
-      /核对/,
-    );
+    assert.equal(job.status, "failed");
+    assert.equal(job.stage, "pending");
+    assert.equal(job.remoteId, undefined);
     assert.equal(await worker.step(), false);
-    await f.workflows.control(job.id, "reconcile", {
+    provider.submit = submit;
+    await f.workflows.control(job.id, "retry", {
       commandId: randomUUID(),
-      remoteId: "known-platform-id",
     });
     await f.due();
     await worker.step();
-    assert.equal(calls.submit, 1);
+    const accepted = (await f.workflows.repo.view()).jobs[0];
+    assert.equal(accepted.remoteId, "remote-2");
+    assert.equal(accepted.stage, "polling");
+    assert.equal(calls.submit, 2);
+    await f.reopen();
+    await f.due();
+    await new Worker(f.workflows, provider).step();
+    assert.equal(calls.submit, 2);
     assert.equal(calls.query, 1);
   } finally {
     await f.close();
   }
 });
-test("expired worker lease preserves uncertain boundary; claims remain exclusive without a concurrency cap", async () => {
+test("an expired submission without an ID fails; claims remain exclusive without a concurrency cap", async () => {
   const f = await fixture();
   try {
     await f.workflows.edit([{ path: ["concurrency"], before: 2, value: 1 }]);
@@ -240,7 +246,7 @@ test("expired worker lease preserves uncertain boundary; claims remain exclusive
     assert.equal(
       (await f.workflows.repo.view()).jobs.find((j) => j.id === job!.id)!
         .status,
-      "interrupted",
+      "failed",
     );
   } finally {
     await f.close();

@@ -8,6 +8,133 @@ import { newProduct } from "../../shared/model.js";
 import { differences, editable } from "../../shared/workspace-edits.js";
 
 test(
+  "no-template text and each template draft stay separate across switches, reloads and saves",
+  { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 60000 },
+  async () => {
+    const { chromium } = createRequire(import.meta.url)(
+      process.env.PLAYWRIGHT_MODULE!,
+    );
+    const f = await fixture(resolve("dist"));
+    const browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.CHROME_PATH,
+    });
+    try {
+      const state = await f.workflows.repo.view();
+      const templates = {
+        warm: {
+          id: "warm",
+          name: "暖色模板",
+          content: "暖色模板原文",
+          updatedAt: 1,
+        },
+        cold: {
+          id: "cold",
+          name: "冷色模板",
+          content: "冷色模板原文",
+          updatedAt: 1,
+        },
+      };
+      await f.workflows.edit([
+        { path: ["common"], before: state.common, value: "" },
+        ...Object.entries(templates).map(([id, template]) => ({
+          path: ["promptTemplates", id],
+          before: null,
+          value: template,
+        })),
+      ]);
+      await f.app.listen({ host: "127.0.0.1", port: 0 });
+      const page = await browser.newPage();
+      const errors: string[] = [];
+      page.on("pageerror", (error: Error) => errors.push(error.message));
+      await page.goto(
+        `http://127.0.0.1:${(f.app.server.address() as any).port}`,
+      );
+      await page.fill("#login-password", password);
+      await page.click('#login-form button[type="submit"]');
+      const open = () =>
+        page
+          .locator(".product-requirements")
+          .getByRole("button", { name: "编辑要求", exact: true })
+          .click();
+      const editor = page.locator("#product-requirements");
+      const choice = page.locator("#requirement-template");
+      const save = page.getByRole("button", {
+        name: "保存当前产品要求",
+        exact: true,
+      });
+      await open();
+      assert.equal(await editor.inputValue(), "");
+      await choice.selectOption("template:warm");
+      assert.equal(await editor.inputValue(), templates.warm.content);
+      const warmDraft = "只在暖色模板中编辑的内容";
+      await editor.fill(warmDraft);
+      await choice.selectOption("template:cold");
+      assert.equal(await editor.inputValue(), templates.cold.content);
+      await choice.selectOption("");
+      assert.equal(
+        await editor.inputValue(),
+        "",
+        "switching back must not import template text into an empty draft",
+      );
+      assert.equal(await save.isDisabled(), true);
+      const ownDraft = "最初未选择模板时手写的草稿\n保留原来的每一行。";
+      await editor.fill(ownDraft);
+      await choice.selectOption("template:warm");
+      assert.equal(await editor.inputValue(), warmDraft);
+      await choice.selectOption("template:cold");
+      await page.keyboard.press("Escape");
+      await open();
+      assert.equal(await choice.inputValue(), "template:cold");
+      await choice.selectOption("");
+      assert.equal(await editor.inputValue(), ownDraft);
+      await choice.selectOption("template:warm");
+      await page.reload();
+      await open();
+      assert.equal(await choice.inputValue(), "template:warm");
+      assert.equal(await editor.inputValue(), warmDraft);
+      await choice.selectOption("");
+      assert.equal(await editor.inputValue(), ownDraft);
+      await choice.selectOption("template:cold");
+      await save.click();
+      await page.waitForFunction(
+        () => !document.querySelector<HTMLDialogElement>("#modal")?.open,
+      );
+      await page.reload();
+      await open();
+      assert.equal(await choice.inputValue(), "template:cold");
+      assert.equal(await editor.inputValue(), templates.cold.content);
+      await choice.selectOption("");
+      assert.equal(
+        await editor.inputValue(),
+        ownDraft,
+        "saving a template choice must retain the separate handwritten draft",
+      );
+      await choice.selectOption("template:warm");
+      assert.equal(await editor.inputValue(), warmDraft);
+      await choice.selectOption("");
+      await editor.fill("");
+      await choice.selectOption("template:cold");
+      await page.reload();
+      await open();
+      await choice.selectOption("");
+      assert.equal(
+        await editor.inputValue(),
+        "",
+        "an intentionally cleared handwritten draft stays empty",
+      );
+      const saved = (await f.workflows.repo.view()).products[0];
+      assert.equal(saved.promptTemplateId, templates.cold.id);
+      assert.equal(saved.promptRequirements, templates.cold.content);
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await f.close();
+    }
+  },
+);
+
+test(
   "simple text editor supports templates, draft recovery, replacement, latest saves and narrow screens",
   { skip: !process.env.PLAYWRIGHT_MODULE, timeout: 60000 },
   async () => {
@@ -67,8 +194,22 @@ test(
       assert.equal(template.content, content);
       assert.equal(
         state.products[0].promptRequirements,
-        null,
-        "saving a template does not apply it",
+        content,
+        "saving a template also saves the current product requirements",
+      );
+      assert.equal(state.products[0].promptTemplateId, template.id);
+      assert.equal(await save.isDisabled(), true);
+      await page.reload();
+      await open();
+      assert.equal(await editor.inputValue(), content);
+      assert.equal(
+        await page.locator("#requirement-template").inputValue(),
+        `template:${template.id}`,
+      );
+      assert.equal(
+        await save.isDisabled(),
+        true,
+        "saved binding must not depend on a local draft",
       );
       await page.getByRole("button", { name: "查找替换", exact: true }).click();
       await page
@@ -84,8 +225,7 @@ test(
       );
       await page.getByRole("button", { name: "撤销替换", exact: true }).click();
       assert.equal(await editor.inputValue(), content);
-      await page.selectOption("#requirement-template", "default");
-      await page.getByRole("button", { name: "撤销替换", exact: true }).click();
+      await page.selectOption("#requirement-template", "");
       assert.equal(await editor.inputValue(), content);
       await page.selectOption(
         "#requirement-template",
@@ -105,7 +245,7 @@ test(
         (await f.workflows.repo.view()).promptTemplates[template.id].name,
         "家居英文",
       );
-      const final = await editor.inputValue();
+      const final = `${await editor.inputValue()}\n本产品单独补充：保留留白。`;
       await editor.fill(
         `${state.common}\n补充要求：暖白背景，产品保持实拍比例。`,
       );
@@ -290,8 +430,8 @@ test(
       await open();
       assert.equal(await editor.inputValue(), final);
       assert.equal(await save.isDisabled(), true);
-      await page.selectOption(
-        "#requirement-template",
+      assert.equal(
+        await page.locator("#requirement-template").inputValue(),
         `template:${template.id}`,
       );
       await page
@@ -347,6 +487,7 @@ test(
     try {
       const before = await f.workflows.repo.view();
       const draft = structuredClone(before);
+      draft.common = "";
       const other = newProduct("TEMPLATE-SECOND", "第二个模板产品");
       draft.products.push(other as any);
       const template = {
@@ -404,7 +545,16 @@ test(
         await switchProduct(id, code);
       };
       await switchProduct(f.product.id, f.product.code);
+      await panel.getByText("要求为空", { exact: true }).waitFor();
       await open();
+      assert.equal(await editor.inputValue(), "");
+      assert.equal(await choice.inputValue(), "");
+      assert.equal(await choice.locator('option[value="default"]').count(), 0);
+      await page.keyboard.press("Escape");
+      await reloadProduct(f.product.id, f.product.code);
+      await open();
+      assert.equal(await editor.inputValue(), "");
+      assert.equal(await choice.inputValue(), "");
       await choice.selectOption("template:warm");
       assert.equal(await editor.inputValue(), before.common);
       assert.equal(
@@ -430,7 +580,8 @@ test(
 
       await switchProduct(other.id, other.code);
       await open();
-      assert.equal(await choice.inputValue(), "default");
+      assert.equal(await choice.inputValue(), "");
+      assert.equal(await editor.inputValue(), "");
       await choice.selectOption("template:cold");
       await save();
       await switchProduct(f.product.id, f.product.code);
@@ -487,15 +638,29 @@ test(
         (p) => p.id === other.id,
       )!;
       assert.equal(saved.promptRequirements, cold.content);
-      await choice.selectOption("default");
+      await page
+        .getByRole("button", { name: "恢复已保存内容", exact: true })
+        .click();
+      await choice.selectOption("");
+      assert.equal(
+        await editor.inputValue(),
+        "",
+        "no template returns to the original empty draft instead of copying template text",
+      );
+      const custom = "第二个产品独立的手写要求";
+      await editor.fill(custom);
       await save();
       saved = (await f.workflows.repo.view()).products.find(
         (p) => p.id === other.id,
       )!;
       assert.equal(saved.promptTemplateId, null);
-      assert.equal(saved.promptRequirements, null);
+      assert.equal(saved.promptRequirements, custom);
       await f.workflows.edit([
-        { path: ["common"], before: before.common, value: "" },
+        {
+          path: ["products", other.id, "promptRequirements"],
+          before: custom,
+          value: null,
+        },
       ]);
       await reloadProduct(other.id, other.code);
       await panel.getByText("要求为空", { exact: true }).waitFor();
