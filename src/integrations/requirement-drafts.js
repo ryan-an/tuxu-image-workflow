@@ -66,3 +66,37 @@ export function writeRequirementDraft(
     return false;
   }
 }
+
+export function readRequirementPosition(key, templateChoice) {
+  try {
+    const position = JSON.parse(
+      localStorage.getItem(
+        `${key}:position:${JSON.stringify(templateChoice)}`,
+      ) || "null",
+    );
+    return position &&
+      [position.start, position.end].every(
+        (value) => Number.isSafeInteger(value) && value >= 0 && value <= 100000,
+      ) &&
+      position.end >= position.start &&
+      ["forward", "backward", "none"].includes(position.direction) &&
+      [position.scrollTop, position.scrollLeft].every(
+        (value) => Number.isFinite(value) && value >= 0,
+      )
+      ? position
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeRequirementPosition(key, templateChoice, position) {
+  try {
+    localStorage.setItem(
+      `${key}:position:${JSON.stringify(templateChoice)}`,
+      JSON.stringify(position),
+    );
+  } catch {
+    // Position storage is optional and must not interrupt editing or saving.
+  }
+}

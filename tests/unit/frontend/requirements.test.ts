@@ -14,6 +14,8 @@ import {
   requirementDraftKey,
   readRequirementDraft,
   writeRequirementDraft,
+  readRequirementPosition,
+  writeRequirementPosition,
 } from "../../../src/integrations/requirement-drafts.js";
 import { WorkspaceClient } from "../../../src/services/workspace-client.js";
 import { emptyWorkspace } from "../../../server/production/repository.js";
@@ -140,6 +142,40 @@ test("drafts survive reload, clear after save, and use separate user, workspace 
     "template:current",
   );
   assert.equal(readRequirementDraft(key), null);
+
+  const position = {
+    start: 12,
+    end: 18,
+    direction: "backward",
+    scrollTop: 240,
+    scrollLeft: 0,
+  };
+  writeRequirementPosition(key, "", position);
+  writeRequirementDraft(key, "已保存", "已保存");
+  assert.deepEqual(readRequirementPosition(key, ""), position);
+  assert.equal(readRequirementPosition(key, "template:other"), null);
+  for (const other of [
+    { ...user, id: "bob" },
+    { ...user, workspaceId: "two" },
+  ])
+    assert.equal(
+      readRequirementPosition(requirementDraftKey(other, "product"), ""),
+      null,
+    );
+  assert.equal(
+    readRequirementPosition(requirementDraftKey(user, "other"), ""),
+    null,
+  );
+  writeRequirementPosition(key, "template:other", { ...position, start: -1 });
+  assert.equal(readRequirementPosition(key, "template:other"), null);
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    get() {
+      throw new Error("Storage unavailable");
+    },
+  });
+  assert.equal(readRequirementPosition(key, ""), null);
+  assert.doesNotThrow(() => writeRequirementPosition(key, "", position));
 });
 
 test("unconfigured requirements start empty and old automatic defaults retire without changing custom text", () => {

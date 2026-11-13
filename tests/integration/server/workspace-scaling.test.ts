@@ -204,6 +204,7 @@ test("incremental client preserves local drafts, skips idle renders and coalesce
     },
     notify: () => {},
   });
+  const draftProductId = state.products[0].id;
   state.products[0].name = "unsaved local draft";
   const changed = structuredClone(state.products[1]);
   changed.tasks[0].prompt = "remote finished";
@@ -223,8 +224,15 @@ test("incremental client preserves local drafts, skips idle renders and coalesce
   try {
     await Promise.all([client.refresh(), client.refresh(), client.refresh()]);
     assert.equal(calls, 1);
-    assert.equal(state.products[0].name, "unsaved local draft");
-    assert.equal(state.products[1].tasks[0].prompt, "remote finished");
+    assert.equal(
+      state.products.find((product: any) => product.id === draftProductId).name,
+      "unsaved local draft",
+    );
+    assert.equal(
+      state.products.find((product: any) => product.id === changed.id).tasks[0]
+        .prompt,
+      "remote finished",
+    );
     assert.equal(syncs, 1);
     const rendered = renders;
     await client.refresh();

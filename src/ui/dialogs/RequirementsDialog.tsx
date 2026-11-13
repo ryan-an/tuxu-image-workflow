@@ -9,6 +9,7 @@ import type { Product } from "../types";
 import { useApplication } from "../context.tsx";
 import { Button } from "../design-system/Button";
 import { DialogActions } from "./DialogActions";
+import { useRequirementPosition } from "./useRequirementPosition";
 import { productRequirements } from "../../../shared/prompt-suite.js";
 import { uid } from "../../../shared/model.js";
 import {
@@ -128,7 +129,10 @@ export function RequirementsDialog({ product }: { product: Product }) {
         : "已恢复草稿；已保存内容有更新，可恢复查看。"
       : "",
   );
-  const editor = useRef<HTMLTextAreaElement>(null);
+  const { editor, rememberPosition } = useRequirementPosition(
+    draftKey,
+    templateChoice,
+  );
   const form = useRef<HTMLFormElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const templates = Object.values(state.promptTemplates ?? {}).sort(
@@ -238,6 +242,7 @@ export function RequirementsDialog({ product }: { product: Product }) {
       });
       const choice = `template:${template.id}`;
       const nextDrafts = { ...templateDrafts, [choice]: draft };
+      rememberPosition(choice);
       setTemplateChoice(choice);
       setTemplateDrafts(nextDrafts);
       setSaved({
@@ -660,7 +665,13 @@ export function RequirementsDialog({ product }: { product: Product }) {
             disabled={busy}
             maxLength={100000}
             value={readOnly ? saved.text : draft}
-            onChange={(event) => changeDraft(event.target.value)}
+            onChange={(event) => {
+              changeDraft(event.target.value);
+              rememberPosition();
+            }}
+            onSelect={() => rememberPosition()}
+            onScroll={() => rememberPosition()}
+            onBlur={() => rememberPosition()}
             aria-describedby="requirements-effect"
             aria-invalid={Boolean(emptyMessage) || undefined}
             aria-errormessage={emptyMessage ? "requirements-error" : undefined}
